@@ -1,0 +1,112 @@
+// 盘古会话管理 + 后端身份→前端角色映射。
+// 登录、token/会话持久化（localStorage）、role_key→RoleId、tenant_id→communityId。
+
+import type { DataScope, RoleId } from "./types";
+import { apiPost } from "./api";
+
+const SESSION_KEY = "pangu.session";
+
+/** 后端 login 返回的 user_info（snake_case，对齐 AuthService.login）。 */
+export interface UserInfo {
+  account_id: number;
+  identity_type: string;
+  active_identity_id: number;
+  tenant_id: number;
+  auth_level: number;
+  role_key: string;
+  permissions: string[];
+}
+
+export interface Session {
+  token: string;
+  expiresIn: number;
+  user: UserInfo;
+  /** 派生：前端角色 / 小区 / 数据范围。 */
+  roleId: RoleId;
+  communityId: string;
+}
+
+// ---- 后端 role_key(13) → 前端 RoleId(8) 映射 ----
+const ROLE_KEY_TO_ROLE_ID: Record<string, RoleId> = {
+  GOV_SUPER_ADMIN: "street_admin",
+  PARTY_SECRETARY: "party_secretary",
+  COMMITTEE_DIRECTOR: "committee_director",
+  COMMITTEE_MEMBER: "committee_member",
+  GRID_OPERATOR: "building_rep",
+  OWNER_REPRESENTATIVE: "building_rep",
+  PROPERTY_MANAGER: "property_manager",
+  PROPERTY_STAFF: "property_service",
+  // 未覆盖：COMMUNITY_ADMIN / COMMITTEE_SECRETARY / VOLUNTEER / SERVICE_PROVIDER_* → 回退
+};
+
+export function mapRoleId(roleKey: string | null | undefined): RoleId {
+  if (roleKey && ROLE_KEY_TO_ROLE_ID[roleKey]) return ROLE_KEY_TO_ROLE_ID[roleKey];
+  console.warn(`[auth] 未映射的后端角色 role_key=${roleKey}，回退 committee_member`);
+  return "committee_member";
+}
+
+// ---- tenant_id → 前端 communityId（当前单租户，临时硬映射）----
+const TENANT_TO_COMMUNITY: Record<number, string> = {
+  10001: "c1",
+};
+
+export function mapCommunityId(roleId: RoleId, tenantId: number): string {
+  if (roleId === "street_admin") return "ALL";
+  return TENANT_TO_COMMUNITY[tenantId] ?? "c1";
+}
+
+// 各角色默认数据范围（与 store 内 DEFAULT_SCOPE 对齐）。
+export const DEFAULT_SCOPE: Record<RoleId, DataScope> = {
+  street_admin: "ALL_DISTRICT",
+  party_secretary: "ALL_COMMUNITY",
+  committee_director: "ALL_COMMUNITY",
+  committee_member: "ALL_COMMUNITY",
+  building_rep: "CUSTOM_BUILDING",
+  property_manager: "ORG_ONLY",
+  property_service: "ORG_ONLY",
+  auditor: "ALL_COMMUNITY",
+};
+
+// ---- 会话读写 ----
+export function getToken(): string | null {
+  return loadSession()?.token ?? null;
+}
+
+export function loadSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(): void {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+interface LoginResponse {
+  access_token: string;
+  expires_in: number;
+  user_info: UserInfo;
+}
+
+/** 手机号 + 短信验证码登录，成功后落地 session 并返回。 */
+export async function loginByPhone(phone: string, smsCode: string): Promise<Session> {
+  const data = await apiPost<LoginResponse>(
+    "/auth/login",
+    { username: phone, smsCode, loginType: 1, clientPortal: "B" },
+    { auth: false },
+  );
+  const user = data.user_info;
+  const roleId = mapRoleId(user.role_key);
+  const session: Session = {
+    token: data.access_token,
+    expiresIn: data.expires_in,
+    user,
+    roleId,
+    communityId: mapCommunityId(roleId, user.tenant_id),
+  };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  return session;
+}

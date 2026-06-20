@@ -1,0 +1,67 @@
+// 盘古社区治理后台 · 核心类型定义
+
+export type Side = "B" | "G";
+
+export type RoleId =
+  | "street_admin" // 街道办管理员 (G)
+  | "party_secretary" // 社区党组织书记 (G)
+  | "committee_director" // 业委会主任 (B)
+  | "committee_member" // 业委会委员 (B)
+  | "building_rep" // 楼栋代表 / 网格员 (B)
+  | "property_manager" // 物业经理 (B)
+  | "property_service" // 物业客服 (B)
+  | "auditor"; // 第三方审计师 (B)
+
+export interface Role {
+  id: RoleId;
+  name: string;
+  side: Side;
+  scope: string; // 数据范围描述
+  desc: string;
+}
+
+// 物业治理模式
+export type PropertyMode = "package" | "reward" | "trust"; // 包干制 / 酬金制 / 信托制
+
+// 菜单可见性三态
+export type Visibility = "full" | "readonly" | "hidden";
+
+// 数据范围
+export type DataScope =
+  | "ALL_DISTRICT" // 辖区全部小区
+  | "ALL_COMMUNITY" // 本小区全量
+  | "CUSTOM_BUILDING" // 仅责任田楼栋
+  | "ORG_ONLY" // 仅本物业组织
+  | "SELF"; // 仅本人
+
+export const ROLES: Role[] = [
+  { id: "street_admin", name: "街道办管理员", side: "G", scope: "辖区全部小区", desc: "监管辖区多个小区、大额审查、强制撤销" },
+  { id: "party_secretary", name: "社区党组织书记", side: "G", scope: "单小区全量", desc: "大额资金前置审查、换届熔断处置、监管看板" },
+  { id: "committee_director", name: "业委会主任", side: "B", scope: "本小区全量", desc: "议题、核销审批（密码B签名）、选举、委员会" },
+  { id: "committee_member", name: "业委会委员", side: "B", scope: "本小区全量（部分只读）", desc: "议题、报告、沟通" },
+  { id: "building_rep", name: "楼栋代表 / 网格员", side: "B", scope: "仅责任田楼栋", desc: "本楼栋议题催票、线下核销、维修工单" },
+  { id: "property_manager", name: "物业经理", side: "B", scope: "仅本物业组织", desc: "公共收益录入、开支单提交（密码A签名）、维修工单" },
+  { id: "property_service", name: "物业客服", side: "B", scope: "仅本物业组织", desc: "报修受理、工单处理" },
+  { id: "auditor", name: "第三方审计师", side: "B", scope: "本小区财务只读", desc: "财务监督 + 内账导出（按需激活）" },
+];
+
+export const MODE_META: Record<PropertyMode, { label: string; color: string; bg: string; desc: string }> = {
+  package: {
+    label: "包干制",
+    color: "#2e9e5b",
+    bg: "#e8f6ee",
+    desc: "物业自负盈亏，数据严格锁死本组织，隐藏物业内部行政开支与外包合同等商业机密，仅录入代收公共收益。",
+  },
+  reward: {
+    label: "酬金制",
+    color: "#1b4f9c",
+    bg: "#e8f0fb",
+    desc: "全小区财务对委员会只读，物业经理可发起物业费开支单，进入“待业委会初审”状态机后由主任核销。",
+  },
+  trust: {
+    label: "信托制",
+    color: "#19a0c4",
+    bg: "#e6f6fa",
+    desc: "物业降级为职业经理人，关联信托公共共有基金账户，每笔资金动用须双密码双签并实时穿透上链。",
+  },
+};
