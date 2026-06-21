@@ -1,5 +1,7 @@
 // 盘古后端 API 封装层 —— 原生 fetch，无第三方依赖。
-// 统一解 Result 信封 {code,msg,data,errorType,needRetry}，注入 Bearer token，401 触发登出。
+// 统一解 Result 信封 {code,msg,data,errorType,needRetry}，注入 Bearer token。
+// 仅 401（未认证 / token 失效）触发登出；403（已认证但当前角色/状态无权）退回业务错误流，
+// 由调用处 toast 提示，避免「业务级权限失败 → 误踢下线」（如撤回非本人草稿）。
 
 import { getToken, clearSession } from "./auth";
 
@@ -51,8 +53,8 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
   }
 
-  // 鉴权失效：清会话并跳登录
-  if (resp.status === 401 || resp.status === 403) {
+  // 仅 401 视为鉴权失效：清会话并跳登录。403 落入下方业务错误流（弹后端 msg）。
+  if (resp.status === 401) {
     clearSession();
     onUnauthorized?.();
     throw new ApiError(resp.status, "登录已失效，请重新登录", "AUTH", false);
