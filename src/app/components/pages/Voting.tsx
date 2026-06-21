@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SectionCard, StatusChip, ProgressRing, Stepper, type Tone } from "../gov/common";
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -369,15 +368,18 @@ export function Voting() {
         desc='遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3），分母随议题范围动态变化。'
         actions={
           <div className="flex items-center gap-3">
-            <Tabs value={String(sel)} onValueChange={(v) => switchSubject(Number(v))}>
-              <TabsList>
+            <Select value={String(sel)} onValueChange={(v) => switchSubject(Number(v))}>
+              <SelectTrigger className="w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {subjects.map((x, i) => (
-                  <TabsTrigger key={x.subjectId} value={String(i)}>
-                    {isGlobalScope(x.scope) ? "全局议题" : "局部议题"}
-                  </TabsTrigger>
+                  <SelectItem key={x.subjectId} value={String(i)}>
+                    {x.title}
+                  </SelectItem>
                 ))}
-              </TabsList>
-            </Tabs>
+              </SelectContent>
+            </Select>
             {canCreate && (
               <Button size="sm" onClick={() => setProposeOpen(true)}>
                 <Plus className="size-4" /> 立项

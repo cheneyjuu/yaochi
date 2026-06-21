@@ -148,7 +148,7 @@ export function ProgressRing({
         {label && <div className="text-xs text-muted-foreground mt-0.5">{label}</div>}
         {threshold != null && (
           <div className="text-[11px] mt-0.5" style={{ color: "#d14343" }}>
-            红线 {threshold}%
+            红线 {threshold.toFixed(1)}%
           </div>
         )}
         {sub && <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>}
