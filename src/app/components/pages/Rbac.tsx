@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { ShieldAlert, ShieldCheck, Plus, Trash2, Loader2, KeyRound } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Plus, Trash2, Loader2, KeyRound, Save } from "lucide-react";
 import { useStore } from "../../lib/store";
 import {
   listRoles,
@@ -44,6 +44,7 @@ import {
   assignPermission,
   revokePermission,
   deleteRole,
+  updateRoleDataScope,
   type Role,
   type RolePermission,
   type PermissionCatalog,
@@ -115,6 +116,8 @@ export function Rbac() {
   const [permLoading, setPermLoading] = useState(false);
   const [acting, setActing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // 数据范围编辑草稿：选中角色或写回成功后同步为该角色 defaultDataScope。
+  const [pendingScope, setPendingScope] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -163,6 +166,16 @@ export function Rbac() {
   }, []);
 
   const selected = roles.find((r) => r.roleId === selectedId) ?? null;
+
+  // 选中角色变化 / 写回刷新 → 同步数据范围草稿为该角色当前 defaultDataScope。
+  useEffect(() => {
+    setPendingScope(selected?.defaultDataScope ?? null);
+  }, [selectedId, selected?.defaultDataScope, refreshKey]);
+
+  // fixed 非空 = 法理红线锁死，数据范围不可在线变更（后端 403/42302）。
+  const scopeLocked = selected?.fixedDataScope != null;
+  const scopeDirty =
+    selected != null && pendingScope != null && pendingScope !== selected.defaultDataScope;
 
   // 选中角色 → 拉取已授权限明细。
   useEffect(() => {
@@ -308,6 +321,21 @@ export function Rbac() {
       await reloadRoles();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "删除角色失败");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  // 写回数据范围：fixed 非空已禁用编辑，此处不触发。
+  async function handleSaveScope() {
+    if (selected == null || pendingScope == null) return;
+    setActing(true);
+    try {
+      await updateRoleDataScope(selected.roleId, pendingScope);
+      await reloadRoles(selected.roleId);
+      toast.success("数据范围已更新");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "数据范围更新失败");
     } finally {
       setActing(false);
     }
@@ -518,12 +546,16 @@ export function Rbac() {
         <div className="lg:col-span-4 space-y-3">
           <SectionCard
             title="数据范围"
-            desc="决定该角色能访问哪些数据记录（创建后不可在线变更）"
+            desc="决定该角色能访问哪些数据记录"
           >
-            <RadioGroup value={selected.defaultDataScope}>
+            <RadioGroup
+              value={pendingScope ?? selected.defaultDataScope}
+              onValueChange={(v) => !scopeLocked && canManage && setPendingScope(v)}
+            >
               <div className="space-y-2">
                 {DATA_SCOPES.map((scope) => {
-                  const checked = selected.defaultDataScope === scope.value;
+                  const checked = (pendingScope ?? selected.defaultDataScope) === scope.value;
+                  const disabled = scopeLocked || !canManage;
                   return (
                     <label
                       key={scope.value}
@@ -531,13 +563,14 @@ export function Rbac() {
                       style={{
                         borderColor: checked ? "#1b4f9c" : undefined,
                         backgroundColor: checked ? "#f0f5ff" : undefined,
-                        cursor: "not-allowed",
-                        opacity: 0.95,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        opacity: disabled ? 0.75 : 1,
                       }}
                     >
                       <RadioGroupItem
                         value={scope.value}
-                        className="mt-0.5 shrink-0 pointer-events-none"
+                        disabled={disabled}
+                        className="mt-0.5 shrink-0"
                       />
                       <div>
                         <div className="text-sm font-medium">{scope.label}</div>
@@ -550,18 +583,31 @@ export function Rbac() {
                 })}
               </div>
             </RadioGroup>
-            {selected.fixedDataScope && (
+            {scopeLocked ? (
               <div className="mt-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
                 <ShieldAlert className="size-3.5 mt-0.5 shrink-0" />
                 <span>
-                  fixed_data_scope 非空 = 红线锁死，该角色数据范围强制固定为
-                  「{SCOPE_LABEL[selected.fixedDataScope] ?? selected.fixedDataScope}」。
+                  fixed_data_scope 非空 = 法理红线锁死，该角色数据范围强制固定为
+                  「{SCOPE_LABEL[selected.fixedDataScope!] ?? selected.fixedDataScope}」，不可在线变更。
                 </span>
               </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {canManage
+                  ? "修改后点击下方「保存数据范围」写回。仅 default_data_scope 可改；fixed 字段不可在线变更。"
+                  : "仅 GOV_SUPER_ADMIN 可变更数据范围。"}
+              </p>
             )}
-            <p className="mt-2 text-xs text-muted-foreground">
-              后端无 update 接口，已有角色数据范围只读；新建角色时可在对话框中设定。
-            </p>
+            {canManage && !scopeLocked && (
+              <Button
+                className="w-full mt-3"
+                disabled={!scopeDirty || acting}
+                onClick={handleSaveScope}
+              >
+                <Save className="size-4 mr-2" />
+                保存数据范围
+              </Button>
+            )}
           </SectionCard>
 
           {/* 权限摘要 */}
