@@ -10,6 +10,7 @@ import { Finance } from "./pages/Finance";
 import { Owners } from "./pages/Owners";
 import { Topology } from "./pages/Topology";
 import { Rbac } from "./pages/Rbac";
+import { BuildingAssignment } from "./pages/BuildingAssignment";
 import { Certification } from "./pages/Certification";
 import { CommitteeRoster } from "./pages/CommitteeRoster";
 import { TermManagement } from "./pages/TermManagement";
@@ -34,6 +35,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   owners: Owners,
   topology: Topology,
   rbac: Rbac,
+  "building-assignment": BuildingAssignment,
   certification: Certification,
   "committee-roster": CommitteeRoster,
   "term-management": TermManagement,

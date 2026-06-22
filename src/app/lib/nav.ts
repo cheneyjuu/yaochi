@@ -18,6 +18,8 @@ export interface NavPage {
   label: string;
   /** 该页要求的权限点；当前用户无此权限时菜单项隐藏（页级门控，弥补模块级矩阵）。 */
   requirePermission?: string;
+  /** 该页要求的后端 role_key 白名单；命中之一才显示。与 requirePermission 复合（AND）。 */
+  requireRoleKeys?: string[];
 }
 export interface NavModule {
   id: string;
@@ -41,6 +43,16 @@ export const NAV: NavModule[] = [
       { id: "owners", label: "业主名册" },
       { id: "topology", label: "楼栋 / 单元结构" },
       { id: "rbac", label: "角色与数据范围", requirePermission: "admin:role:read" },
+      {
+        id: "building-assignment",
+        label: "楼栋责任田分配",
+        requireRoleKeys: [
+          "GOV_SUPER_ADMIN",
+          "COMMUNITY_ADMIN",
+          "PARTY_SECRETARY",
+          "COMMITTEE_DIRECTOR",
+        ],
+      },
       { id: "certification", label: "实名认证等级" },
     ],
   },
