@@ -104,6 +104,9 @@ function groupLabel(group: string): string {
 export function Rbac() {
   const { hasPermission } = useStore();
   const canManage = hasPermission("admin:role:manage");
+  // 读侧门控：admin:role:read 为 G 端专属（后端 allowed_dept_categories='G'），
+  // B/S 端角色无此权限 → 菜单已隐藏；此处兜底防止 page 残留为 rbac 时撞 403。
+  const canRead = hasPermission("admin:role:read");
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -339,6 +342,22 @@ export function Rbac() {
     } finally {
       setActing(false);
     }
+  }
+
+  if (!canRead) {
+    return (
+      <div className="space-y-5 p-6">
+        <PageHeader
+          title="角色与数据范围配置"
+          desc="RBAC + ABAC 核心 — 配置各角色可操作的权限点及数据可见范围"
+        />
+        <SectionCard>
+          <div className="py-16 text-center text-muted-foreground">
+            当前角色无 <span className="font-mono-num">admin:role:read</span> 权限，无法查看角色与数据范围配置。
+          </div>
+        </SectionCard>
+      </div>
+    );
   }
 
   if (loading) {

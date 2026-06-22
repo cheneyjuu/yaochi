@@ -16,6 +16,8 @@ import type { RoleId, Visibility } from "./types";
 export interface NavPage {
   id: string;
   label: string;
+  /** 该页要求的权限点；当前用户无此权限时菜单项隐藏（页级门控，弥补模块级矩阵）。 */
+  requirePermission?: string;
 }
 export interface NavModule {
   id: string;
@@ -38,7 +40,7 @@ export const NAV: NavModule[] = [
     pages: [
       { id: "owners", label: "业主名册" },
       { id: "topology", label: "楼栋 / 单元结构" },
-      { id: "rbac", label: "角色与数据范围" },
+      { id: "rbac", label: "角色与数据范围", requirePermission: "admin:role:read" },
       { id: "certification", label: "实名认证等级" },
     ],
   },

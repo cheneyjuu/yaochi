@@ -5,7 +5,7 @@ import { useStore } from "../../lib/store";
 import { ChevronDown, Lock } from "lucide-react";
 
 export function Sidebar() {
-  const { role, page, setPage } = useStore();
+  const { role, page, setPage, hasPermission } = useStore();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   // 找出当前页所在模块，默认展开
@@ -33,7 +33,9 @@ export function Sidebar() {
               </button>
               {open && (
                 <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
-                  {mod.pages.map((p) => {
+                  {mod.pages
+                    .filter((p) => !p.requirePermission || hasPermission(p.requirePermission))
+                    .map((p) => {
                     const active = page === p.id;
                     return (
                       <button
