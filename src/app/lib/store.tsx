@@ -35,6 +35,8 @@ interface StoreValue {
   authed: boolean;
   token: string | null;
   permissions: string[];
+  /** 后端 user_info.role_key（如 COMMITTEE_DIRECTOR），用于 nav 页级 requireRoleKeys 过滤。 */
+  roleKey: string | null;
   hasPermission: (key: string) => boolean;
   login: (phone: string, smsCode: string) => Promise<void>;
   logout: () => void;
@@ -68,12 +70,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(!!initial?.token);
   const [token, setToken] = useState<string | null>(initial?.token ?? null);
   const [permissions, setPermissions] = useState<string[]>(initial?.user.permissions ?? []);
+  const [roleKey, setRoleKey] = useState<string | null>(initial?.user.role_key ?? null);
 
   // 注册 401/403 兜底：token 失效时清空会话回登录页
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setToken(null);
       setPermissions([]);
+      setRoleKey(null);
       setAuthed(false);
       setPage("overview");
     });
@@ -94,6 +98,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDataScope(DEFAULT_SCOPE[session.roleId]);
     setCommunityId(session.communityId);
     setPermissions(session.user.permissions ?? []);
+    setRoleKey(session.user.role_key ?? null);
     setToken(session.token);
     setPage("overview");
     setLockdown(false);
@@ -104,6 +109,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearSession();
     setToken(null);
     setPermissions([]);
+    setRoleKey(null);
     setAuthed(false);
     setPage("overview");
   };
@@ -135,6 +141,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     authed,
     token,
     permissions,
+    roleKey,
     hasPermission,
     login,
     logout,
