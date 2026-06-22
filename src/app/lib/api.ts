@@ -80,3 +80,7 @@ export function apiGet<T>(path: string): Promise<T> {
 export function apiPost<T>(path: string, body?: unknown, opts?: { auth?: boolean }): Promise<T> {
   return request<T>(path, { method: "POST", body, auth: opts?.auth });
 }
+
+export function apiDelete<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
+}
