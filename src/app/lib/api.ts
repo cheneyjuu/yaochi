@@ -28,7 +28,7 @@ export function setUnauthorizedHandler(fn: () => void) {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   /** 是否注入 Authorization 头，默认 true；登录接口传 false。 */
   auth?: boolean;
@@ -79,6 +79,10 @@ export function apiGet<T>(path: string): Promise<T> {
 
 export function apiPost<T>(path: string, body?: unknown, opts?: { auth?: boolean }): Promise<T> {
   return request<T>(path, { method: "POST", body, auth: opts?.auth });
+}
+
+export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "PATCH", body });
 }
 
 export function apiDelete<T>(path: string): Promise<T> {

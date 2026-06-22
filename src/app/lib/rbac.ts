@@ -104,3 +104,16 @@ export function revokePermission(roleId: number, permissionKey: string): Promise
 export function deleteRole(roleId: number): Promise<void> {
   return apiDelete<void>(`/admin/roles/${roleId}`);
 }
+
+/**
+ * 写回角色数据范围（写侧）。
+ *
+ * 仅 defaultDataScope 可改；fixedDataScope 非空的角色后端返回 403/42302
+ * （红线锁死），调用处需据 fixedDataScope 提前禁用编辑。
+ */
+export function updateRoleDataScope(
+  roleId: number,
+  defaultDataScope: string,
+): Promise<void> {
+  return apiPatch<void>(`/admin/roles/${roleId}/data-scope`, { defaultDataScope });
+}
