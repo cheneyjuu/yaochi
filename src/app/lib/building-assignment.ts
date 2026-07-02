@@ -3,8 +3,8 @@
 
 import { apiGet, apiPost, apiDelete } from "./api";
 
-/** 可分配的执行角色（后端 ASSIGNABLE_ROLES 白名单）。 */
-export type AssignableRoleKey = "GRID_OPERATOR" | "VOLUNTEER" | "OWNER_REPRESENTATIVE";
+/** 楼栋责任田页可见角色；GRID_MEMBER 改由网格组织节点空间配置承载。 */
+export type AssignableRoleKey = "GRID_MEMBER" | "VOLUNTEER" | "OWNER_REPRESENTATIVE";
 
 /** 对齐后端 AssignableUserResponse。 */
 export interface AssignableUser {

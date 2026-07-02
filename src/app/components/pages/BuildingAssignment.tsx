@@ -50,10 +50,15 @@ import {
 
 /* ─── 角色展示映射 ─── */
 const ROLE_LABEL: Record<AssignableRoleKey, string> = {
-  GRID_OPERATOR: "网格员",
+  GRID_MEMBER: "网格员",
   VOLUNTEER: "志愿者",
   OWNER_REPRESENTATIVE: "业主代表",
 };
+
+const VISIBLE_ASSIGNABLE_ROLES = new Set<AssignableRoleKey>([
+  "VOLUNTEER",
+  "OWNER_REPRESENTATIVE",
+]);
 
 /* ─── 合规标签展示 ─── */
 const COMPLIANCE_ISSUE_LABEL: Record<string, string> = {
@@ -127,7 +132,7 @@ export function BuildingAssignment() {
       setSearching(true);
       searchAssignableUsers(trimmed)
         .then((res) => {
-          if (alive) setSearchResults(res);
+          if (alive) setSearchResults(res.filter((item) => VISIBLE_ASSIGNABLE_ROLES.has(item.roleKey)));
         })
         .catch((err) => {
           if (!alive) return;

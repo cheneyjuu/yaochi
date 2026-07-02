@@ -32,7 +32,7 @@ const ROLE_KEY_TO_ROLE_ID: Record<string, RoleId> = {
   PARTY_SECRETARY: "party_secretary",
   COMMITTEE_DIRECTOR: "committee_director",
   COMMITTEE_MEMBER: "committee_member",
-  GRID_OPERATOR: "building_rep",
+  GRID_MEMBER: "building_rep",
   OWNER_REPRESENTATIVE: "building_rep",
   PROPERTY_MANAGER: "property_manager",
   PROPERTY_STAFF: "property_service",

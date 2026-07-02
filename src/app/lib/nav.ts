@@ -43,6 +43,7 @@ export const NAV: NavModule[] = [
       { id: "owners", label: "业主名册" },
       { id: "topology", label: "楼栋 / 单元结构" },
       { id: "rbac", label: "角色与数据范围", requirePermission: "admin:role:read" },
+      { id: "work-identity", label: "工作身份与授权", requirePermission: "admin:user:assign-role" },
       {
         id: "building-assignment",
         label: "楼栋责任田分配",
