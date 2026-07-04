@@ -25,7 +25,8 @@ import {
 } from "../ui/dialog";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Input } from "../ui/input";
-import { Textarea } from "../ui/textarea";
+import { RichTextEditor, RichTextView } from "../common/RichTextEditor";
+import { richTextToPlain, toMiniappRichText } from "../../lib/richText";
 import { Plus, FileText } from "lucide-react";
 import { toast } from "sonner";
 
@@ -232,9 +233,7 @@ function MinuteDetail({ minute }: { minute: Minute }) {
           <FileText className="size-4 text-primary" />
           <span className="font-semibold text-sm">会议纪要正文</span>
         </div>
-        <div className="text-sm leading-7 whitespace-pre-wrap text-foreground/85">
-          {minute.fullText}
-        </div>
+        <RichTextView html={minute.fullText} />
       </div>
 
       {/* 出席名单 */}
@@ -290,7 +289,7 @@ export function MeetingMinutes() {
                 新建纪要
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>新建会议纪要</DialogTitle>
               </DialogHeader>
@@ -303,19 +302,18 @@ export function MeetingMinutes() {
                     onChange={(e) => setNewTitle(e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">纪要正文</label>
-                  <Textarea
-                    placeholder="请输入会议纪要内容..."
-                    className="min-h-[160px]"
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                  />
-                </div>
+                <RichTextEditor
+                  label="纪要正文"
+                  value={newContent}
+                  onChange={setNewContent}
+                  rows={10}
+                  placeholder="请输入会议时间、地点、出席人员、议题背景、表决过程、表决结果和执行安排；支持 Markdown 小标题、列表、加粗和引用。"
+                />
                 <div className="flex justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setNewOpen(false)}>取消</Button>
                   <Button onClick={() => {
                     if (!newTitle.trim()) { toast.error("请填写议题标题"); return; }
+                    if (!richTextToPlain(toMiniappRichText(newContent))) { toast.error("请填写纪要正文"); return; }
                     toast.success("纪要已保存草稿", { description: "可在纪要列表中继续编辑" });
                     setNewOpen(false);
                     setNewTitle("");

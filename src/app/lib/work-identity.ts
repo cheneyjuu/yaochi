@@ -40,6 +40,7 @@ export interface WorkIdentityDeptOption {
 }
 
 export interface WorkIdentityBuilding {
+  tenantId: number | null;
   buildingId: number;
 }
 
@@ -83,9 +84,12 @@ export function listGridBuildingScope(deptId: number): Promise<WorkIdentityBuild
 
 export function updateGridBuildingScope(
   deptId: number,
-  buildingIds: number[],
+  buildingScopes: Array<{ tenantId: number; buildingId: number }>,
 ): Promise<WorkIdentityBuilding[]> {
-  return apiPut<WorkIdentityBuilding[]>(`/admin/work-identities/depts/${deptId}/building-scope`, { buildingIds });
+  return apiPut<WorkIdentityBuilding[]>(
+    `/admin/work-identities/depts/${deptId}/building-scope`,
+    { buildingScopes },
+  );
 }
 
 export function createWorkIdentityShadow(

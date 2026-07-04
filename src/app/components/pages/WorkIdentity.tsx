@@ -44,13 +44,10 @@ import { useStore } from "../../lib/store";
 import { listRoles, type Role } from "../../lib/rbac";
 import {
   createWorkIdentityShadow,
-  ensureGridNodes,
   getWorkIdentityAccount,
-  listGridBuildingScope,
   listWorkIdentityBuildings,
   listWorkIdentityDeptOptions,
   searchWorkIdentityAccounts,
-  updateGridBuildingScope,
   type WorkIdentityAccount,
   type WorkIdentityBuilding,
   type WorkIdentityDeptOption,
@@ -335,8 +332,6 @@ export function WorkIdentity() {
         </SectionCard>
       </div>
 
-      <GridScopePanel />
-
       <CreateIdentityDialog
         open={dialogOpen}
         account={selected}
@@ -351,209 +346,6 @@ export function WorkIdentity() {
     </div>
   );
 }
-
-
-function GridScopePanel() {
-  const [communityDeptOptions, setCommunityDeptOptions] = useState<WorkIdentityDeptOption[]>([]);
-  const [gridDeptOptions, setGridDeptOptions] = useState<WorkIdentityDeptOption[]>([]);
-  const [communityDeptId, setCommunityDeptId] = useState("");
-  const [gridDeptId, setGridDeptId] = useState("");
-  const [buildings, setBuildings] = useState<WorkIdentityBuilding[]>([]);
-  const [selectedBuildingIds, setSelectedBuildingIds] = useState<Set<number>>(new Set());
-  const [deptOptionsLoading, setDeptOptionsLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [scopeLoading, setScopeLoading] = useState(false);
-  const [savingScope, setSavingScope] = useState(false);
-
-  const selectedGridDept = gridDeptOptions.find((dept) => String(dept.deptId) === gridDeptId) ?? null;
-
-  useEffect(() => {
-    let alive = true;
-    setDeptOptionsLoading(true);
-    Promise.all([
-      listWorkIdentityDeptOptions("COMMUNITY_ADMIN"),
-      listWorkIdentityDeptOptions(GRID_MEMBER_ROLE),
-    ])
-      .then(([communities, grids]) => {
-        if (!alive) return;
-        setCommunityDeptOptions(communities);
-        setGridDeptOptions(grids);
-        setCommunityDeptId((current) => current || (communities[0] ? String(communities[0].deptId) : ""));
-        setGridDeptId((current) => current || (grids[0] ? String(grids[0].deptId) : ""));
-      })
-      .catch((err) => {
-        if (alive) toast.error(err instanceof Error ? err.message : "网格组织加载失败");
-      })
-      .finally(() => {
-        if (alive) setDeptOptionsLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (gridDeptId === "") {
-      setBuildings([]);
-      setSelectedBuildingIds(new Set());
-      return;
-    }
-    let alive = true;
-    setScopeLoading(true);
-    Promise.all([
-      listWorkIdentityBuildings(Number(gridDeptId)),
-      listGridBuildingScope(Number(gridDeptId)),
-    ])
-      .then(([options, scope]) => {
-        if (!alive) return;
-        setBuildings(options);
-        setSelectedBuildingIds(new Set(scope.map((item) => item.buildingId)));
-      })
-      .catch((err) => {
-        if (!alive) return;
-        setBuildings([]);
-        setSelectedBuildingIds(new Set());
-        toast.error(err instanceof Error ? err.message : "网格楼栋范围加载失败");
-      })
-      .finally(() => {
-        if (alive) setScopeLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [gridDeptId]);
-
-  async function generateGridNodes() {
-    if (communityDeptId === "") return;
-    setGenerating(true);
-    try {
-      const created = await ensureGridNodes(Number(communityDeptId));
-      const grids = await listWorkIdentityDeptOptions(GRID_MEMBER_ROLE);
-      setGridDeptOptions(grids);
-      const preferred = created[0] ?? grids[0];
-      if (preferred) setGridDeptId(String(preferred.deptId));
-      toast.success("网格组织节点已生成");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "网格组织节点生成失败");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  function toggleGridBuilding(buildingId: number, checked: boolean) {
-    setSelectedBuildingIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(buildingId);
-      else next.delete(buildingId);
-      return next;
-    });
-  }
-
-  async function saveGridScope() {
-    if (gridDeptId === "" || selectedBuildingIds.size === 0) return;
-    setSavingScope(true);
-    try {
-      const saved = await updateGridBuildingScope(Number(gridDeptId), Array.from(selectedBuildingIds));
-      setSelectedBuildingIds(new Set(saved.map((item) => item.buildingId)));
-      toast.success("网格楼栋范围已更新");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "网格楼栋范围更新失败");
-    } finally {
-      setSavingScope(false);
-    }
-  }
-
-  return (
-    <SectionCard title="网格节点空间配置" desc="GRID_MEMBER 只作为静态角色，具体网格与楼栋范围由组织节点承载">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr_1fr]">
-        <div className="space-y-2">
-          <Label>居委会节点</Label>
-          <Select value={communityDeptId} onValueChange={setCommunityDeptId} disabled={deptOptionsLoading}>
-            <SelectTrigger>
-              <SelectValue placeholder={deptOptionsLoading ? "加载中" : "选择居委会"} />
-            </SelectTrigger>
-            <SelectContent>
-              {communityDeptOptions.map((dept) => (
-                <SelectItem key={dept.deptId} value={String(dept.deptId)}>
-                  {dept.deptName} · tenant {dept.tenantId ?? "-"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-end">
-          <Button disabled={!communityDeptId || generating} onClick={() => void generateGridNodes()}>
-            {generating ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Plus className="size-4 mr-1" />}
-            生成 1-5 号网格
-          </Button>
-        </div>
-
-        <div className="space-y-2">
-          <Label>网格节点</Label>
-          <Select value={gridDeptId} onValueChange={setGridDeptId} disabled={deptOptionsLoading || generating}>
-            <SelectTrigger>
-              <SelectValue placeholder="选择网格" />
-            </SelectTrigger>
-            <SelectContent>
-              {gridDeptOptions.map((dept) => (
-                <SelectItem key={dept.deptId} value={String(dept.deptId)}>
-                  {dept.deptName} · tenant {dept.tenantId ?? "-"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label>当前节点</Label>
-          <div className="flex h-10 items-center rounded-md border px-3 text-sm">
-            {selectedGridDept ? "dept " + selectedGridDept.deptId + " · " + (DEPT_TYPE_LABEL[selectedGridDept.deptType] ?? selectedGridDept.deptType) : "—"}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3 rounded-md border p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Building2 className="size-4 text-muted-foreground" /> 网格楼栋范围
-          </div>
-          <Button
-            size="sm"
-            disabled={gridDeptId === "" || selectedBuildingIds.size === 0 || scopeLoading || savingScope}
-            onClick={() => void saveGridScope()}
-          >
-            {savingScope ? <Loader2 className="size-4 mr-1 animate-spin" /> : <ShieldCheck className="size-4 mr-1" />}
-            保存范围
-          </Button>
-        </div>
-        {scopeLoading ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 inline size-4 animate-spin" /> 加载中
-          </div>
-        ) : buildings.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">当前网格节点暂无可选楼栋。</div>
-        ) : (
-          <div className="grid max-h-64 grid-cols-2 gap-2 overflow-auto md:grid-cols-4 xl:grid-cols-6">
-            {buildings.map((building) => (
-              <label
-                key={building.buildingId}
-                className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
-              >
-                <Checkbox
-                  checked={selectedBuildingIds.has(building.buildingId)}
-                  onCheckedChange={(v) => toggleGridBuilding(building.buildingId, Boolean(v))}
-                />
-                #{building.buildingId}
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-    </SectionCard>
-  );
-}
-
 
 function CreateIdentityDialog({
   open,

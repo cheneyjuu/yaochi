@@ -4,7 +4,9 @@ export type Side = "B" | "G";
 
 export type RoleId =
   | "street_admin" // 街道办管理员 (G)
+  | "community_admin" // 居委会管理员 / 社区一把手 (G)
   | "party_secretary" // 社区党组织书记 (G)
+  | "gov_operator" // 基层经办员 (G) —— 选举立项执行人
   | "committee_director" // 业委会主任 (B)
   | "committee_member" // 业委会委员 (B)
   | "building_rep" // 楼栋代表 / 网格员 (B)
@@ -36,7 +38,9 @@ export type DataScope =
 
 export const ROLES: Role[] = [
   { id: "street_admin", name: "街道办管理员", side: "G", scope: "辖区全部小区", desc: "监管辖区多个小区、大额审查、强制撤销" },
-  { id: "party_secretary", name: "社区党组织书记", side: "G", scope: "单小区全量", desc: "大额资金前置审查、换届熔断处置、监管看板" },
+  { id: "community_admin", name: "居委会管理员", side: "G", scope: "本小区全量", desc: "候选人资格最终审查、议题立项 / 公示、放宽申请审批" },
+  { id: "party_secretary", name: "社区党组织书记", side: "G", scope: "单小区全量", desc: "候选人党组前置审查、大额资金前置审查、换届熔断处置、监管看板" },
+  { id: "gov_operator", name: "基层经办员", side: "G", scope: "本小区全量", desc: "选举立项执行人、候选人提名、Waiver 申请（业委会全员封死时的 G 端代办）" },
   { id: "committee_director", name: "业委会主任", side: "B", scope: "本小区全量", desc: "议题、核销审批（密码B签名）、选举、委员会" },
   { id: "committee_member", name: "业委会委员", side: "B", scope: "本小区全量（部分只读）", desc: "议题、报告、沟通" },
   { id: "building_rep", name: "楼栋代表 / 网格员", side: "B", scope: "仅责任田楼栋", desc: "本楼栋议题催票、线下核销、维修工单" },

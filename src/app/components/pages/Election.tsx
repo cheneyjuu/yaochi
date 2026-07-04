@@ -9,14 +9,6 @@ import {
   SelectValue,
 } from "../ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -27,9 +19,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Label } from "../ui/label";
-import { Loader2, UserPlus, Check, X, Search } from "lucide-react";
+import { Loader2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import {
@@ -41,13 +31,12 @@ import {
 } from "../../lib/voting";
 import {
   listCandidates,
-  nominateCandidate,
   partyReviewCandidate,
   reviewCandidate,
-  searchOwners,
   type Candidate,
   type CandidateStatus,
-  type OwnerOption,
+  type RejectEvidenceInput,
+  type RejectReasonCode,
 } from "../../lib/election";
 
 const STEPS = [
@@ -94,6 +83,30 @@ const CAND_STATUS: Record<CandidateStatus, { label: string; tone: Tone }> = {
   WITHDRAWN: { label: "已退选", tone: "neutral" },
 };
 
+function collectRejectEvidence(candidate: Candidate, stage: "party" | "committee"): RejectEvidenceInput | null {
+  const rawCode = window.prompt("请输入驳回理由码：C1 / C2 / C3 / C4 / C5", "C1")?.trim().toUpperCase();
+  if (!rawCode || !["C1", "C2", "C3", "C4", "C5"].includes(rawCode)) {
+    toast.error("驳回必须选择 C1-C5 理由码");
+    return null;
+  }
+  const note = window.prompt("请输入证据链说明", "")?.trim();
+  if (!note) {
+    toast.error("驳回必须填写证据链说明");
+    return null;
+  }
+  return {
+    rejectReasonCode: rawCode as RejectReasonCode,
+    rejectEvidence: {
+      note,
+      source: "yaochi",
+      stage: stage === "party" ? "PARTY_REVIEW" : "COMMITTEE_REVIEW",
+      candidateId: candidate.candidateId,
+      candidateName: candidate.name,
+      recordedAt: new Date().toISOString(),
+    },
+  };
+}
+
 export function Election() {
   const { hasPermission } = useStore();
 
@@ -109,22 +122,13 @@ export function Election() {
   const [progress, setProgress] = useState<SubjectProgress | null>(null);
   const [progLoading, setProgLoading] = useState(false);
 
-  // 写动作（提名 / 党组审查 / 居委会资格审查）状态。
+  // 写动作（党组审查 / 居委会资格审查）状态。提名已迁移至「议题筹备」页。
   const [acting, setActing] = useState(false);
-  const [nominateOpen, setNominateOpen] = useState(false);
-  // 提名表单：手机号定位业主 → 自动带入隐藏 uid（selectedOwner）；姓名手填。
-  const [nomPhone, setNomPhone] = useState("");
-  const [ownerHits, setOwnerHits] = useState<OwnerOption[]>([]);
-  const [ownerSearching, setOwnerSearching] = useState(false);
-  const [selectedOwner, setSelectedOwner] = useState<OwnerOption | null>(null);
-  const [nomName, setNomName] = useState("");
-  const [nomParty, setNomParty] = useState("false");
   // 审查确认弹窗：null=关闭；否则承载目标候选人 + 通过/驳回 + 审查阶段。
   const [review, setReview] = useState<
     { candidate: Candidate; approve: boolean; stage: "party" | "committee" } | null
   >(null);
 
-  const canNominate = hasPermission("candidate:nominate");
   const canPartyReview = hasPermission("candidate:review:party");
   const canCommitteeReview = hasPermission("candidate:approve");
 
@@ -202,38 +206,6 @@ export function Election() {
     };
   }, [subjectId]);
 
-  // 提名框手机号搜索：300ms 防抖，≥3 位才查（与后端守卫一致）。已选中业主后不再重复检索。
-  useEffect(() => {
-    if (!nominateOpen) return;
-    const phone = nomPhone.trim();
-    if (selectedOwner != null) return;
-    if (phone.length < 3) {
-      setOwnerHits([]);
-      setOwnerSearching(false);
-      return;
-    }
-    let alive = true;
-    setOwnerSearching(true);
-    const timer = setTimeout(() => {
-      searchOwners(phone)
-        .then((hits) => {
-          if (alive) setOwnerHits(hits);
-        })
-        .catch((err) => {
-          if (!alive) return;
-          setOwnerHits([]);
-          toast.error(err instanceof Error ? err.message : "业主检索失败");
-        })
-        .finally(() => {
-          if (alive) setOwnerSearching(false);
-        });
-    }, 300);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [nomPhone, selectedOwner, nominateOpen]);
-
   // 双过半进度：参与率 vs 法定门槛（thresholdNumerator/thresholdDenominator = 2/3）。
   const threshold = progress
     ? (progress.thresholdNumerator / progress.thresholdDenominator) * 100
@@ -251,52 +223,18 @@ export function Election() {
     [candidates],
   );
 
-  // 提名候选人：仅 ELECTION 且议题 DRAFT/PUBLISHED 时可提名（与后端状态机一致）。
-  const canNominateNow =
-    canNominate && (t?.status === "DRAFT" || t?.status === "PUBLISHED");
-
-  // 关闭/成功后重置提名表单全部字段。
-  function resetNominateForm() {
-    setNomPhone("");
-    setOwnerHits([]);
-    setOwnerSearching(false);
-    setSelectedOwner(null);
-    setNomName("");
-    setNomParty("false");
-  }
-
-  async function handleNominate() {
-    const name = nomName.trim();
-    if (selectedOwner == null || !name) return;
-    if (subjectId == null) return;
-    setActing(true);
-    try {
-      await nominateCandidate(subjectId, {
-        uid: selectedOwner.uid,
-        name,
-        partyMember: nomParty === "true",
-      });
-      toast.success("候选人已提名，待资格审查");
-      setNominateOpen(false);
-      resetNominateForm();
-      setCandRefresh((k) => k + 1);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "提名失败");
-    } finally {
-      setActing(false);
-    }
-  }
-
   async function handleReview() {
     if (!review) return;
     const { candidate, approve, stage } = review;
+    const rejectEvidence = approve ? undefined : collectRejectEvidence(candidate, stage);
+    if (!approve && !rejectEvidence) return;
     setActing(true);
     try {
       if (stage === "party") {
-        await partyReviewCandidate(candidate.candidateId, approve);
+        await partyReviewCandidate(candidate.candidateId, approve, rejectEvidence);
         toast.success(approve ? "党组审查已通过，转居委会资格审查" : "党组审查已驳回");
       } else {
-        await reviewCandidate(candidate.candidateId, approve);
+        await reviewCandidate(candidate.candidateId, approve, rejectEvidence);
         toast.success(approve ? "候选人资格已通过" : "候选人资格已驳回");
       }
       setReview(null);
@@ -430,14 +368,7 @@ export function Election() {
 
       <SectionCard
         title="候选人名册 / 资格审查"
-        desc="提名 → 党组前置审查 → 居委会资格审查（按权限显示操作）"
-        extra={
-          canNominateNow ? (
-            <Button size="sm" onClick={() => setNominateOpen(true)}>
-              <UserPlus className="size-4" /> 提名候选人
-            </Button>
-          ) : undefined
-        }
+        desc="党组前置审查 → 居委会资格审查（按权限显示操作）。提名候选人请前往「议题筹备」。"
       >
         {candLoading ? (
           <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -497,135 +428,6 @@ export function Election() {
           </div>
         )}
       </SectionCard>
-
-      {/* 提名候选人对话框 */}
-      <Dialog
-        open={nominateOpen}
-        onOpenChange={(o) => {
-          setNominateOpen(o);
-          if (!o) resetNominateForm();
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>提名候选人</DialogTitle>
-            <DialogDescription>
-              输入业主手机号定位业主（自动关联 uid），再填写候选人姓名。提名后进入「待党组审查」。仅选举议题、且处于草稿 / 公示阶段可提名。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="nom-phone">业主手机号</Label>
-              {selectedOwner ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-mono-num">{selectedOwner.phoneMasked}</div>
-                    <div className="text-xs text-muted-foreground">
-                      业主 #{selectedOwner.uid}
-                      {selectedOwner.buildingId != null && ` · 楼栋 ${selectedOwner.buildingId}`}
-                      {selectedOwner.roomId != null && ` · 房号 ${selectedOwner.roomId}`}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setSelectedOwner(null);
-                      setOwnerHits([]);
-                    }}
-                  >
-                    重选
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input
-                      id="nom-phone"
-                      className="pl-8"
-                      inputMode="numeric"
-                      placeholder="输入手机号（≥3 位检索）"
-                      value={nomPhone}
-                      onChange={(e) => setNomPhone(e.target.value)}
-                    />
-                  </div>
-                  {nomPhone.trim().length >= 3 && (
-                    <div className="rounded-md border border-border divide-y divide-border max-h-48 overflow-auto">
-                      {ownerSearching ? (
-                        <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-                          <Loader2 className="size-4 mr-1.5 animate-spin" /> 检索中…
-                        </div>
-                      ) : ownerHits.length === 0 ? (
-                        <div className="py-4 text-center text-xs text-muted-foreground">未找到匹配业主</div>
-                      ) : (
-                        ownerHits.map((o) => (
-                          <button
-                            key={o.uid}
-                            type="button"
-                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/60 transition-colors"
-                            onClick={() => {
-                              setSelectedOwner(o);
-                              setOwnerHits([]);
-                            }}
-                          >
-                            <span className="text-sm font-mono-num">{o.phoneMasked}</span>
-                            <span className="text-xs text-muted-foreground">
-                              业主 #{o.uid}
-                              {o.buildingId != null && ` · 楼栋 ${o.buildingId}`}
-                              {o.roomId != null && ` · 房号 ${o.roomId}`}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="nom-name">候选人姓名</Label>
-              <Input
-                id="nom-name"
-                maxLength={64}
-                placeholder="姓名"
-                value={nomName}
-                onChange={(e) => setNomName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>是否党员</Label>
-              <Select value={nomParty} onValueChange={setNomParty}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="false">非党员</SelectItem>
-                  <SelectItem value="true">党员</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setNominateOpen(false);
-                resetNominateForm();
-              }}
-              disabled={acting}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={handleNominate}
-              disabled={acting || selectedOwner == null || !nomName.trim()}
-            >
-              {acting && <Loader2 className="size-4 mr-1 animate-spin" />} 确认提名
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 资格审查确认弹窗（党组 / 居委会两段共用） */}
       <AlertDialog open={review != null} onOpenChange={(o) => !o && setReview(null)}>

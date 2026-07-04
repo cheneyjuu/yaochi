@@ -50,7 +50,7 @@ import {
 
 /* ─── 角色展示映射 ─── */
 const ROLE_LABEL: Record<AssignableRoleKey, string> = {
-  GRID_MEMBER: "网格员",
+  GRID_MEMBER: "网格员（转网格管理）",
   VOLUNTEER: "志愿者",
   OWNER_REPRESENTATIVE: "业主代表",
 };
@@ -298,7 +298,7 @@ export function BuildingAssignment() {
       <div className="space-y-5 p-6">
         <PageHeader
           title="楼栋责任田分配"
-          desc="给网格员 / 志愿者 / 业主代表分配负责的楼栋"
+          desc="个人楼栋责任田仅用于志愿者 / 业主代表；网格员范围请到「网格管理」配置。"
         />
         <SectionCard>
           <div className="py-16 text-center text-muted-foreground">
@@ -313,7 +313,7 @@ export function BuildingAssignment() {
     <div className="space-y-5 p-6">
       <PageHeader
         title="楼栋责任田分配"
-        desc="搜索账号 → 检查合规 → 分配楼栋。同角色互斥（自动转移），不同角色可共享同栋楼。"
+        desc="搜索账号 → 检查合规 → 分配个人楼栋责任田。同角色互斥（自动转移），不同角色可共享同栋楼。"
       />
 
       {/* 步骤面包屑 */}
@@ -327,7 +327,7 @@ export function BuildingAssignment() {
 
       {/* 步骤 1：搜索 */}
       {step === "search" && (
-        <SectionCard title="搜索账号" desc="支持姓名 / 手机号 / 手机尾号（仅返回网格员 / 志愿者 / 业主代表）">
+        <SectionCard title="搜索账号" desc="支持姓名 / 手机号 / 手机尾号（仅返回志愿者 / 业主代表）">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { useStore, COMMUNITIES, ROLES } from "../../lib/store";
+import { listSysUserShadows, type SysUserShadow } from "../../lib/auth";
 import { ModeChip } from "../gov/common";
 import {
   DropdownMenu,
@@ -11,14 +13,46 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Bell, ChevronDown, Search, MapPin, AlertTriangle, LogOut } from "lucide-react";
+import { Bell, BriefcaseBusiness, Check, ChevronDown, Loader2, Search, MapPin, AlertTriangle, LogOut } from "lucide-react";
+import { toast } from "sonner";
 import type { RoleId } from "../../lib/types";
 
 export function Topbar() {
-  const { role, setRole, communityId, setCommunityId, community, mode, lockdown, setPage, logout } = useStore();
+  const { role, setRole, communityId, setCommunityId, community, mode, lockdown, setPage, switchShadow, logout } = useStore();
   const roleMeta = ROLES.find((r) => r.id === role)!;
   const isG = roleMeta.side === "G";
   const canSwitchCommunity = role === "street_admin";
+  const [shadows, setShadows] = useState<SysUserShadow[]>([]);
+  const [loadingShadows, setLoadingShadows] = useState(false);
+  const [switchingShadowId, setSwitchingShadowId] = useState<number | null>(null);
+
+  const refreshShadows = async () => {
+    setLoadingShadows(true);
+    try {
+      setShadows(await listSysUserShadows());
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "工作分身加载失败");
+    } finally {
+      setLoadingShadows(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshShadows();
+  }, []);
+
+  const handleSwitchShadow = async (targetUserId: number) => {
+    setSwitchingShadowId(targetUserId);
+    try {
+      await switchShadow(targetUserId);
+      toast.success("工作分身已切换");
+      await refreshShadows();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "工作分身切换失败");
+    } finally {
+      setSwitchingShadowId(null);
+    }
+  };
 
   return (
     <header className="shrink-0">
@@ -111,6 +145,36 @@ export function Topbar() {
               <ChevronDown className="size-3.5 text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>工作分身</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {loadingShadows ? (
+                <DropdownMenuItem disabled>
+                  <Loader2 className="size-4 animate-spin" /> 正在加载
+                </DropdownMenuItem>
+              ) : shadows.length > 0 ? (
+                shadows.map((shadow) => (
+                  <DropdownMenuItem
+                    key={shadow.user_id}
+                    disabled={shadow.active || switchingShadowId !== null}
+                    onClick={() => void handleSwitchShadow(shadow.user_id)}
+                    className="flex-col items-start gap-0.5 py-2"
+                  >
+                    <span className="flex w-full items-center justify-between gap-2">
+                      <span className="flex items-center gap-2" style={{ fontWeight: 500 }}>
+                        <BriefcaseBusiness className="size-3.5 text-muted-foreground" />
+                        {shadow.role_name ?? shadow.role_key ?? "工作分身"}
+                      </span>
+                      {shadow.active ? <Check className="size-3.5 text-primary" /> : null}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {shadow.nick_name ?? shadow.user_name} · {shadow.dept_name ?? "未绑定部门"}
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              ) : (
+                <DropdownMenuItem disabled>暂无可切换分身</DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>切换登录角色（演示）</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup value={role} onValueChange={(v) => setRole(v as RoleId)}>

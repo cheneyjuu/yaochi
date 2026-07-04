@@ -18,6 +18,8 @@ export interface NavPage {
   label: string;
   /** 该页要求的权限点；当前用户无此权限时菜单项隐藏（页级门控，弥补模块级矩阵）。 */
   requirePermission?: string;
+  /** 该页要求的任一权限点；命中一个即显示。与 requirePermission 复合（AND）。 */
+  requireAnyPermissions?: string[];
   /** 该页要求的后端 role_key 白名单；命中之一才显示。与 requirePermission 复合（AND）。 */
   requireRoleKeys?: string[];
 }
@@ -40,13 +42,15 @@ export const NAV: NavModule[] = [
     label: "用户与权限管理",
     icon: Users,
     pages: [
-      { id: "owners", label: "业主名册" },
+      { id: "owners", label: "业主名册", requirePermission: "owner:list" },
       { id: "topology", label: "楼栋 / 单元结构" },
       { id: "rbac", label: "角色与数据范围", requirePermission: "admin:role:read" },
       { id: "work-identity", label: "工作身份与授权", requirePermission: "admin:user:assign-role" },
+      { id: "grid-management", label: "网格管理", requirePermission: "admin:user:assign-role" },
       {
         id: "building-assignment",
-        label: "楼栋责任田分配",
+        label: "个人楼栋责任田分配",
+        requirePermission: "admin:user:assign-role",
         requireRoleKeys: [
           "GOV_SUPER_ADMIN",
           "COMMUNITY_ADMIN",
@@ -78,13 +82,30 @@ export const NAV: NavModule[] = [
     id: "election",
     label: "选举管理",
     icon: Vote,
-    pages: [{ id: "election", label: "选举投票看板" }],
+    pages: [
+      {
+        id: "election",
+        label: "选举投票看板",
+        requirePermission: "voting:subject:audit",
+      },
+    ],
   },
   {
     id: "governance",
     label: "议题与表决",
     icon: Gavel,
-    pages: [{ id: "voting", label: "议题表决看板" }],
+    pages: [
+      {
+        id: "subject-proposal",
+        label: "议题筹备",
+        requireAnyPermissions: ["voting:subject:create", "voting:subject:create:election"],
+      },
+      {
+        id: "voting",
+        label: "议题表决看板",
+        requirePermission: "voting:subject:audit",
+      },
+    ],
   },
   {
     id: "finance",
@@ -103,7 +124,7 @@ export const NAV: NavModule[] = [
     icon: Wrench,
     pages: [
       { id: "assets", label: "资产台账" },
-      { id: "work-orders", label: "维修工单" },
+      { id: "work-orders", label: "维修工单", requirePermission: "repair:workorder:read" },
       { id: "engineering", label: "工程方案与验收" },
     ],
   },
@@ -128,11 +149,16 @@ const FULL: ModuleVis = {
 
 export const VISIBILITY: Record<RoleId, ModuleVis> = {
   street_admin: { ...FULL },
+  community_admin: { ...FULL },
   party_secretary: {
     dashboard: "full", users: "readonly", property: "readonly", committee: "full",
-    election: "readonly", governance: "readonly", finance: "full", assets: "readonly", comms: "full",
+    election: "full", governance: "readonly", finance: "full", assets: "readonly", comms: "full",
   },
   committee_director: { ...FULL },
+  gov_operator: {
+    dashboard: "full", users: "readonly", property: "readonly", committee: "readonly",
+    election: "full", governance: "full", finance: "readonly", assets: "readonly", comms: "full",
+  },
   committee_member: {
     dashboard: "full", users: "readonly", property: "readonly", committee: "full",
     election: "readonly", governance: "full", finance: "readonly", assets: "readonly", comms: "full",

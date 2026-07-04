@@ -17,6 +17,13 @@ export function Sidebar() {
         {NAV.map((mod) => {
           const vis = moduleVisibility(role, mod.id);
           if (vis === "hidden") return null;
+          // page 级权限/角色门控先于渲染——若整组 page 全被过滤，整个模块直接不渲染，
+          // 避免出现「能看到菜单标题但点不出任何子项」的死链。
+          const visiblePages = mod.pages
+            .filter((p) => !p.requirePermission || hasPermission(p.requirePermission))
+            .filter((p) => !p.requireAnyPermissions || p.requireAnyPermissions.some(hasPermission))
+            .filter((p) => !p.requireRoleKeys || (roleKey != null && p.requireRoleKeys.includes(roleKey)));
+          if (visiblePages.length === 0) return null;
           const Icon = mod.icon;
           const open = collapsed[mod.id] === undefined ? mod.id === activeModule || true : !collapsed[mod.id];
           const readonly = vis === "readonly";
@@ -33,10 +40,7 @@ export function Sidebar() {
               </button>
               {open && (
                 <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
-                  {mod.pages
-                    .filter((p) => !p.requirePermission || hasPermission(p.requirePermission))
-                    .filter((p) => !p.requireRoleKeys || (roleKey != null && p.requireRoleKeys.includes(roleKey)))
-                    .map((p) => {
+                  {visiblePages.map((p) => {
                     const active = page === p.id;
                     return (
                       <button

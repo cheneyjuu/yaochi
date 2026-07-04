@@ -6,10 +6,8 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "../ui/dialog";
 import {
   AlertDialog,
@@ -30,9 +28,8 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { Eye, EyeOff, Info, Clock, Loader2, Plus, Megaphone, Undo2 } from "lucide-react";
+import { Eye, EyeOff, Info, Clock, Loader2, Megaphone, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { loadSession } from "../../lib/auth";
@@ -40,16 +37,18 @@ import {
   listVotingSubjects,
   getSubjectProgress,
   listVoteDetails,
-  proposeSubject,
+  listReminderDeliveries,
+  sendMobilizationReminder,
   publishSubject,
   cancelSubject,
   type AdminSubject,
-  type ProposeSubjectInput,
+  type ReminderDeliveryStatusCode,
   type SubjectProgress,
   type SubjectStatus,
   type SubjectType,
   type VoteChoice,
   type VoteDetail,
+  type VotingReminderDeliveryStatus,
   type VotingScope,
 } from "../../lib/voting";
 
@@ -64,6 +63,8 @@ const STEPS = [
 // 议题状态 → 步进条当前索引（CANCELLED 为终态，无对应步骤，返回 -1）。
 const STATUS_STEP: Record<SubjectStatus, number> = {
   DRAFT: 0,
+  PENDING_COMMITTEE: 0,
+  PENDING_STREET: 0,
   PUBLISHED: 1,
   VOTING: 2,
   CLOSED: 3,
@@ -80,6 +81,8 @@ const TYPE_META: Record<SubjectType, { label: string; tone: Tone }> = {
 
 const STATUS_LABEL: Record<SubjectStatus, string> = {
   DRAFT: "草稿",
+  PENDING_COMMITTEE: "待居委会初审",
+  PENDING_STREET: "待街道办终审",
   PUBLISHED: "公示中",
   VOTING: "投票中",
   CLOSED: "已截止",
@@ -99,7 +102,20 @@ const CHOICE_TONE: Record<VoteChoice, Tone> = {
   ABSTAIN: "neutral",
 };
 
+const DELIVERY_STATUS: Record<
+  VotingReminderDeliveryStatus["deliveryStatus"],
+  { label: string; tone: Tone }
+> = {
+  1: { label: "待投递", tone: "neutral" },
+  2: { label: "投递中", tone: "warning" },
+  3: { label: "已确认", tone: "success" },
+  4: { label: "失败待重试", tone: "danger" },
+};
+
 const DETAIL_SIZE = 20;
+const DELIVERY_LIMIT = 50;
+const DELIVERY_STATUS_FILTER_ALL = "all";
+type DeliveryStatusFilter = typeof DELIVERY_STATUS_FILTER_ALL | `${ReminderDeliveryStatusCode}`;
 
 // COMMUNITY → 全局议题（全小区分母）；BUILDING/UNIT → 局部议题。
 function isGlobalScope(scope: VotingScope): boolean {
@@ -131,9 +147,8 @@ export function Voting() {
   const [sel, setSel] = useState(0);
   const [adminView, setAdminView] = useState(true);
 
-  // 写动作（立项 / 公示 / 撤回）状态。
+  // 写动作（公示 / 撤回）状态。立项已迁移至「议题筹备」页。
   const [acting, setActing] = useState(false);
-  const [proposeOpen, setProposeOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   // bump → 触发进度 / 明细重拉（写成功后刷新看板）。
@@ -146,6 +161,18 @@ export function Voting() {
   const [detailTotal, setDetailTotal] = useState(0);
   const [detailPage, setDetailPage] = useState(1);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const [deliveryItems, setDeliveryItems] = useState<VotingReminderDeliveryStatus[]>([]);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryBuildingInput, setDeliveryBuildingInput] = useState("");
+  const [deliveryBuildingFilter, setDeliveryBuildingFilter] = useState<number | null>(null);
+  const [deliveryStatusFilter, setDeliveryStatusFilter] =
+    useState<DeliveryStatusFilter>(DELIVERY_STATUS_FILTER_ALL);
+  const [selectedDelivery, setSelectedDelivery] =
+    useState<VotingReminderDeliveryStatus | null>(null);
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderBuildingInput, setReminderBuildingInput] = useState("");
+  const [reminderMessage, setReminderMessage] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -181,20 +208,6 @@ export function Voting() {
       setRefreshKey((k) => k + 1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "议题列表刷新失败");
-    }
-  }
-
-  async function handlePropose(input: ProposeSubjectInput) {
-    setActing(true);
-    try {
-      const created = await proposeSubject(input);
-      toast.success("议题已草稿落库，待公示");
-      setProposeOpen(false);
-      await reload(created.subjectId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "立项失败");
-    } finally {
-      setActing(false);
     }
   }
 
@@ -287,6 +300,39 @@ export function Voting() {
     };
   }, [subjectId, detailPage, refreshKey]);
 
+  // 选中议题 / 筛选变化 → 拉取催票逐户投递明细。
+  useEffect(() => {
+    if (subjectId == null) {
+      setDeliveryItems([]);
+      return;
+    }
+    let alive = true;
+    setDeliveryLoading(true);
+    const status =
+      deliveryStatusFilter === DELIVERY_STATUS_FILTER_ALL
+        ? undefined
+        : (Number(deliveryStatusFilter) as ReminderDeliveryStatusCode);
+    listReminderDeliveries(subjectId, {
+      buildingId: deliveryBuildingFilter ?? undefined,
+      status,
+      limit: DELIVERY_LIMIT,
+    })
+      .then((items) => {
+        if (alive) setDeliveryItems(items);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setDeliveryItems([]);
+        toast.error(err instanceof Error ? err.message : "催票投递明细加载失败");
+      })
+      .finally(() => {
+        if (alive) setDeliveryLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [subjectId, deliveryBuildingFilter, deliveryStatusFilter, refreshKey]);
+
   // 双过半进度：参与率 vs 法定门槛（thresholdNumerator/thresholdDenominator = 2/3）。
   const threshold = progress
     ? (progress.thresholdNumerator / progress.thresholdDenominator) * 100
@@ -309,20 +355,71 @@ export function Voting() {
   function switchSubject(i: number) {
     setSel(i);
     setDetailPage(1);
+    setDeliveryBuildingInput("");
+    setDeliveryBuildingFilter(null);
+    setDeliveryStatusFilter(DELIVERY_STATUS_FILTER_ALL);
+    setReminderBuildingInput("");
+    setReminderMessage("");
+  }
+
+  function applyDeliveryBuildingFilter() {
+    const raw = deliveryBuildingInput.trim();
+    if (!raw) {
+      setDeliveryBuildingFilter(null);
+      return;
+    }
+    const next = Number(raw);
+    if (!Number.isInteger(next) || next <= 0) {
+      toast.error("楼栋 ID 必须是正整数");
+      return;
+    }
+    setDeliveryBuildingFilter(next);
+  }
+
+  function clearDeliveryFilters() {
+    setDeliveryBuildingInput("");
+    setDeliveryBuildingFilter(null);
+    setDeliveryStatusFilter(DELIVERY_STATUS_FILTER_ALL);
+  }
+
+  async function handleSendReminder(subject: AdminSubject) {
+    const raw = reminderBuildingInput.trim() || String(subject.scopeReferenceId ?? "");
+    const buildingId = Number(raw);
+    if (!Number.isInteger(buildingId) || buildingId <= 0) {
+      toast.error("楼栋 ID 必须是正整数");
+      return;
+    }
+    setActing(true);
+    try {
+      const reminder = await sendMobilizationReminder(subject.subjectId, {
+        buildingId,
+        message: reminderMessage.trim() || null,
+      });
+      toast.success(`催票已提交，Outbox #${reminder.outboxEventId}`);
+      setReminderOpen(false);
+      setReminderBuildingInput("");
+      setReminderMessage("");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "催票提交失败");
+    } finally {
+      setActing(false);
+    }
   }
 
   // 写动作门控（与后端 service 准入对齐，确保按钮永不触发 403）：
-  //   公示：DRAFT 且有 publish 权限。
+  //   公示：GENERAL/MAJOR 的 DRAFT 且有 publish 权限；ELECTION 必须走双签。
   //   撤回：DRAFT(政府 或 立项本人) / PUBLISHED(仅政府)；VOTING+ 一律不可。
   const canCreate = hasPermission("voting:subject:create");
   const canPublish = hasPermission("voting:subject:publish");
   const canGovCancel = hasPermission("voting:subject:cancel");
   const isProposer = t != null && currentUserId != null && t.proposedByUserId === currentUserId;
-  const showPublish = t?.status === "DRAFT" && canPublish;
+  const showPublish = t?.status === "DRAFT" && t.subjectType !== "ELECTION" && canPublish;
   const showCancel =
     t != null &&
     ((t.status === "DRAFT" && (canGovCancel || (canCreate && isProposer))) ||
       (t.status === "PUBLISHED" && canGovCancel));
+  const showSendReminder = t?.status === "VOTING";
 
   if (loading) {
     return (
@@ -338,25 +435,12 @@ export function Voting() {
         <PageHeader
           title="议题表决看板"
           desc='遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3），分母随议题范围动态变化。'
-          actions={
-            canCreate ? (
-              <Button size="sm" onClick={() => setProposeOpen(true)}>
-                <Plus className="size-4" /> 立项
-              </Button>
-            ) : undefined
-          }
         />
         <SectionCard>
           <div className="py-16 text-center text-muted-foreground">
-            当前小区暂无议题。{canCreate ? "可点击右上角「立项」创建。" : "可在「立项」流程创建后于此查看。"}
+            当前小区暂无议题。{canCreate ? "可在「议题筹备」页立项后于此查看。" : "可在「议题筹备」流程创建后于此查看。"}
           </div>
         </SectionCard>
-        <ProposeDialog
-          open={proposeOpen}
-          onOpenChange={setProposeOpen}
-          onSubmit={handlePropose}
-          submitting={acting}
-        />
       </div>
     );
   }
@@ -367,33 +451,19 @@ export function Voting() {
         title="议题表决看板"
         desc='遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3），分母随议题范围动态变化。'
         actions={
-          <div className="flex items-center gap-3">
-            <Select value={String(sel)} onValueChange={(v) => switchSubject(Number(v))}>
-              <SelectTrigger className="w-72">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {subjects.map((x, i) => (
-                  <SelectItem key={x.subjectId} value={String(i)}>
-                    {x.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {canCreate && (
-              <Button size="sm" onClick={() => setProposeOpen(true)}>
-                <Plus className="size-4" /> 立项
-              </Button>
-            )}
-          </div>
+          <Select value={String(sel)} onValueChange={(v) => switchSubject(Number(v))}>
+            <SelectTrigger className="w-72">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {subjects.map((x, i) => (
+                <SelectItem key={x.subjectId} value={String(i)}>
+                  {x.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         }
-      />
-
-      <ProposeDialog
-        open={proposeOpen}
-        onOpenChange={setProposeOpen}
-        onSubmit={handlePropose}
-        submitting={acting}
       />
 
       {/* 顶部议题信息条（真实数据） */}
@@ -620,182 +690,259 @@ export function Voting() {
           </div>
         </div>
       </SectionCard>
+
+      {/* 催票投递明细（真实后端查询） */}
+      <SectionCard
+        title="催票投递明细"
+        desc={`最近 ${DELIVERY_LIMIT} 条逐户短信投递状态，用于核查催票 outbox、供应商回执与失败原因`}
+        extra={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {showSendReminder && (
+              <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setReminderBuildingInput(String(t.scopeReferenceId ?? deliveryBuildingFilter ?? ""));
+                    setReminderOpen(true);
+                  }}
+                  disabled={acting}
+                >
+                  <Megaphone className="size-4" /> 发起催票
+                </Button>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>发起催票</DialogTitle>
+                    <DialogDescription>
+                      对授权楼栋内未投业主生成催票请求，后端会写入 outbox 并展开逐户投递明细。
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1 text-sm text-muted-foreground">楼栋 ID</div>
+                      <Input
+                        inputMode="numeric"
+                        value={reminderBuildingInput}
+                        onChange={(e) => setReminderBuildingInput(e.target.value)}
+                        placeholder="例如 30001"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1 text-sm text-muted-foreground">催票内容</div>
+                      <Textarea
+                        value={reminderMessage}
+                        maxLength={200}
+                        onChange={(e) => setReminderMessage(e.target.value)}
+                        placeholder="请尽快完成本轮表决"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setReminderOpen(false)} disabled={acting}>
+                        取消
+                      </Button>
+                      <Button onClick={() => handleSendReminder(t)} disabled={acting}>
+                        {acting && <Loader2 className="size-4 mr-1 animate-spin" />} 提交催票
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+            <Input
+              className="h-9 w-28"
+              inputMode="numeric"
+              placeholder="楼栋 ID"
+              value={deliveryBuildingInput}
+              onChange={(e) => setDeliveryBuildingInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyDeliveryBuildingFilter();
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={applyDeliveryBuildingFilter}
+              disabled={deliveryLoading}
+            >
+              查询
+            </Button>
+            <Select
+              value={deliveryStatusFilter}
+              onValueChange={(v) => setDeliveryStatusFilter(v as DeliveryStatusFilter)}
+            >
+              <SelectTrigger className="h-9 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={DELIVERY_STATUS_FILTER_ALL}>全部状态</SelectItem>
+                <SelectItem value="1">待投递</SelectItem>
+                <SelectItem value="2">投递中</SelectItem>
+                <SelectItem value="3">已确认</SelectItem>
+                <SelectItem value="4">失败待重试</SelectItem>
+              </SelectContent>
+            </Select>
+            {(deliveryBuildingFilter != null ||
+              deliveryStatusFilter !== DELIVERY_STATUS_FILTER_ALL) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clearDeliveryFilters}
+                disabled={deliveryLoading}
+              >
+                重置
+              </Button>
+            )}
+          </div>
+        }
+        bodyClassName="p-0"
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>业主</TableHead>
+              <TableHead>楼栋</TableHead>
+              <TableHead>手机号</TableHead>
+              <TableHead>渠道</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead className="text-right">尝试</TableHead>
+              <TableHead>供应商回执</TableHead>
+              <TableHead>更新时间</TableHead>
+              <TableHead className="text-right">详情</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {deliveryLoading ? (
+              <TableRow>
+                <TableCell colSpan={9}>
+                  <div className="flex items-center justify-center py-10 text-muted-foreground">
+                    <Loader2 className="size-5 mr-2 animate-spin" /> 投递明细加载中…
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : deliveryItems.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9}>
+                  <div className="py-10 text-center text-muted-foreground">
+                    当前议题暂无催票投递记录。
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              deliveryItems.map((r) => {
+                const meta = DELIVERY_STATUS[r.deliveryStatus];
+                const updatedAt =
+                  r.confirmedAt ?? r.failedAt ?? r.submittedAt ?? r.lastAttemptAt ?? r.createdAt;
+                return (
+                  <TableRow key={r.deliveryId}>
+                    <TableCell>
+                      <div className="font-mono-num text-sm">UID {r.uid}</div>
+                      <div className="text-xs text-muted-foreground">OPID {r.opid}</div>
+                    </TableCell>
+                    <TableCell className="font-mono-num text-sm">{r.buildingId}</TableCell>
+                    <TableCell className="font-mono-num text-sm">{r.phoneMasked ?? "—"}</TableCell>
+                    <TableCell>
+                      <StatusChip tone="tech">{r.channel}</StatusChip>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip tone={meta.tone}>{meta.label}</StatusChip>
+                      {r.lastError && (
+                        <div className="mt-1 max-w-44 truncate text-xs text-destructive" title={r.lastError}>
+                          {r.lastError}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono-num text-sm">{r.attempts}</TableCell>
+                    <TableCell className="font-mono-num text-xs">
+                      {r.providerMessageId ?? `outbox-${r.outboxEventId}`}
+                    </TableCell>
+                    <TableCell className="font-mono-num text-xs">{fmtDeadline(updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedDelivery(r)}>
+                        <Eye className="size-4" /> 查看
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </SectionCard>
+
+      <DeliveryDetailDialog
+        item={selectedDelivery}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDelivery(null);
+        }}
+      />
     </div>
   );
 }
 
-// 议题立项对话框（自管表单 state；提交转 ISO 时间，校验 ELECTION 名额 / BUILDING 楼栋）。
-function ProposeDialog({
-  open,
+function DeliveryDetailDialog({
+  item,
   onOpenChange,
-  onSubmit,
-  submitting,
 }: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  onSubmit: (input: ProposeSubjectInput) => void;
-  submitting: boolean;
+  item: VotingReminderDeliveryStatus | null;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [subjectType, setSubjectType] = useState<SubjectType>("GENERAL");
-  const [scope, setScope] = useState<VotingScope>("COMMUNITY");
-  const [buildingId, setBuildingId] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [partyFloor, setPartyFloor] = useState("");
-  const [maxWinners, setMaxWinners] = useState("");
-
-  // 每次打开重置表单。
-  useEffect(() => {
-    if (open) {
-      setTitle("");
-      setSubjectType("GENERAL");
-      setScope("COMMUNITY");
-      setBuildingId("");
-      setStart("");
-      setEnd("");
-      setPartyFloor("");
-      setMaxWinners("");
-    }
-  }, [open]);
-
-  const isElection = subjectType === "ELECTION";
-  const isBuilding = scope === "BUILDING";
-
-  const valid =
-    title.trim().length > 0 &&
-    start !== "" &&
-    end !== "" &&
-    (!isBuilding || buildingId.trim() !== "") &&
-    (!isElection || (maxWinners.trim() !== "" && Number(maxWinners) >= 1));
-
-  function submit() {
-    if (!valid) return;
-    onSubmit({
-      title: title.trim(),
-      subjectType,
-      scope,
-      scopeReferenceId: isBuilding ? Number(buildingId) : null,
-      voteStartAt: new Date(start).toISOString(),
-      voteEndAt: new Date(end).toISOString(),
-      partyRatioFloor: partyFloor.trim() !== "" ? Number(partyFloor) : null,
-      maxWinners: isElection ? Number(maxWinners) : null,
-    });
-  }
-
+  const meta = item ? DELIVERY_STATUS[item.deliveryStatus] : null;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={item != null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>发起议题立项</DialogTitle>
-          <DialogDescription>草稿落库后需公示方可进入投票。</DialogDescription>
+          <DialogTitle>催票投递详情</DialogTitle>
+          <DialogDescription>
+            逐户投递状态、供应商回执、重试时间线与失败原因。
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="propose-title">议题标题</Label>
-            <Input
-              id="propose-title"
-              placeholder="如：小区电梯更新改造专项维修资金使用"
-              maxLength={200}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>议题类型</Label>
-              <Select value={subjectType} onValueChange={(v) => setSubjectType(v as SubjectType)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GENERAL">一般决议</SelectItem>
-                  <SelectItem value="MAJOR">重大决议</SelectItem>
-                  <SelectItem value="ELECTION">选举</SelectItem>
-                </SelectContent>
-              </Select>
+        {item && meta && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusChip tone={meta.tone}>{meta.label}</StatusChip>
+              <StatusChip tone="tech">{item.channel}</StatusChip>
+              <span className="font-mono-num text-sm text-muted-foreground">
+                delivery-{item.deliveryId}
+              </span>
             </div>
-            <div className="space-y-1.5">
-              <Label>表决范围</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as VotingScope)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="COMMUNITY">全小区</SelectItem>
-                  <SelectItem value="BUILDING">单栋</SelectItem>
-                </SelectContent>
-              </Select>
+
+            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+              <DetailField label="议题 ID" value={item.subjectId} />
+              <DetailField label="楼栋 ID" value={item.buildingId} />
+              <DetailField label="UID" value={item.uid} />
+              <DetailField label="OPID" value={item.opid} />
+              <DetailField label="脱敏手机号" value={item.phoneMasked ?? "—"} />
+              <DetailField label="尝试次数" value={item.attempts} />
+              <DetailField label="Outbox ID" value={item.outboxEventId} />
+              <DetailField label="供应商回执" value={item.providerMessageId ?? "—"} />
             </div>
-          </div>
-          {isBuilding && (
-            <div className="space-y-1.5">
-              <Label htmlFor="propose-building">楼栋 ID</Label>
-              <Input
-                id="propose-building"
-                type="number"
-                placeholder="目标楼栋 building_id"
-                value={buildingId}
-                onChange={(e) => setBuildingId(e.target.value)}
-              />
+
+            <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+              <DetailField label="创建时间" value={fmtDeadline(item.createdAt)} />
+              <DetailField label="最近尝试" value={fmtDeadline(item.lastAttemptAt)} />
+              <DetailField label="提交时间" value={fmtDeadline(item.submittedAt)} />
+              <DetailField label="确认时间" value={fmtDeadline(item.confirmedAt)} />
+              <DetailField label="失败时间" value={fmtDeadline(item.failedAt)} />
+              <DetailField label="消息模板" value={item.messageTemplate} />
             </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="propose-start">投票开始</Label>
-              <Input
-                id="propose-start"
-                type="datetime-local"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="propose-end">投票截止</Label>
-              <Input
-                id="propose-end"
-                type="datetime-local"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="propose-party">党员比例下限（可空）</Label>
-              <Input
-                id="propose-party"
-                type="number"
-                step="0.01"
-                placeholder="如 0.5"
-                value={partyFloor}
-                onChange={(e) => setPartyFloor(e.target.value)}
-              />
-            </div>
-            {isElection && (
-              <div className="space-y-1.5">
-                <Label htmlFor="propose-winners">应选名额</Label>
-                <Input
-                  id="propose-winners"
-                  type="number"
-                  min={1}
-                  placeholder="≥1"
-                  value={maxWinners}
-                  onChange={(e) => setMaxWinners(e.target.value)}
-                />
+
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="mb-1 text-xs text-muted-foreground">失败原因</div>
+              <div className="whitespace-pre-wrap break-words text-sm">
+                {item.lastError || "无"}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            取消
-          </Button>
-          <Button onClick={submit} disabled={!valid || submitting}>
-            {submitting && <Loader2 className="size-4 mr-1 animate-spin" />} 提交立项
-          </Button>
-        </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border bg-background px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words font-mono-num text-sm">{value}</div>
+    </div>
   );
 }

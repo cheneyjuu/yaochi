@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DataScope, PropertyMode, RoleId } from "./types";
 import { ROLES } from "./types";
-import { loginByPhone, loadSession, clearSession } from "./auth";
+import { loginByPhone, loadSession, clearSession, switchSysUserShadow, type Session } from "./auth";
 import { setUnauthorizedHandler } from "./api";
 
 export interface Community {
@@ -39,6 +39,7 @@ interface StoreValue {
   roleKey: string | null;
   hasPermission: (key: string) => boolean;
   login: (phone: string, smsCode: string) => Promise<void>;
+  switchShadow: (targetUserId: number) => Promise<void>;
   logout: () => void;
 }
 
@@ -46,7 +47,9 @@ const StoreCtx = createContext<StoreValue | null>(null);
 
 const DEFAULT_SCOPE: Record<RoleId, DataScope> = {
   street_admin: "ALL_DISTRICT",
+  community_admin: "ALL_COMMUNITY",
   party_secretary: "ALL_COMMUNITY",
+  gov_operator: "ALL_COMMUNITY",
   committee_director: "ALL_COMMUNITY",
   committee_member: "ALL_COMMUNITY",
   building_rep: "CUSTOM_BUILDING",
@@ -91,9 +94,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPage("overview");
   };
 
-  // 真实登录：手机号 + 短信验证码 → 后端签发 JWT，角色/小区/权限由 user_info 派生
-  const login = async (phone: string, smsCode: string) => {
-    const session = await loginByPhone(phone, smsCode);
+  const applySession = (session: Session) => {
     setRoleRaw(session.roleId);
     setDataScope(DEFAULT_SCOPE[session.roleId]);
     setCommunityId(session.communityId);
@@ -103,6 +104,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPage("overview");
     setLockdown(false);
     setAuthed(true);
+  };
+
+  // 真实登录：手机号 + 短信验证码 → 后端签发 JWT，角色/小区/权限由 user_info 派生
+  const login = async (phone: string, smsCode: string) => {
+    const session = await loginByPhone(phone, smsCode);
+    applySession(session);
+  };
+
+  const switchShadow = async (targetUserId: number) => {
+    const session = await switchSysUserShadow(targetUserId);
+    applySession(session);
   };
 
   const logout = () => {
@@ -144,6 +156,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     roleKey,
     hasPermission,
     login,
+    switchShadow,
     logout,
   };
 

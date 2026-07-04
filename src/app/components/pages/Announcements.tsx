@@ -1,17 +1,12 @@
-import { useState } from "react";
 import { PageHeader, SectionCard, StatusChip, KpiCard } from "../gov/common";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Textarea } from "../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "../ui/sheet";
-import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
-import { Checkbox } from "../ui/checkbox";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 import { Progress } from "../ui/progress";
-import { Label } from "../ui/label";
-import { Megaphone, Plus, Eye, Users, BookOpen } from "lucide-react";
-import { toast } from "sonner";
+import { RichTextView } from "../common/RichTextEditor";
+import { Plus, Eye, Users, BookOpen } from "lucide-react";
+import { useStore } from "../../lib/store";
+import { useState } from "react";
 
 type ScopeType = "全小区" | "指定楼栋" | "指定角色";
 
@@ -126,52 +121,10 @@ const ANNOUNCEMENTS: Announcement[] = [
   },
 ];
 
-const BUILDINGS = ["1号楼", "2号楼", "3号楼", "4号楼", "5号楼", "6号楼", "7号楼", "8号楼"];
-const ROLES = ["楼栋长", "网格员", "业委会委员", "监事", "物业管理员"];
-
 export function Announcements() {
-  const [publishOpen, setPublishOpen] = useState(false);
+  const { setPage } = useStore();
   const [detailAnn, setDetailAnn] = useState<Announcement | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-
-  // 发布表单状态
-  const [formTitle, setFormTitle] = useState("");
-  const [formContent, setFormContent] = useState("");
-  const [pushScope, setPushScope] = useState<"全小区" | "指定楼栋" | "指定角色">("全小区");
-  const [selectedBuildings, setSelectedBuildings] = useState<string[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-
-  function toggleBuilding(b: string) {
-    setSelectedBuildings((prev) => (prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]));
-  }
-
-  function toggleRole(r: string) {
-    setSelectedRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
-  }
-
-  function handlePublish() {
-    if (!formTitle.trim()) {
-      toast.error("请填写公告标题");
-      return;
-    }
-    if (!formContent.trim()) {
-      toast.error("请填写公告正文");
-      return;
-    }
-    const scopeLabel =
-      pushScope === "指定楼栋"
-        ? `指定楼栋（${selectedBuildings.join("、") || "未选择"}）`
-        : pushScope === "指定角色"
-          ? `指定角色（${selectedRoles.join("、") || "未选择"}）`
-          : "全小区";
-    toast.success(`公告「${formTitle}」已发布，推送范围：${scopeLabel}`);
-    setPublishOpen(false);
-    setFormTitle("");
-    setFormContent("");
-    setPushScope("全小区");
-    setSelectedBuildings([]);
-    setSelectedRoles([]);
-  }
 
   function openDetail(ann: Announcement) {
     setDetailAnn(ann);
@@ -190,112 +143,10 @@ export function Announcements() {
         title="通知公告"
         desc="向全小区或指定楼栋 / 角色精准推送治理公告，支持阅读率统计与详情回溯。"
         actions={
-          <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="size-4" />
-                发布公告
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>发布新公告</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 mt-2">
-                <div className="space-y-1.5">
-                  <Label>公告标题</Label>
-                  <Input
-                    placeholder="请输入公告标题"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>公告正文</Label>
-                  <Textarea
-                    placeholder="请输入公告内容（支持富文本格式，此处为纯文本预览）"
-                    rows={6}
-                    value={formContent}
-                    onChange={(e) => setFormContent(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>附件</Label>
-                  <div className="flex items-center gap-2 rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground cursor-pointer hover:border-primary/40 transition-colors">
-                    <Megaphone className="size-4" />
-                    点击上传附件（PDF / 图片，最大 20MB）
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>推送范围</Label>
-                  <RadioGroup
-                    value={pushScope}
-                    onValueChange={(v) => setPushScope(v as typeof pushScope)}
-                    className="space-y-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="全小区" id="scope-all" />
-                      <Label htmlFor="scope-all" className="font-normal cursor-pointer">
-                        全小区（1240 户）
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="指定楼栋" id="scope-building" />
-                      <Label htmlFor="scope-building" className="font-normal cursor-pointer">
-                        指定楼栋
-                      </Label>
-                    </div>
-                    {pushScope === "指定楼栋" && (
-                      <div className="ml-6 grid grid-cols-4 gap-2">
-                        {BUILDINGS.map((b) => (
-                          <div key={b} className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`b-${b}`}
-                              checked={selectedBuildings.includes(b)}
-                              onCheckedChange={() => toggleBuilding(b)}
-                            />
-                            <Label htmlFor={`b-${b}`} className="font-normal text-xs cursor-pointer">
-                              {b}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="指定角色" id="scope-role" />
-                      <Label htmlFor="scope-role" className="font-normal cursor-pointer">
-                        指定角色
-                      </Label>
-                    </div>
-                    {pushScope === "指定角色" && (
-                      <div className="ml-6 space-y-1.5">
-                        {ROLES.map((r) => (
-                          <div key={r} className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`r-${r}`}
-                              checked={selectedRoles.includes(r)}
-                              onCheckedChange={() => toggleRole(r)}
-                            />
-                            <Label htmlFor={`r-${r}`} className="font-normal text-sm cursor-pointer">
-                              {r}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </RadioGroup>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <Button className="flex-1" onClick={handlePublish}>
-                    确认发布
-                  </Button>
-                  <Button variant="outline" onClick={() => setPublishOpen(false)}>
-                    取消
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={() => setPage("announcement-editor")}>
+            <Plus className="size-4" />
+            发布公告
+          </Button>
         }
       />
 
@@ -365,7 +216,7 @@ export function Announcements() {
 
               {/* 公告正文 */}
               <SectionCard title="公告正文" className="mb-4">
-                <p className="text-sm leading-7 text-foreground/90">{detailAnn.content}</p>
+                <RichTextView html={detailAnn.content} />
               </SectionCard>
 
               {/* 阅读统计 */}
