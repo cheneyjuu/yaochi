@@ -43,7 +43,7 @@ export const NAV: NavModule[] = [
     icon: Users,
     pages: [
       { id: "owners", label: "业主名册", requirePermission: "owner:list" },
-      { id: "topology", label: "楼栋 / 单元结构" },
+      { id: "topology", label: "楼栋 / 单元结构", requirePermission: "owner:list" },
       { id: "rbac", label: "角色与数据范围", requirePermission: "admin:role:read" },
       { id: "work-identity", label: "工作身份与授权", requirePermission: "admin:user:assign-role" },
       { id: "grid-management", label: "网格管理", requirePermission: "admin:user:assign-role" },
@@ -58,24 +58,24 @@ export const NAV: NavModule[] = [
           "COMMITTEE_DIRECTOR",
         ],
       },
-      { id: "certification", label: "实名认证等级" },
+      { id: "certification", label: "实名认证等级", requirePermission: "owner:list" },
     ],
   },
   {
     id: "property",
     label: "物业管理",
     icon: Building2,
-    pages: [{ id: "property-mgmt", label: "公共收益 / 开支录入" }],
+    pages: [{ id: "property-mgmt", label: "公共收益 / 开支录入", requirePermission: "fund:account:read" }],
   },
   {
     id: "committee",
     label: "委员会操作",
     icon: UsersRound,
     pages: [
-      { id: "committee-roster", label: "委员会名册" },
-      { id: "term-management", label: "换届管理" },
-      { id: "meeting-minutes", label: "会议纪要" },
-      { id: "duties", label: "职责分工" },
+      { id: "committee-roster", label: "委员会名册", requireAnyPermissions: ["voting:subject:audit", "waiver:read"] },
+      { id: "term-management", label: "换届管理", requireAnyPermissions: ["voting:subject:audit", "waiver:read"] },
+      { id: "meeting-minutes", label: "会议纪要", requireAnyPermissions: ["voting:subject:audit", "waiver:read"] },
+      { id: "duties", label: "职责分工", requireAnyPermissions: ["voting:subject:audit", "waiver:read"] },
     ],
   },
   {
@@ -112,10 +112,10 @@ export const NAV: NavModule[] = [
     label: "财务监督",
     icon: ShieldCheck,
     pages: [
-      { id: "finance", label: "公共收益公示" },
-      { id: "dual-sign", label: "信托制双签核销台" },
-      { id: "expense-approval", label: "酬金制开支审批" },
-      { id: "fund-review", label: "大额资金前置审查" },
+      { id: "finance", label: "公共收益公示", requireAnyPermissions: ["fund:account:read", "disclosure:compose", "disclosure:publish", "disclosure:audit"] },
+      { id: "dual-sign", label: "信托制双签核销台", requireAnyPermissions: ["lock:unlock:committee", "lock:unlock:street"] },
+      { id: "expense-approval", label: "酬金制开支审批", requirePermission: "fund:account:read" },
+      { id: "fund-review", label: "大额资金前置审查", requireAnyPermissions: ["lock:unlock:street", "disclosure:audit"] },
     ],
   },
   {
@@ -123,9 +123,9 @@ export const NAV: NavModule[] = [
     label: "资产与维修",
     icon: Wrench,
     pages: [
-      { id: "assets", label: "资产台账" },
+      { id: "assets", label: "资产台账", requirePermission: "repair:workorder:read" },
       { id: "work-orders", label: "维修工单", requirePermission: "repair:workorder:read" },
-      { id: "engineering", label: "工程方案与验收" },
+      { id: "engineering", label: "工程方案与验收", requireAnyPermissions: ["repair:workorder:manage", "repair:workorder:field", "repair:workorder:governance"] },
     ],
   },
   {
@@ -133,9 +133,9 @@ export const NAV: NavModule[] = [
     label: "沟通与报告",
     icon: Megaphone,
     pages: [
-      { id: "announcements", label: "通知公告" },
-      { id: "push-records", label: "定向推送记录" },
-      { id: "reports", label: "统计报表导出" },
+      { id: "announcements", label: "通知公告", requireAnyPermissions: ["voting:subject:audit", "repair:workorder:read", "owner:list"] },
+      { id: "push-records", label: "定向推送记录", requirePermission: "voting:subject:audit" },
+      { id: "reports", label: "统计报表导出", requireAnyPermissions: ["voting:subject:audit", "fund:account:read", "owner:list"] },
     ],
   },
 ];
