@@ -7,11 +7,11 @@ import { PropertyMgmt } from "./pages/PropertyMgmt";
 import { FundReview } from "./pages/FundReview";
 import { Election } from "./pages/Election";
 import { SubjectProposal } from "./pages/SubjectProposal";
+import { Disputes } from "./pages/Disputes";
 import { Finance } from "./pages/Finance";
 import { Owners } from "./pages/Owners";
 import { Topology } from "./pages/Topology";
 import { Rbac } from "./pages/Rbac";
-import { BuildingAssignment } from "./pages/BuildingAssignment";
 import { WorkIdentity } from "./pages/WorkIdentity";
 import { GridManagement } from "./pages/GridManagement";
 import { Certification } from "./pages/Certification";
@@ -38,12 +38,12 @@ const PAGES: Record<string, () => JSX.Element> = {
   "fund-review": FundReview,
   election: Election,
   "subject-proposal": SubjectProposal,
+  disputes: Disputes,
   "subject-proposal-editor": SubjectProposalEditor,
   finance: Finance,
   owners: Owners,
   topology: Topology,
   rbac: Rbac,
-  "building-assignment": BuildingAssignment,
   "work-identity": WorkIdentity,
   "grid-management": GridManagement,
   certification: Certification,

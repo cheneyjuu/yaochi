@@ -1,32 +1,46 @@
 import { useState } from "react";
 import { cn } from "../ui/utils";
-import { NAV, moduleVisibility } from "../../lib/nav";
 import { useStore } from "../../lib/store";
-import { ChevronDown, Lock } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  Circle,
+  Gavel,
+  LayoutDashboard,
+  Megaphone,
+  ShieldCheck,
+  Users,
+  UsersRound,
+  Vote,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+
+const ICONS: Record<string, LucideIcon> = {
+  Building2,
+  Gavel,
+  LayoutDashboard,
+  Megaphone,
+  ShieldCheck,
+  Users,
+  UsersRound,
+  Vote,
+  Wrench,
+};
 
 export function Sidebar() {
-  const { role, page, setPage, hasPermission, roleKey } = useStore();
+  const { page, setPage, menus } = useStore();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   // 找出当前页所在模块，默认展开
-  const activeModule = NAV.find((m) => m.pages.some((p) => p.id === page))?.id;
+  const activeModule = menus.find((m) => m.pages.some((p) => p.id === page))?.id;
 
   return (
     <aside className="w-60 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col h-full">
       <nav className="flex-1 overflow-y-auto gov-scroll py-3">
-        {NAV.map((mod) => {
-          const vis = moduleVisibility(role, mod.id);
-          if (vis === "hidden") return null;
-          // page 级权限/角色门控先于渲染——若整组 page 全被过滤，整个模块直接不渲染，
-          // 避免出现「能看到菜单标题但点不出任何子项」的死链。
-          const visiblePages = mod.pages
-            .filter((p) => !p.requirePermission || hasPermission(p.requirePermission))
-            .filter((p) => !p.requireAnyPermissions || p.requireAnyPermissions.some(hasPermission))
-            .filter((p) => !p.requireRoleKeys || (roleKey != null && p.requireRoleKeys.includes(roleKey)));
-          if (visiblePages.length === 0) return null;
-          const Icon = mod.icon;
+        {menus.map((mod) => {
+          const Icon = mod.icon ? (ICONS[mod.icon] ?? Circle) : Circle;
           const open = collapsed[mod.id] === undefined ? mod.id === activeModule || true : !collapsed[mod.id];
-          const readonly = vis === "readonly";
           return (
             <div key={mod.id} className="px-2">
               <button
@@ -35,12 +49,11 @@ export function Sidebar() {
               >
                 <Icon className="size-4 text-muted-foreground" />
                 <span className="flex-1 text-left" style={{ fontWeight: 500 }}>{mod.label}</span>
-                {readonly && <Lock className="size-3 text-muted-foreground" />}
                 <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", !open && "-rotate-90")} />
               </button>
               {open && (
                 <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
-                  {visiblePages.map((p) => {
+                  {mod.pages.map((p) => {
                     const active = page === p.id;
                     return (
                       <button
@@ -51,7 +64,6 @@ export function Sidebar() {
                           active
                             ? "bg-sidebar-primary text-sidebar-primary-foreground"
                             : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                          readonly && !active && "opacity-70",
                         )}
                       >
                         {p.label}

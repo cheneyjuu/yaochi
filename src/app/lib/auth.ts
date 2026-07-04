@@ -3,6 +3,7 @@
 
 import type { DataScope, RoleId } from "./types";
 import { apiGet, apiPost } from "./api";
+import type { NavModule } from "./nav";
 
 const SESSION_KEY = "pangu.session";
 
@@ -16,12 +17,14 @@ export interface UserInfo {
   auth_level: number;
   role_key: string;
   permissions: string[];
+  menu_permissions?: string[];
 }
 
 export interface Session {
   token: string;
   expiresIn: number;
   user: UserInfo;
+  menus?: NavModule[];
   /** 派生：前端角色 / 小区 / 数据范围。 */
   roleId: RoleId;
   communityId: string;

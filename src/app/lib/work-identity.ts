@@ -1,7 +1,7 @@
 // 工作身份与授权管理端封装 —— 对齐后端 WorkIdentityAdminController。
 // 账号是自然人 t_account；工作身份是 sys_user；每个工作身份绑定一个 RBAC 角色，楼栋责任田承载 OWNER_GROUP ABAC。
 
-import { apiGet, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 
 export interface WorkIdentityShadow {
   userId: number;
@@ -18,6 +18,7 @@ export interface WorkIdentityShadow {
   roleName: string | null;
   effectiveDataScope: string | null;
   buildingIds: number[];
+  gridNodes: WorkIdentityDeptOption[];
 }
 
 export interface WorkIdentityAccount {
@@ -52,9 +53,28 @@ export interface CreateWorkIdentityInput {
   forceBuildingTransfer?: boolean;
 }
 
-export function searchWorkIdentityAccounts(keyword: string): Promise<WorkIdentityAccount[]> {
+export interface CreateWorkIdentityAccountInput extends CreateWorkIdentityInput {
+  phone: string;
+  realName: string;
+}
+
+export function listWorkIdentityAccounts(roleKey?: string): Promise<WorkIdentityAccount[]> {
+  const q = new URLSearchParams();
+  if (roleKey) q.set("roleKey", roleKey);
+  const suffix = q.toString();
   return apiGet<WorkIdentityAccount[]>(
-    `/admin/work-identities/accounts/search?keyword=${encodeURIComponent(keyword)}`,
+    `/admin/work-identities/accounts${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+export function searchWorkIdentityAccounts(
+  keyword: string,
+  roleKey?: string,
+): Promise<WorkIdentityAccount[]> {
+  const q = new URLSearchParams({ keyword });
+  if (roleKey) q.set("roleKey", roleKey);
+  return apiGet<WorkIdentityAccount[]>(
+    `/admin/work-identities/accounts/search?${q.toString()}`,
   );
 }
 
@@ -78,6 +98,24 @@ export function ensureGridNodes(communityDeptId: number): Promise<WorkIdentityDe
   );
 }
 
+export function createGridNode(deptName: string): Promise<WorkIdentityDeptOption> {
+  return apiPost<WorkIdentityDeptOption>(
+    "/admin/work-identities/grid-nodes",
+    { deptName },
+  );
+}
+
+export function updateGridNode(deptId: number, deptName: string): Promise<WorkIdentityDeptOption> {
+  return apiPatch<WorkIdentityDeptOption>(
+    `/admin/work-identities/depts/${deptId}/grid-node`,
+    { deptName },
+  );
+}
+
+export function deleteGridNode(deptId: number): Promise<void> {
+  return apiDelete<void>(`/admin/work-identities/depts/${deptId}/grid-node`);
+}
+
 export function listGridBuildingScope(deptId: number): Promise<WorkIdentityBuilding[]> {
   return apiGet<WorkIdentityBuilding[]>(`/admin/work-identities/depts/${deptId}/building-scope`);
 }
@@ -92,6 +130,20 @@ export function updateGridBuildingScope(
   );
 }
 
+export function listAssignedGridNodes(userId: number): Promise<WorkIdentityDeptOption[]> {
+  return apiGet<WorkIdentityDeptOption[]>(`/admin/work-identities/users/${userId}/grid-nodes`);
+}
+
+export function updateAssignedGridNodes(
+  userId: number,
+  gridDeptIds: number[],
+): Promise<WorkIdentityDeptOption[]> {
+  return apiPut<WorkIdentityDeptOption[]>(
+    `/admin/work-identities/users/${userId}/grid-nodes`,
+    { gridDeptIds },
+  );
+}
+
 export function createWorkIdentityShadow(
   accountId: number,
   input: CreateWorkIdentityInput,
@@ -100,4 +152,10 @@ export function createWorkIdentityShadow(
     `/admin/work-identities/accounts/${accountId}/shadows`,
     input,
   );
+}
+
+export function createWorkIdentityAccount(
+  input: CreateWorkIdentityAccountInput,
+): Promise<WorkIdentityAccount> {
+  return apiPost<WorkIdentityAccount>("/admin/work-identities/accounts", input);
 }

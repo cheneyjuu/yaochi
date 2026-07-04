@@ -1,8 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DataScope, PropertyMode, RoleId } from "./types";
 import { ROLES } from "./types";
-import { loginByPhone, loadSession, clearSession, switchSysUserShadow, type Session } from "./auth";
+import { loginByPhone, loadSession, saveSession, clearSession, switchSysUserShadow, type Session } from "./auth";
 import { setUnauthorizedHandler } from "./api";
+import {
+  firstPageId,
+  hasPage,
+  listNavigationMenus,
+  type NavModule,
+} from "./nav";
 
 export interface Community {
   id: string;
@@ -35,7 +41,8 @@ interface StoreValue {
   authed: boolean;
   token: string | null;
   permissions: string[];
-  /** 后端 user_info.role_key（如 COMMITTEE_DIRECTOR），用于 nav 页级 requireRoleKeys 过滤。 */
+  menus: NavModule[];
+  /** 后端 user_info.role_key（如 COMMITTEE_DIRECTOR），用于业务组件判断身份。 */
   roleKey: string | null;
   hasPermission: (key: string) => boolean;
   login: (phone: string, smsCode: string) => Promise<void>;
@@ -73,6 +80,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(!!initial?.token);
   const [token, setToken] = useState<string | null>(initial?.token ?? null);
   const [permissions, setPermissions] = useState<string[]>(initial?.user.permissions ?? []);
+  const [menus, setMenus] = useState<NavModule[]>(initial?.menus ?? []);
   const [roleKey, setRoleKey] = useState<string | null>(initial?.user.role_key ?? null);
 
   // 注册 401/403 兜底：token 失效时清空会话回登录页
@@ -80,6 +88,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(() => {
       setToken(null);
       setPermissions([]);
+      setMenus([]);
       setRoleKey(null);
       setAuthed(false);
       setPage("overview");
@@ -99,6 +108,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDataScope(DEFAULT_SCOPE[session.roleId]);
     setCommunityId(session.communityId);
     setPermissions(session.user.permissions ?? []);
+    setMenus(session.menus ?? []);
     setRoleKey(session.user.role_key ?? null);
     setToken(session.token);
     setPage("overview");
@@ -108,12 +118,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // 真实登录：手机号 + 短信验证码 → 后端签发 JWT，角色/小区/权限由 user_info 派生
   const login = async (phone: string, smsCode: string) => {
-    const session = await loginByPhone(phone, smsCode);
+    const session = await withMenus(await loginByPhone(phone, smsCode));
     applySession(session);
   };
 
   const switchShadow = async (targetUserId: number) => {
-    const session = await switchSysUserShadow(targetUserId);
+    const session = await withMenus(await switchSysUserShadow(targetUserId));
     applySession(session);
   };
 
@@ -121,12 +131,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearSession();
     setToken(null);
     setPermissions([]);
+    setMenus([]);
     setRoleKey(null);
     setAuthed(false);
     setPage("overview");
   };
 
   const hasPermission = (key: string) => permissions.includes(key);
+
+  async function withMenus(session: Session): Promise<Session> {
+    const next = { ...session, menus: await listNavigationMenus() };
+    saveSession(next);
+    return next;
+  }
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    listNavigationMenus()
+      .then((nextMenus) => {
+        if (!alive) return;
+        setMenus(nextMenus);
+        const current = loadSession();
+        if (current?.token === token) {
+          saveSession({ ...current, menus: nextMenus });
+        }
+        setPage((currentPage) => (
+          hasPage(nextMenus, currentPage)
+            ? currentPage
+            : (firstPageId(nextMenus) ?? "overview")
+        ));
+      })
+      .catch(() => {
+        if (alive) setMenus([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   const community = useMemo(() => {
     const found = COMMUNITIES.find((c) => c.id === communityId);
@@ -153,6 +195,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     authed,
     token,
     permissions,
+    menus,
     roleKey,
     hasPermission,
     login,

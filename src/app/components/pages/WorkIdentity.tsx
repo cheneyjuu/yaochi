@@ -43,6 +43,7 @@ import {
 import { useStore } from "../../lib/store";
 import { listRoles, type Role } from "../../lib/rbac";
 import {
+  createWorkIdentityAccount,
   createWorkIdentityShadow,
   getWorkIdentityAccount,
   listWorkIdentityBuildings,
@@ -107,6 +108,7 @@ export function WorkIdentity() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [refreshingAccount, setRefreshingAccount] = useState(false);
 
   useEffect(() => {
@@ -184,9 +186,14 @@ export function WorkIdentity() {
         title="工作身份与授权"
         desc="同一自然人账号可拥有多个管理端工作身份；网格员使用统一静态角色，楼栋范围挂在网格组织节点"
         actions={
-          <Button disabled={!selected} onClick={() => setDialogOpen(true)}>
-            <Plus className="size-4 mr-1" /> 新增工作身份
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setAccountDialogOpen(true)}>
+              <Plus className="size-4 mr-1" /> 新增用户
+            </Button>
+            <Button variant="outline" disabled={!selected} onClick={() => setDialogOpen(true)}>
+              <Plus className="size-4 mr-1" /> 新增工作身份
+            </Button>
+          </div>
         }
       />
 
@@ -343,7 +350,179 @@ export function WorkIdentity() {
           if (selected) void refreshAccount(selected.accountId);
         }}
       />
+      <CreateAccountDialog
+        open={accountDialogOpen}
+        roles={roles}
+        rolesLoading={rolesLoading}
+        onOpenChange={setAccountDialogOpen}
+        onCreated={(account) => {
+          toast.success(`${account.realName || account.phone} 用户账号已创建`);
+          setAccounts((rows) => [account, ...rows.filter((row) => row.accountId !== account.accountId)]);
+          setSelected(account);
+        }}
+      />
     </div>
+  );
+}
+
+function CreateAccountDialog({
+  open,
+  roles,
+  rolesLoading,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  roles: Role[];
+  rolesLoading: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (account: WorkIdentityAccount) => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const [realName, setRealName] = useState("");
+  const [roleKey, setRoleKey] = useState("");
+  const [deptId, setDeptId] = useState("");
+  const [nickName, setNickName] = useState("");
+  const [deptOptions, setDeptOptions] = useState<WorkIdentityDeptOption[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const phoneOk = /^1[3-9]\d{9}$/.test(phone.trim());
+  const canSubmit = Boolean(phoneOk && realName.trim() && roleKey && deptId);
+
+  useEffect(() => {
+    if (!open) return;
+    setPhone("");
+    setRealName("");
+    setRoleKey("");
+    setDeptId("");
+    setNickName("");
+    setDeptOptions([]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || roleKey !== "" || !roles.some((role) => role.roleKey === GRID_MEMBER_ROLE)) return;
+    setRoleKey(GRID_MEMBER_ROLE);
+  }, [open, roleKey, roles]);
+
+  useEffect(() => {
+    if (!open || roleKey === "") return;
+    let alive = true;
+    setDeptLoading(true);
+    setDeptId("");
+    listWorkIdentityDeptOptions(roleKey)
+      .then((res) => {
+        if (!alive) return;
+        setDeptOptions(res);
+        setDeptId(res[0] ? String(res[0].deptId) : "");
+      })
+      .catch((err) => {
+        if (alive) toast.error(err instanceof Error ? err.message : "部门选项加载失败");
+      })
+      .finally(() => {
+        if (alive) setDeptLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, roleKey]);
+
+  async function submit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const account = await createWorkIdentityAccount({
+        phone: phone.trim(),
+        realName: realName.trim(),
+        roleKey,
+        deptId: Number(deptId),
+        nickName: nickName.trim() || undefined,
+        buildingIds: [],
+      });
+      onCreated(account);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "用户账号创建失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>新增用户</DialogTitle>
+          <DialogDescription>创建自然人账号并绑定一个管理端工作身份</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>手机号</Label>
+            <Input
+              value={phone}
+              maxLength={11}
+              inputMode="numeric"
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>姓名</Label>
+            <Input value={realName} maxLength={50} onChange={(e) => setRealName(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>所属部门/机构</Label>
+            <Select value={deptId} onValueChange={setDeptId} disabled={!roleKey || deptLoading}>
+              <SelectTrigger>
+                <SelectValue placeholder={deptLoading ? "加载中" : "选择组织"} />
+              </SelectTrigger>
+              <SelectContent>
+                {deptOptions.map((dept) => (
+                  <SelectItem key={dept.deptId} value={String(dept.deptId)}>
+                    {dept.deptName} · {DEPT_TYPE_LABEL[dept.deptType] ?? dept.deptType}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>分配角色</Label>
+            <Select value={roleKey} onValueChange={setRoleKey} disabled={rolesLoading}>
+              <SelectTrigger>
+                <SelectValue placeholder={rolesLoading ? "加载中" : "选择角色"} />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((item) => (
+                  <SelectItem key={item.roleKey} value={item.roleKey}>
+                    {item.roleName} · {item.roleKey}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>显示名称</Label>
+            <Input value={nickName} maxLength={50} onChange={(e) => setNickName(e.target.value)} />
+          </div>
+        </div>
+
+        {roleKey === GRID_MEMBER_ROLE && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+            网格员的数据范围来自所选网格节点；保存前请先在组织架构管理中完成楼栋范围配置。
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button disabled={!canSubmit || submitting} onClick={() => void submit()}>
+            {submitting ? <Loader2 className="size-4 mr-1 animate-spin" /> : <ShieldCheck className="size-4 mr-1" />}
+            保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { Topbar } from "./Topbar";
 import { Sidebar } from "./Sidebar";
 import { useStore, ROLES } from "../../lib/store";
-import { NAV } from "../../lib/nav";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,8 +23,8 @@ const SCOPE_LABEL: Record<DataScope, string> = {
 };
 
 function ContentHeader() {
-  const { page, role, dataScope, setDataScope } = useStore();
-  const mod = NAV.find((m) => m.pages.some((p) => p.id === page));
+  const { page, role, dataScope, setDataScope, menus } = useStore();
+  const mod = menus.find((m) => m.pages.some((p) => p.id === page));
   const pg = mod?.pages.find((p) => p.id === page);
   const canSwitchScope = role === "street_admin";
   const scopeOptions: DataScope[] = ["ALL_DISTRICT", "ALL_COMMUNITY", "CUSTOM_BUILDING", "ORG_ONLY"];
