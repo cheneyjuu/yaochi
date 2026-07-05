@@ -138,6 +138,14 @@ function authChip(level: number | null) {
   return <StatusChip tone="neutral">未核身</StatusChip>;
 }
 
+async function listDecisionVotingSubjects(): Promise<AdminSubject[]> {
+  const [general, major] = await Promise.all([
+    listVotingSubjects({ page: 1, size: 50, type: "GENERAL" }),
+    listVotingSubjects({ page: 1, size: 50, type: "MAJOR" }),
+  ]);
+  return [...general.items, ...major.items].sort((a, b) => b.subjectId - a.subjectId);
+}
+
 export function Voting() {
   const { hasPermission } = useStore();
   const currentUserId = loadSession()?.user.active_identity_id ?? null;
@@ -177,10 +185,10 @@ export function Voting() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    listVotingSubjects({ page: 1, size: 50 })
-      .then((res) => {
+    listDecisionVotingSubjects()
+      .then((items) => {
         if (!alive) return;
-        setSubjects(res.items);
+        setSubjects(items);
         setSel(0);
       })
       .catch((err) => {
@@ -198,11 +206,11 @@ export function Voting() {
   // 写成功后刷新列表：保留（或定位到）目标议题，并触发进度 / 明细重拉。
   async function reload(preserveSubjectId?: number) {
     try {
-      const res = await listVotingSubjects({ page: 1, size: 50 });
-      setSubjects(res.items);
+      const items = await listDecisionVotingSubjects();
+      setSubjects(items);
       const idx =
         preserveSubjectId != null
-          ? res.items.findIndex((x) => x.subjectId === preserveSubjectId)
+          ? items.findIndex((x) => x.subjectId === preserveSubjectId)
           : -1;
       setSel(idx >= 0 ? idx : 0);
       setRefreshKey((k) => k + 1);
@@ -433,12 +441,12 @@ export function Voting() {
     return (
       <div className="space-y-5">
         <PageHeader
-          title="议题表决看板"
-          desc='遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3），分母随议题范围动态变化。'
+          title="议题投票看板"
+          desc='仅展示一般决议与重大决议；换届选举进入「选举投票看板」。遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3）。'
         />
         <SectionCard>
           <div className="py-16 text-center text-muted-foreground">
-            当前小区暂无议题。{canCreate ? "可在「议题筹备」页立项后于此查看。" : "可在「议题筹备」流程创建后于此查看。"}
+            当前小区暂无一般决议或重大决议。{canCreate ? "可在「议题筹备」页立项后于此查看。" : "可在「议题筹备」流程创建后于此查看。"}
           </div>
         </SectionCard>
       </div>
@@ -448,8 +456,8 @@ export function Voting() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="议题表决看板"
-        desc='遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3），分母随议题范围动态变化。'
+        title="议题投票看板"
+        desc='仅展示一般决议与重大决议；换届选举进入「选举投票看板」。遵循“双过半”红线（参与专有面积 ≥2/3 且 人数 ≥2/3）。'
         actions={
           <Select value={String(sel)} onValueChange={(v) => switchSubject(Number(v))}>
             <SelectTrigger className="w-72">
@@ -655,7 +663,7 @@ export function Voting() {
                         <span className="text-muted-foreground">—</span>
                       )
                     ) : (
-                      <span className="text-muted-foreground">表决中保密</span>
+                      <span className="text-muted-foreground">投票中保密</span>
                     )}
                   </TableCell>
                   <TableCell>{authChip(r.authLevel)}</TableCell>

@@ -16,9 +16,9 @@ const trend = [
 ];
 
 const todos = [
-  { id: 1, icon: Vote, text: "“主干道翻修 15 万元”议题表决中，当前专有面积通过率 64%", tone: "primary" as const, tag: "议题" },
+  { id: 1, icon: Vote, text: "“主干道翻修 15 万元”议题投票中，当前专有面积通过率 64%", tone: "primary" as const, tag: "议题" },
   { id: 2, icon: FileCheck2, text: "信托资金核销待您第二签：保安公司月度劳务费 ¥86,400", tone: "danger" as const, tag: "待双签" },
-  { id: 3, icon: Wrench, text: "1 号楼顶层漏水维修工单待表决（局部 · 仅本楼栋）", tone: "warning" as const, tag: "工单" },
+  { id: 3, icon: Wrench, text: "1 号楼顶层漏水维修工单待投票（局部 · 仅本楼栋）", tone: "warning" as const, tag: "工单" },
   { id: 4, icon: Megaphone, text: "二季度公共收益分配公示已发布，触达 1240 户", tone: "info" as const, tag: "公示" },
 ];
 
@@ -92,7 +92,7 @@ export function Overview() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <SectionCard title="表决参与率趋势" desc="近 6 个月（%）">
+        <SectionCard title="投票参与率趋势" desc="近 6 个月（%）">
           <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={trend} margin={{ left: -16, right: 8, top: 8 }}>
               <defs>

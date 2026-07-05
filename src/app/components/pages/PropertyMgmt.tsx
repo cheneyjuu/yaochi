@@ -19,8 +19,8 @@ export function PropertyMgmt() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="物业管理 · 公共收益 / 开支录入"
-        desc="同一页面框架在三种治理模式下字段与可见范围完全不同。下方“模式驱动差异化”随当前小区模式切换。"
+        title="财务监督 · 收益与开支录入"
+        desc="录入公共收益与治理模式相关开支，后续进入公示、开支审批或双签核销流程。下方“模式驱动差异化”随当前小区模式切换。"
         actions={
           <div className="flex items-center gap-1.5 rounded-md border border-border p-1">
             {(["package", "reward", "trust"] as const).map((md) => (

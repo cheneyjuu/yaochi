@@ -143,7 +143,7 @@ const DEPT_LABEL: Record<string, string> = {
 // 权限分组 → 中文展示，缺省回退原值。
 const GROUP_LABEL: Record<string, string> = {
   ADMIN: "系统管理",
-  VOTING: "议题表决",
+  VOTING: "投票管理",
   WAIVER: "豁免",
   FUND: "资金",
   IDENTITY: "身份",

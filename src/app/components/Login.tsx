@@ -90,7 +90,7 @@ export function Login() {
             </h1>
             <p className="mt-4 text-white/80 max-w-md leading-relaxed">
               面向「业委会自治 + 物业协同 + 街道办监管」的多租户治理平台，
-              一套角色自适应外壳，贯穿议题表决、资金双签、司法链存证与全流程监管。
+              一套角色自适应外壳，贯穿议题投票、资金双签、司法链存证与全流程监管。
             </p>
           </div>
 

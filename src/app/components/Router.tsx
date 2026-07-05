@@ -14,6 +14,7 @@ import { Topology } from "./pages/Topology";
 import { Rbac } from "./pages/Rbac";
 import { WorkIdentity } from "./pages/WorkIdentity";
 import { GridManagement } from "./pages/GridManagement";
+import { CommunitySettings } from "./pages/CommunitySettings";
 import { Certification } from "./pages/Certification";
 import { CommitteeRoster } from "./pages/CommitteeRoster";
 import { TermManagement } from "./pages/TermManagement";
@@ -46,6 +47,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   rbac: Rbac,
   "work-identity": WorkIdentity,
   "grid-management": GridManagement,
+  "community-settings": CommunitySettings,
   certification: Certification,
   "committee-roster": CommitteeRoster,
   "term-management": TermManagement,

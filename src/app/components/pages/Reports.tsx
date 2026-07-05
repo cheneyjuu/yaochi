@@ -52,11 +52,11 @@ const REPORT_CARDS: ReportCard[] = [
   {
     id: "participation",
     icon: Vote,
-    name: "表决参与率报表",
-    desc: "统计近期各议题表决参与率趋势，用于评估业主自治活跃度与 G 端合规审核。",
+    name: "投票参与率报表",
+    desc: "统计近期各议题投票参与率趋势，用于评估业主自治活跃度与 G 端合规审核。",
     iconColor: "#1b4f9c",
     iconBg: "#e8f0fb",
-    tag: "表决",
+    tag: "投票",
     tagTone: "primary",
   },
   {
@@ -313,7 +313,7 @@ function ElectionChart() {
 const CHART_MAP: Record<ReportType, { chart: React.ReactNode; title: string; desc: string }> = {
   participation: {
     chart: <ParticipationChart />,
-    title: "表决参与率趋势",
+    title: "投票参与率趋势",
     desc: "近 6 个月各月平均参与率（%），红虚线为双过半法定红线 66.7%",
   },
   finance: {
@@ -366,7 +366,7 @@ export function Reports() {
     <div className="space-y-5">
       <PageHeader
         title="统计报表导出"
-        desc="导出治理运营报表（表决参与率、财务收支、工单时效、认证率等），供 G 端监管与年审备案，支持 Excel / PDF / CSV 格式。"
+        desc="导出治理运营报表（投票参与率、财务收支、工单时效、认证率等），供 G 端监管与年审备案，支持 Excel / PDF / CSV 格式。"
         actions={
           <Button
             onClick={() => handleExport()}

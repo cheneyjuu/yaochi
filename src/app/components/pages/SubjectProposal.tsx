@@ -72,7 +72,7 @@ import {
 } from "../../lib/election";
 
 /**
- * 议题筹备 —— 把原本分散在「议题表决看板」（立项 / 公示 / 撤回）和
+ * 议题筹备 —— 把原本分散在「投票管理」（立项 / 公示 / 撤回）和
  * 「选举投票看板」（候选人提名 / 党组审查 / 居委会资格审查）的"公示之前的全部工作"
  * 整合到一处，让筹备阶段的操作流程统一。
  *
@@ -493,7 +493,7 @@ export function SubjectProposal() {
     <div className="space-y-5">
       <PageHeader
         title="议题筹备"
-        desc="集中处理「立项 → 候选人提名 / 资格审查 → 公示」之前的全部筹备工作。公示之后的议题进入「议题表决看板」与「选举投票看板」。"
+        desc="集中处理「立项 → 候选人提名 / 资格审查 → 公示」之前的全部筹备工作。公示后，一般/重大议题进入「议题投票看板」，选举议题进入「选举投票看板」。"
         actions={
           (canCreate || canProposeElection) ? (
             <Button size="sm" onClick={() => setPage("subject-proposal-editor")}>
@@ -509,8 +509,8 @@ export function SubjectProposal() {
             title="暂无筹备中的议题"
             desc={
               canCreate
-                ? "可点击右上角「立项议题」创建草稿；已公示/已开票的议题请前往「议题表决看板」。"
-                : "已公示/已开票的议题请前往「议题表决看板」查看。"
+                ? "可点击右上角「立项议题」创建草稿；已公示/已开票的一般/重大议题请前往「议题投票看板」，选举议题请前往「选举投票看板」。"
+                : "已公示/已开票的一般/重大议题请前往「议题投票看板」，选举议题请前往「选举投票看板」。"
             }
           />
         </SectionCard>
@@ -685,7 +685,7 @@ export function SubjectProposal() {
             {isElection ? (
               <SectionCard
                 title="候选人名册 / 资格审查"
-                desc="提名后进入「待党组审查」；党组 → 居委会两级审查请到「选举管理 → 选举投票看板」操作"
+                desc="提名后进入「待党组审查」；在筹备阶段完成党组 → 居委会两级审查，通过后进入选举公示流程"
                 extra={
                   canNominateNow ? (
                     <Button size="sm" onClick={() => setNominateOpen(true)}>

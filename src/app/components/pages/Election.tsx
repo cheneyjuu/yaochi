@@ -264,7 +264,7 @@ export function Election() {
         <SectionCard>
           <EmptyState
             title="暂无换届选举议题"
-            desc="可在「议题表决」以类型=选举立项后，于此查看候选人名册与选举进度。"
+            desc="可在「议题筹备」以类型=选举立项后，于此查看候选人名册与选举进度。"
           />
         </SectionCard>
       </div>
@@ -300,8 +300,8 @@ export function Election() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <SectionCard
-          title="选举投票看板"
-          desc="复用双过半进度逻辑（参与专有面积 ≥2/3 且 人数 ≥2/3）"
+          title="选举参与门槛"
+          desc="换届选举专用参与率校验（参与专有面积 ≥2/3 且 人数 ≥2/3）"
           className="lg:col-span-2"
         >
           {settled && (
