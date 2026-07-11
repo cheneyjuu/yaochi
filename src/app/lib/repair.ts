@@ -8,11 +8,25 @@ export type RepairStatus =
   | "VERIFIED"
   | "ASSIGNED"
   | "SURVEYING"
+  | "SURVEY_COMPLETED"
+  | "QUOTE_COLLECTING"
+  | "QUOTE_SUBMITTED"
+  | "SUPPLIER_RECOMMENDED"
   | "PLAN_SUBMITTED"
+  | "LOCAL_DECISION_PENDING"
+  | "LOCAL_DECISION_PASSED"
+  | "ASSEMBLY_DECISION_PENDING"
+  | "APPROVAL_DOCUMENT_PREPARING"
+  | "PRICE_REVIEW_PENDING"
   | "GOVERNANCE_PENDING"
+  | "GOVERNANCE_CONFIRMED"
+  | "SEALED"
+  | "CONTRACT_SIGNING"
+  | "CONTRACT_EFFECTIVE"
   | "APPROVED"
   | "IN_PROGRESS"
   | "PENDING_ACCEPTANCE"
+  | "ACCEPTANCE_EXCEPTION"
   | "RECTIFICATION_REQUIRED"
   | "COMPLETED"
   | "EVALUATED"
@@ -25,7 +39,57 @@ export type RepairStatus =
   | "PLAN_REVISION_REQUIRED"
   | "CHANGE_REVIEW_PENDING"
   | "PAYMENT_EXCEPTION"
-  | "HANDOVER_LOCK";
+  | "HANDOVER_LOCK"
+  | "EMERGENCY_REPORTED"
+  | "EMERGENCY_MITIGATION"
+  | "EMERGENCY_PLAN_PENDING"
+  | "EMERGENCY_REPAIRING";
+
+export interface RegisterSupplierOrganizationInput {
+  legalName: string;
+  unifiedSocialCreditCode: string;
+  contactName: string;
+  contactPhone: string;
+}
+
+export interface RepairSupplierOrganization {
+  supplierDeptId: number;
+  unifiedSocialCreditCode: string;
+  legalName: string;
+  contactName: string;
+  contactPhone: string;
+  verificationStatus: "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "DISABLED";
+}
+
+export interface SupplierActivationInvitation {
+  invitationId: number;
+  supplierDeptId: number;
+  supplierLegalName: string;
+  contactName: string;
+  contactPhone: string;
+  status: string;
+  expiresAt: string;
+}
+
+export interface RepairSupplierQuote {
+  quoteId: number;
+  supplierDeptId: number;
+  supplierName: string;
+  quoteAmount: number;
+  quoteSummary?: string | null;
+  submissionSource: string;
+  confirmationStatus: string;
+  createTime: string;
+}
+
+export interface RepairFrameworkRelation {
+  relationId: number;
+  supplierDeptId: number;
+  supplierLegalName: string;
+  serviceCategory?: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+}
 
 export interface RepairWorkOrder {
   workOrderId: number;
@@ -70,7 +134,39 @@ export interface RepairEvent {
   actorIdentityType?: string | null;
   actorIdentityId?: number | null;
   remark?: string | null;
+  payloadJson?: string | null;
   createTime: string;
+}
+
+export interface RepairLocationOptions {
+  communities: RepairLocationCommunityOption[];
+}
+
+export interface RepairDecisionRoom {
+  roomId: number;
+  buildArea: number;
+}
+
+export interface RepairLocationCommunityOption {
+  tenantId: number;
+  communityName: string;
+  buildings: RepairLocationBuildingOption[];
+}
+
+export interface RepairLocationBuildingOption {
+  buildingId: number;
+  buildingName: string;
+  units: RepairLocationUnitOption[];
+}
+
+export interface RepairLocationUnitOption {
+  unitName: string;
+  rooms: RepairLocationRoomOption[];
+}
+
+export interface RepairLocationRoomOption {
+  roomId: number;
+  roomName: string;
 }
 
 export interface PageResponse<T> {
@@ -113,6 +209,49 @@ export function listRepairEvents(workOrderId: number): Promise<RepairEvent[]> {
   return apiGet<RepairEvent[]>(`/admin/repair-work-orders/${workOrderId}/events`);
 }
 
+export function listRepairLocationOptions(): Promise<RepairLocationOptions> {
+  return apiGet<RepairLocationOptions>("/admin/repair-work-orders/location-options");
+}
+
 export function repairAction(workOrderId: number, action: string, body: unknown = {}): Promise<RepairWorkOrder> {
   return apiPost<RepairWorkOrder>(`/admin/repair-work-orders/${workOrderId}/${action}`, body);
+}
+
+export function listRepairDecisionRooms(workOrderId: number): Promise<RepairDecisionRoom[]> {
+  return apiGet<RepairDecisionRoom[]>(`/admin/repair-work-orders/${workOrderId}/local-decision-rooms`);
+}
+
+export function registerSupplierOrganization(input: RegisterSupplierOrganizationInput): Promise<number> {
+  return apiPost<number>("/admin/supplier-organizations", input);
+}
+
+export function createSupplierActivationInvitation(
+  supplierDeptId: number,
+  input: { contactName?: string; contactPhone?: string; validHours?: number } = {},
+): Promise<SupplierActivationInvitation> {
+  return apiPost<SupplierActivationInvitation>(
+    `/admin/supplier-organizations/${supplierDeptId}/activation-invitations`,
+    input,
+  );
+}
+
+export function listRepairSupplierOrganizations(): Promise<RepairSupplierOrganization[]> {
+  return apiGet<RepairSupplierOrganization[]>("/admin/supplier-organizations");
+}
+
+export function listRepairSupplierQuotes(workOrderId: number): Promise<RepairSupplierQuote[]> {
+  return apiGet<RepairSupplierQuote[]>(`/admin/repair-work-orders/${workOrderId}/supplier-quotes`);
+}
+
+export function listRepairFrameworkRelations(serviceCategory?: string | null): Promise<RepairFrameworkRelation[]> {
+  const query = serviceCategory ? `?serviceCategory=${encodeURIComponent(serviceCategory)}` : "";
+  return apiGet<RepairFrameworkRelation[]>(`/admin/supplier-framework-relations${query}`);
+}
+
+export function listSupplierRepairWorkOrders(): Promise<RepairWorkOrder[]> {
+  return apiGet<RepairWorkOrder[]>("/supplier/repair-work-orders");
+}
+
+export function submitSupplierWorkbenchQuote(workOrderId: number, input: unknown): Promise<RepairWorkOrder> {
+  return apiPost<RepairWorkOrder>(`/supplier/repair-work-orders/${workOrderId}/quote`, input);
 }

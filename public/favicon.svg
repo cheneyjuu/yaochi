@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pangu">
+  <rect width="64" height="64" rx="14" fill="#1f5aa6"/>
+  <path d="M14 30.5 32 17l18 13.5" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M19 30v18h26V30" fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M28 48V36h8v12" fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="48" cy="18" r="6" fill="#f0b429"/>
+</svg>

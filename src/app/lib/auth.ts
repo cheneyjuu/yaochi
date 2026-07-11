@@ -12,7 +12,7 @@ export interface UserInfo {
   account_id: number;
   identity_type: string;
   active_identity_id: number;
-  tenant_id: number;
+  tenant_id: number | null;
   dept_type: number | null;
   auth_level: number;
   role_key: string;
@@ -58,7 +58,9 @@ const ROLE_KEY_TO_ROLE_ID: Record<string, RoleId> = {
   OWNER_REPRESENTATIVE: "building_rep",
   PROPERTY_MANAGER: "property_manager",
   PROPERTY_STAFF: "property_service",
-  // 未覆盖：COMMITTEE_SECRETARY / VOLUNTEER / SERVICE_PROVIDER_* → 回退
+  SERVICE_PROVIDER_MANAGER: "supplier_service",
+  SERVICE_PROVIDER_STAFF: "supplier_service",
+  // 未覆盖：COMMITTEE_SECRETARY / VOLUNTEER → 回退
 };
 
 export function mapRoleId(roleKey: string | null | undefined): RoleId {
@@ -70,10 +72,13 @@ export function mapRoleId(roleKey: string | null | undefined): RoleId {
 // ---- tenant_id → 前端 communityId（当前单租户，临时硬映射）----
 const TENANT_TO_COMMUNITY: Record<number, string> = {
   10001: "c1",
+  10002: "c2",
+  10003: "c3",
 };
 
-export function mapCommunityId(roleId: RoleId, tenantId: number): string {
-  if (roleId === "street_admin") return "ALL";
+export function mapCommunityId(roleId: RoleId, tenantId: number | null): string {
+  if (roleId === "street_admin" && tenantId == null) return "ALL";
+  if (tenantId == null) return "c1";
   return TENANT_TO_COMMUNITY[tenantId] ?? "c1";
 }
 
@@ -88,6 +93,7 @@ export const DEFAULT_SCOPE: Record<RoleId, DataScope> = {
   building_rep: "CUSTOM_BUILDING",
   property_manager: "ORG_ONLY",
   property_service: "ORG_ONLY",
+  supplier_service: "ORG_ONLY",
   auditor: "ALL_COMMUNITY",
 };
 
@@ -140,6 +146,25 @@ export async function loginByPhone(phone: string, smsCode: string): Promise<Sess
   const session = buildSession(data.access_token, data.expires_in, data.user_info);
   saveSession(session);
   return session;
+}
+
+export interface SupplierActivationResult {
+  invitationId: number;
+  supplierDeptId: number;
+  supplierLegalName: string;
+  accountId: number;
+  userId: number;
+  phone: string;
+  roleKey: string;
+}
+
+export function activateSupplierAccount(input: {
+  invitationId: number;
+  phone: string;
+  smsCode: string;
+  operatorName: string;
+}): Promise<SupplierActivationResult> {
+  return apiPost<SupplierActivationResult>("/supplier-activation/activate", input, { auth: false });
 }
 
 interface ShadowsResponse {

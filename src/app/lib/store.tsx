@@ -62,6 +62,7 @@ const DEFAULT_SCOPE: Record<RoleId, DataScope> = {
   building_rep: "CUSTOM_BUILDING",
   property_manager: "ORG_ONLY",
   property_service: "ORG_ONLY",
+  supplier_service: "ORG_ONLY",
   auditor: "ALL_COMMUNITY",
 };
 

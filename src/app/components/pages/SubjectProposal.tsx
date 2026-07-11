@@ -41,6 +41,7 @@ import {
   Search,
   Megaphone,
   Undo2,
+  FileSignature,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
@@ -496,9 +497,16 @@ export function SubjectProposal() {
         desc="集中处理「立项 → 候选人提名 / 资格审查 → 公示」之前的全部筹备工作。公示后，一般/重大议题进入「议题投票看板」，选举议题进入「选举投票看板」。"
         actions={
           (canCreate || canProposeElection) ? (
-            <Button size="sm" onClick={() => setPage("subject-proposal-editor")}>
-              <Plus className="size-4" /> 立项议题
-            </Button>
+            <div className="flex items-center gap-2">
+              {canCreate && (
+                <Button size="sm" variant="outline" onClick={() => setPage("owners-assembly")}>
+                  <FileSignature className="size-4" /> 业主大会
+                </Button>
+              )}
+              <Button size="sm" onClick={() => setPage("subject-proposal-editor")}>
+                <Plus className="size-4" /> 立项议题
+              </Button>
+            </div>
           ) : undefined
         }
       />

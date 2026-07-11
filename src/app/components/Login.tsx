@@ -4,18 +4,11 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
 import {
-  Smartphone, ShieldCheck, Vote, Building2, Landmark,
-  BarChart3, Network,
+  Smartphone, ShieldCheck, Vote,
+  BarChart3, Network, UserPlus, Hash,
 } from "lucide-react";
 import { toast } from "sonner";
-
-type SideTab = "B" | "G";
-
-// 各端示例账号（seed 手机号，短信码统一 123456）
-const SIDE_SAMPLE: Record<SideTab, { phone: string; label: string }> = {
-  B: { phone: "13800000011", label: "业委会主任 周主任" },
-  G: { phone: "13800000001", label: "街道办超管 王街道" },
-};
+import { activateSupplierAccount } from "../lib/auth";
 
 const HIGHLIGHTS = [
   { icon: Vote, title: "双过半表决", desc: "专有面积与人数双红线，分母随议题范围动态计算" },
@@ -27,24 +20,26 @@ const HIGHLIGHTS = [
 const SEED_ACCOUNTS = [
   { phone: "13800000001", role: "街道办超管 (G)" },
   { phone: "13800000002", role: "党组织书记 (G)" },
+  { phone: "13800000003", role: "居委会管理员 (G)" },
+  { phone: "13800000004", role: "网格员 (G)" },
   { phone: "13800000011", role: "业委会主任 (B)" },
-  { phone: "13800000021", role: "物业经理 (B)" },
+  { phone: "13800000013", role: "业委会委员 (B)" },
+  { phone: "13800000012", role: "业主代表 (B)" },
+  { phone: "13800000014", role: "志愿者 (B)" },
+  { phone: "13800000021", role: "物业经理 (S)" },
+  { phone: "13800000022", role: "物业员工 (S)" },
+  { phone: "13800000031", role: "供应商报价经办人 (S)" },
 ];
 
 export function Login() {
   const { login } = useStore();
-  const [side, setSide] = useState<SideTab>("B");
-  const [phone, setPhone] = useState(SIDE_SAMPLE.B.phone);
+  const [phone, setPhone] = useState("13800000011");
   const [smsCode, setSmsCode] = useState("123456");
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
-
-  const isG = side === "G";
-
-  const switchSide = (s: SideTab) => {
-    setSide(s);
-    setPhone(SIDE_SAMPLE[s].phone);
-  };
+  const [view, setView] = useState<"login" | "activation">("login");
+  const [invitationId, setInvitationId] = useState("");
+  const [operatorName, setOperatorName] = useState("");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -58,6 +53,31 @@ export function Login() {
       toast.success("登录成功，欢迎回来");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "登录失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activate = async (e: FormEvent) => {
+    e.preventDefault();
+    const parsedInvitationId = Number(invitationId);
+    if (!Number.isSafeInteger(parsedInvitationId) || parsedInvitationId <= 0
+      || !phone || !smsCode || !operatorName) {
+      toast.error("请完整填写激活邀请、经办人、手机号与短信验证码");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await activateSupplierAccount({
+        invitationId: parsedInvitationId,
+        phone,
+        smsCode,
+        operatorName,
+      });
+      toast.success(`${result.supplierLegalName} 账号已激活，请登录`);
+      setView("login");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "供应商账号激活失败");
     } finally {
       setLoading(false);
     }
@@ -114,9 +134,7 @@ export function Login() {
       </div>
 
       {/* 右侧登录区 */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
-        {isG && <div className="absolute top-0 inset-x-0 h-1.5" style={{ backgroundColor: "var(--gov-g-deep)" }} />}
-
+      <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto p-6 relative">
         <div className="w-full max-w-[400px]">
           {/* 移动端 logo */}
           <div className="flex lg:hidden items-center gap-2 justify-center mb-6">
@@ -124,38 +142,51 @@ export function Login() {
             <span style={{ fontWeight: 700, fontSize: 18 }}>盘古社区治理后台</span>
           </div>
 
+          <div className="mb-5 grid grid-cols-2 rounded-md bg-muted p-1" role="tablist">
+            <button
+              type="button"
+              className={`h-9 rounded-sm text-sm font-medium ${view === "login" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              onClick={() => setView("login")}
+            >
+              手机号登录
+            </button>
+            <button
+              type="button"
+              className={`h-9 rounded-sm text-sm font-medium ${view === "activation" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              onClick={() => setView("activation")}
+            >
+              供应商激活
+            </button>
+          </div>
+
           <div className="mb-6">
-            <h2 style={{ fontSize: 22, fontWeight: 600 }}>手机号登录</h2>
-            <p className="text-sm text-muted-foreground mt-1">使用机构手机号 + 短信验证码登录，角色与权限由后端身份决定</p>
+            <h2 style={{ fontSize: 22, fontWeight: 600 }}>{view === "login" ? "手机号登录" : "激活供应商账号"}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {view === "login"
+                ? "使用机构手机号 + 短信验证码登录，角色与权限由后端身份决定"
+                : "使用物业发送的邀请编号与受邀手机号完成个人账号激活"}
+            </p>
           </div>
 
-          {/* 端切换（仅用于预填示例账号，真实角色由后端返回） */}
-          <div className="grid grid-cols-2 gap-2 mb-5">
-            <button
-              type="button"
-              onClick={() => switchSide("B")}
-              className={`flex items-center gap-2.5 rounded-lg border p-3 text-left transition-all ${side === "B" ? "border-primary bg-accent ring-1 ring-primary" : "border-border hover:border-primary/40"}`}
-            >
-              <span className="grid place-items-center size-9 rounded-md bg-[#e8f0fb] text-primary shrink-0"><Building2 className="size-4.5" /></span>
-              <span>
-                <span className="block text-sm" style={{ fontWeight: 600 }}>B 端工作台</span>
-                <span className="block text-xs text-muted-foreground">业委会 / 物业</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => switchSide("G")}
-              className={`flex items-center gap-2.5 rounded-lg border p-3 text-left transition-all ${side === "G" ? "border-[var(--gov-g-deep)] bg-accent ring-1 ring-[var(--gov-g-deep)]" : "border-border hover:border-primary/40"}`}
-            >
-              <span className="grid place-items-center size-9 rounded-md text-white shrink-0" style={{ backgroundColor: "var(--gov-g-deep)" }}><Landmark className="size-4.5" /></span>
-              <span>
-                <span className="block text-sm" style={{ fontWeight: 600 }}>G 端监管</span>
-                <span className="block text-xs text-muted-foreground">街道办 / 党组织</span>
-              </span>
-            </button>
-          </div>
-
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={view === "login" ? submit : activate} className="space-y-4">
+            {view === "activation" && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-sm">邀请编号</label>
+                  <div className="relative">
+                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input value={invitationId} onChange={(e) => setInvitationId(e.target.value)} inputMode="numeric" placeholder="请输入邀请编号" className="pl-9 bg-input-background" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm">经办人姓名</label>
+                  <div className="relative">
+                    <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input value={operatorName} onChange={(e) => setOperatorName(e.target.value)} placeholder="请输入本人姓名" className="pl-9 bg-input-background" />
+                  </div>
+                </div>
+              </>
+            )}
             {/* 手机号 */}
             <div className="space-y-1.5">
               <label className="text-sm">手机号</label>
@@ -174,7 +205,7 @@ export function Login() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-sm">
+            {view === "login" && <div className="flex items-center justify-between text-sm">
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox checked={remember} onCheckedChange={(v) => setRemember(!!v)} />
                 <span className="text-muted-foreground">记住本机登录</span>
@@ -182,16 +213,16 @@ export function Login() {
               <button type="button" className="text-primary hover:underline" onClick={() => toast("请联系小区管理员或街道办重置")}>
                 收不到验证码？
               </button>
-            </div>
+            </div>}
 
-            <Button type="submit" className="w-full h-11" disabled={loading} style={isG ? { backgroundColor: "var(--gov-g-deep)" } : undefined}>
-              {loading ? "登录中…" : isG ? "进入监管端" : "登录工作台"}
+            <Button type="submit" className="w-full h-11" disabled={loading}>
+              {loading ? (view === "login" ? "登录中…" : "激活中…") : (view === "login" ? "登录工作台" : "激活账号")}
             </Button>
           </form>
 
-          <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
+          {view === "login" && <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
             <div className="mb-1.5"><span style={{ fontWeight: 600 }}>开发环境提示：</span>短信验证码统一为 <code className="font-mono-num">123456</code>，可点选以下种子账号：</div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
               {SEED_ACCOUNTS.map((a) => (
                 <button
                   key={a.phone}
@@ -204,7 +235,7 @@ export function Login() {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

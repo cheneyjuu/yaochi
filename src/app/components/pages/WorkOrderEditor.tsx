@@ -21,7 +21,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export function WorkOrderEditor() {
-  const { setPage } = useStore();
+  const { hasPermission, setPage } = useStore();
   const [title, setTitle] = useState("");
   const [buildingId, setBuildingId] = useState<string>("manual");
   const [location, setLocation] = useState("");
@@ -31,6 +31,7 @@ export function WorkOrderEditor() {
 
   const descriptionHtml = useMemo(() => toMiniappRichText(description), [description]);
   const scopeLabel = buildingId === "manual" ? "待现场定位" : `楼栋 ${buildingId}`;
+  const canIntake = hasPermission("repair:workorder:intake");
 
   async function submit() {
     if (!title.trim()) {
@@ -57,6 +58,23 @@ export function WorkOrderEditor() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!canIntake) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="登记工单"
+          desc="当前角色没有维修工单登记权限"
+          actions={
+            <Button variant="ghost" onClick={() => setPage("work-orders")}>
+              <ArrowLeft className="size-4" />
+              返回列表
+            </Button>
+          }
+        />
+      </div>
+    );
   }
 
   return (

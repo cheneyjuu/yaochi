@@ -10,12 +10,13 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Bell, ChevronDown, Search, MapPin, AlertTriangle, LogOut } from "lucide-react";
+import { AlertTriangle, Bell, ChevronDown, LogOut, MapPin, Menu, Search } from "lucide-react";
 
-export function Topbar() {
+export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) {
   const { role, communityId, setCommunityId, community, mode, lockdown, setPage, logout } = useStore();
   const roleMeta = ROLES.find((r) => r.id === role)!;
   const isG = roleMeta.side === "G";
+  const isSupplier = roleMeta.side === "S";
   const canSwitchCommunity = role === "street_admin";
 
   return (
@@ -25,15 +26,23 @@ export function Topbar() {
         <div className="h-1.5" style={{ backgroundColor: "var(--gov-g-deep)" }} />
       )}
       <div
-        className="h-14 flex items-center gap-4 px-5 border-b border-border bg-card"
+        className="h-14 flex items-center gap-2 px-3 border-b border-border bg-card sm:gap-4 sm:px-5"
         style={isG ? { boxShadow: "inset 0 2px 0 0 var(--gov-g-deep)" } : undefined}
       >
+        <button
+          type="button"
+          onClick={onOpenNavigation}
+          className="grid size-9 shrink-0 place-items-center rounded-md hover:bg-accent lg:hidden"
+          aria-label="打开导航"
+        >
+          <Menu className="size-5" />
+        </button>
         {/* Logo */}
-        <div className="flex items-center gap-2 pr-2">
+        <div className="flex shrink-0 items-center gap-2 sm:pr-2">
           <div className="grid place-items-center size-8 rounded-md gov-primary-gradient text-white" style={{ fontWeight: 700 }}>
             盘
           </div>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>盘古</span>
+          <span className="hidden sm:inline" style={{ fontWeight: 700, fontSize: 16 }}>盘古</span>
           {isG && (
             <span className="ml-1 rounded px-1.5 py-0.5 text-[11px] text-white" style={{ backgroundColor: "var(--gov-g-deep)" }}>
               G端监管
@@ -42,10 +51,14 @@ export function Topbar() {
         </div>
 
         {/* 小区 / 辖区切换器 */}
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border border-border px-3 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed" disabled={!canSwitchCommunity}>
+        {isSupplier ? (
+          <div className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium">
+            供应商工作台
+          </div>
+        ) : <DropdownMenu>
+          <DropdownMenuTrigger className="flex min-w-0 max-w-36 items-center gap-1.5 rounded-md border border-border px-2 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed sm:max-w-none sm:px-3" disabled={!canSwitchCommunity}>
             <MapPin className="size-3.5 text-muted-foreground" />
-            <span style={{ fontWeight: 500 }}>{communityId === "ALL" ? "辖区汇总（全部小区）" : community.name}</span>
+            <span className="truncate" style={{ fontWeight: 500 }}>{communityId === "ALL" ? "辖区汇总（全部小区）" : community.name}</span>
             {canSwitchCommunity && <ChevronDown className="size-3.5 text-muted-foreground" />}
           </DropdownMenuTrigger>
           {canSwitchCommunity && (
@@ -62,10 +75,10 @@ export function Topbar() {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           )}
-        </DropdownMenu>
+        </DropdownMenu>}
 
         {/* 物业模式 Chip */}
-        {communityId !== "ALL" && <ModeChip mode={mode} />}
+        {!isSupplier && communityId !== "ALL" && <ModeChip mode={mode} className="hidden md:inline-flex" />}
 
         {/* 换届熔断全局提醒 */}
         {lockdown && (
@@ -89,7 +102,7 @@ export function Topbar() {
             />
           </div>
           {/* 消息 */}
-          <button className="relative grid place-items-center size-9 rounded-md hover:bg-accent">
+          <button className="relative hidden place-items-center size-9 rounded-md hover:bg-accent sm:grid">
             <Bell className="size-4.5 text-muted-foreground" />
             <span className="absolute top-1.5 right-1.5 size-2 rounded-full" style={{ backgroundColor: "var(--gov-danger)" }} />
           </button>

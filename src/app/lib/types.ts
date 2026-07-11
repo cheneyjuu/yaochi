@@ -1,6 +1,6 @@
 // 盘古社区治理后台 · 核心类型定义
 
-export type Side = "B" | "G";
+export type Side = "B" | "G" | "S";
 
 export type RoleId =
   | "street_admin" // 街道办管理员 (G)
@@ -12,6 +12,7 @@ export type RoleId =
   | "building_rep" // 楼栋代表 / 网格员 (B)
   | "property_manager" // 物业经理 (B)
   | "property_service" // 物业客服 (B)
+  | "supplier_service" // 供应商报价经办人 (S)
   | "auditor"; // 第三方审计师 (B)
 
 export interface Role {
@@ -46,6 +47,7 @@ export const ROLES: Role[] = [
   { id: "building_rep", name: "楼栋代表 / 网格员", side: "B", scope: "仅责任田楼栋", desc: "本楼栋议题催票、线下核销、维修工单" },
   { id: "property_manager", name: "物业经理", side: "B", scope: "仅本物业组织", desc: "公共收益录入、开支单提交（密码A签名）、维修工单" },
   { id: "property_service", name: "物业客服", side: "B", scope: "仅本物业组织", desc: "报修受理、工单处理" },
+  { id: "supplier_service", name: "供应商经办人", side: "S", scope: "仅本企业邀价", desc: "查看本企业邀价并提交报价" },
   { id: "auditor", name: "第三方审计师", side: "B", scope: "本小区财务只读", desc: "财务监督 + 内账导出（按需激活）" },
 ];
 
