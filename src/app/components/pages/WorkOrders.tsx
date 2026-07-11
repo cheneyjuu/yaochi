@@ -44,6 +44,8 @@ import {
   Building2,
   CheckCircle2,
   ClipboardList,
+  Download,
+  Eye,
   FileText,
   Loader2,
   Plus,
@@ -59,6 +61,7 @@ import { useStore } from "../../lib/store";
 import {
   listRepairLocationOptions,
   getRepairPlanningPolicy,
+  getPropertyQuoteAttachmentDownload,
   listRepairDecisionRooms,
   listRepairFrameworkRelations,
   listRepairEvents,
@@ -142,6 +145,29 @@ const FUND_SOURCE_LABEL: Record<string, string> = {
   BUILDING_MAINTENANCE_FUND: "楼栋维修资金",
   COMMUNITY_MAINTENANCE_FUND: "小区公共维修资金",
   PUBLIC_REVENUE: "小区公共收益",
+};
+
+const REPAIR_CATEGORY_LABEL: Record<string, string> = {
+  PLUMBING: "给排水",
+  ELECTRICAL: "电气",
+  ELEVATOR: "电梯",
+  FIRE_PROTECTION: "消防",
+  WATERPROOFING: "防水",
+  STRUCTURAL: "房屋结构",
+  PUBLIC_FACILITY: "公共设施",
+  OTHER: "其他",
+};
+
+const QUOTE_SOURCE_LABEL: Record<string, string> = {
+  SUPPLIER_ONLINE: "供应商在线提交",
+  PROPERTY_ENTRY: "物业代录",
+};
+
+const QUOTE_CONFIRMATION_LABEL: Record<string, string> = {
+  PENDING_SUPPLIER_CONFIRMATION: "待供应商确认",
+  ONLINE_CONFIRMED: "供应商已确认",
+  OFFLINE_EVIDENCE_VERIFIED: "原件已核验",
+  CONTRACT_CONFIRMED: "合同已确认",
 };
 
 const EVENT_ACTION_LABEL: Record<string, string> = {
@@ -617,7 +643,7 @@ export function WorkOrders() {
                   <Detail label="范围" value={scopeLabel(selected)} />
                   <Detail label="位置锁定" value={selected.locationLocked ? "已锁定" : "未锁定"} />
                   <Detail label="资金闸门" value={selected.fundGateBlocked ? "关闭" : "已打开"} />
-                  <Detail label="分类" value={selected.category || "-"} />
+                  <Detail label="分类" value={selected.category ? REPAIR_CATEGORY_LABEL[selected.category] ?? selected.category : "-"} />
                 </div>
                 {selected.needManualLocation && (
                   <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -784,7 +810,9 @@ function ActionPanel(props: {
   const [quoteOriginalConfirmed, setQuoteOriginalConfirmed] = useState(false);
   const [quoteAttachment, setQuoteAttachment] = useState<RepairAttachment | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
+  const [quoteListOpen, setQuoteListOpen] = useState(false);
   const [quoteUploading, setQuoteUploading] = useState(false);
+  const [openingQuoteAttachmentId, setOpeningQuoteAttachmentId] = useState<number | null>(null);
   const [quoteId, setQuoteId] = useState("");
   const [selectionMethod, setSelectionMethod] = useState("COMPETITIVE_QUOTATION");
   const [insufficientQuoteReason, setInsufficientQuoteReason] = useState("");
@@ -960,6 +988,25 @@ function ActionPanel(props: {
     setQuoteSource("PAPER");
     setQuoteOriginalConfirmed(false);
     setQuoteDialogOpen(false);
+  }
+
+  async function openQuoteAttachment(attachmentId: number) {
+    const preview = window.open("", "_blank");
+    setOpeningQuoteAttachmentId(attachmentId);
+    try {
+      const ticket = await getPropertyQuoteAttachmentDownload(props.selected.workOrderId, attachmentId);
+      if (preview) {
+        preview.opener = null;
+        preview.location.replace(ticket.downloadUrl);
+      } else {
+        window.open(ticket.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      preview?.close();
+      toast.error(error instanceof Error ? error.message : "报价原件打开失败");
+    } finally {
+      setOpeningQuoteAttachmentId(null);
+    }
   }
 
   const selectedSupplierQuote = supplierQuotes.find((quote) => String(quote.quoteId) === quoteId);
@@ -1362,9 +1409,16 @@ function ActionPanel(props: {
         )}
 
         {["QUOTE_COLLECTING", "QUOTE_SUBMITTED"].includes(s) && props.canField && (
-          <Button type="button" variant="outline" onClick={() => setQuoteDialogOpen(true)}>
-            <ClipboardList className="mr-1 size-4" />代录供应商报价
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => setQuoteDialogOpen(true)}>
+              <ClipboardList className="mr-1 size-4" />代录供应商报价
+            </Button>
+            {props.canManage && supplierQuotes.length > 0 && (
+              <Button type="button" variant="outline" onClick={() => setQuoteListOpen(true)}>
+                <Eye className="mr-1 size-4" />查看报价（{supplierQuotes.length}）
+              </Button>
+            )}
+          </div>
         )}
 
         {s === "QUOTE_SUBMITTED" && props.canManage && (
@@ -1933,6 +1987,47 @@ function ActionPanel(props: {
               <Upload className="mr-1 size-4" />提交代录报价
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={quoteListOpen} onOpenChange={setQuoteListOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>已收供应商报价</DialogTitle>
+            <DialogDescription>共收到 {supplierQuotes.length} 份报价，按报价金额从低到高排列。</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] divide-y overflow-y-auto rounded-md border">
+            {supplierQuotes.map((quote) => (
+              <div key={quote.quoteId} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{quote.supplierName}</span>
+                    <StatusChip tone={quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "warning" : "success"}>
+                      {QUOTE_CONFIRMATION_LABEL[quote.confirmationStatus] ?? quote.confirmationStatus}
+                    </StatusChip>
+                  </div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums">
+                    ¥{Number(quote.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {QUOTE_SOURCE_LABEL[quote.submissionSource] ?? quote.submissionSource} · {fmtDate(quote.createTime)}
+                  </div>
+                  {quote.quoteSummary && <div className="mt-2 text-sm leading-6 text-foreground/80">{quote.quoteSummary}</div>}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void openQuoteAttachment(quote.attachmentId)}
+                  disabled={openingQuoteAttachmentId === quote.attachmentId}
+                >
+                  {openingQuoteAttachmentId === quote.attachmentId
+                    ? <Loader2 className="mr-1 size-4 animate-spin" />
+                    : <Download className="mr-1 size-4" />}
+                  查看报价原件
+                </Button>
+              </div>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
     </SectionCard>

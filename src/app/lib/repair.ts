@@ -104,6 +104,12 @@ export interface RepairAttachment {
   actualSize: number;
 }
 
+export interface RepairAttachmentDownloadTicket {
+  attachmentId: number;
+  downloadUrl: string;
+  expiresAt: string;
+}
+
 export interface RepairFrameworkRelation {
   relationId: number;
   supplierDeptId: number;
@@ -314,6 +320,15 @@ export function deletePropertyQuoteAttachment(workOrderId: number, attachmentId:
 
 export function deleteSupplierQuoteAttachment(workOrderId: number, attachmentId: number): Promise<void> {
   return apiDelete<void>(`/supplier/repair-work-orders/${workOrderId}/quote-attachments/${attachmentId}`);
+}
+
+export function getPropertyQuoteAttachmentDownload(
+  workOrderId: number,
+  attachmentId: number,
+): Promise<RepairAttachmentDownloadTicket> {
+  return apiGet<RepairAttachmentDownloadTicket>(
+    `/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}/download-url`,
+  );
 }
 
 export function listRepairFrameworkRelations(serviceCategory?: string | null): Promise<RepairFrameworkRelation[]> {
