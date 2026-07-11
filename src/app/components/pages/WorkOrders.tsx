@@ -13,6 +13,15 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
+import { Switch } from "../ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { RichTextView } from "../common/RichTextEditor";
 import {
   Select,
@@ -35,28 +44,35 @@ import {
   Building2,
   CheckCircle2,
   ClipboardList,
+  FileText,
   Loader2,
   Plus,
   RefreshCw,
   Route,
   Send,
   ShieldCheck,
+  Upload,
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import {
   listRepairLocationOptions,
+  getRepairPlanningPolicy,
   listRepairDecisionRooms,
   listRepairFrameworkRelations,
   listRepairEvents,
   listRepairSupplierOrganizations,
   listRepairSupplierQuotes,
+  listRepairQuoteInvitations,
   pageRepairWorkOrders,
   createSupplierActivationInvitation,
   registerSupplierOrganization,
   repairAction,
+  deletePropertyQuoteAttachment,
+  uploadPropertyQuoteAttachment,
   type RepairLocationBuildingOption,
+  type RepairPlanningPolicy,
   type RepairLocationCommunityOption,
   type RepairLocationRoomOption,
   type RepairEvent,
@@ -65,7 +81,8 @@ import {
   type RepairStatus,
   type RepairSupplierOrganization,
   type RepairSupplierQuote,
-  type SupplierActivationInvitation,
+  type RepairQuoteInvitation,
+  type RepairAttachment,
   type RepairWorkOrder,
 } from "../../lib/repair";
 
@@ -79,15 +96,15 @@ const STATUS_LABEL: Record<RepairStatus, string> = {
   SURVEY_COMPLETED: "初勘已完成",
   QUOTE_COLLECTING: "询价中",
   QUOTE_SUBMITTED: "已报价",
-  SUPPLIER_RECOMMENDED: "已定供应商",
-  PLAN_SUBMITTED: "方案已提交",
+  SUPPLIER_RECOMMENDED: "物业已推荐供应商",
+  PLAN_SUBMITTED: "待邀价",
   LOCAL_DECISION_PENDING: "楼栋接龙中",
   LOCAL_DECISION_PASSED: "接龙已通过",
   ASSEMBLY_DECISION_PENDING: "业主大会表决中",
   APPROVAL_DOCUMENT_PREPARING: "报审文件编制中",
   PRICE_REVIEW_PENDING: "待审价",
-  GOVERNANCE_PENDING: "治理审批中",
-  GOVERNANCE_CONFIRMED: "业委会已确认",
+  GOVERNANCE_PENDING: "待主任/副主任确认",
+  GOVERNANCE_CONFIRMED: "主任/副主任已确认",
   SEALED: "已盖章",
   CONTRACT_SIGNING: "合同签署中",
   CONTRACT_EFFECTIVE: "合同已生效",
@@ -113,6 +130,69 @@ const STATUS_LABEL: Record<RepairStatus, string> = {
   EMERGENCY_PLAN_PENDING: "应急方案待审",
   EMERGENCY_REPAIRING: "应急抢修中",
 };
+
+const RISK_LEVEL_LABEL: Record<string, string> = {
+  LOW: "低风险",
+  MEDIUM: "中风险",
+  HIGH: "高风险",
+};
+
+const FUND_SOURCE_LABEL: Record<string, string> = {
+  PROPERTY_INTERNAL: "物业包干成本",
+  BUILDING_MAINTENANCE_FUND: "楼栋维修资金",
+  COMMUNITY_MAINTENANCE_FUND: "小区公共维修资金",
+  PUBLIC_REVENUE: "小区公共收益",
+};
+
+const EVENT_ACTION_LABEL: Record<string, string> = {
+  OWNER_SUBMIT_PRIVATE: "业主提交报修",
+  OWNER_SUBMIT_PUBLIC: "业主提交公共报修",
+  ADMIN_REGISTER_PUBLIC: "物业登记公共报修",
+  ACCEPT: "物业受理",
+  CORRECT_LOCATION: "补充并纠偏位置",
+  VERIFY_LOCATION: "现场核验",
+  ASSIGN: "派单",
+  START_SURVEY: "开始初勘",
+  SUBMIT_SURVEY: "提交初勘记录",
+  SUBMIT_PLAN: "确认维修范围与询价口径",
+  INVITE_REPAIR_SUPPLIERS: "发出维修邀价",
+  SUBMIT_SUPPLIER_QUOTE: "提交供应商报价",
+  RECOMMEND_SUPPLIER: "物业推荐供应商",
+  START_LOCAL_DECISION: "发起楼栋接龙",
+  COMPLETE_LOCAL_DECISION: "确认楼栋接龙结果",
+  START_ASSEMBLY_DECISION: "关联业主大会表决",
+  COMPLETE_ASSEMBLY_DECISION: "确认业主大会表决结果",
+  SUBMIT_APPROVAL_PACKAGE: "提交正式报审文件",
+  REVIEW_PRICE: "完成审价",
+  GOVERNANCE_CONFIRM: "主任/副主任确认",
+  GOVERNANCE_SEAL: "加盖业委会公章",
+  CREATE_CONTRACT: "创建维修合同",
+  COMPLETE_CONTRACT: "确认合同生效",
+  START_WORK: "供应商进场维修",
+  SUBMIT_ACCEPTANCE: "发起维修验收",
+  SET_ACCEPTANCE_SCOPE: "设置受影响房屋",
+  RECORD_ACCEPTANCE: "记录组织代表验收",
+  OWNER_RECORD_ACCEPTANCE: "记录受影响业主验收",
+  ACCEPT_COMPLETED: "完成验收",
+  REQUEST_RECTIFICATION: "要求供应商整改",
+  OWNER_EVALUATE: "业主评价",
+  ARCHIVE: "工单归档",
+};
+
+function fundingProcessDescription(fundSource?: string | null) {
+  switch (fundSource) {
+    case "PROPERTY_INTERNAL":
+      return "本工单由物业包干成本承担，不动用楼栋维修资金或小区公共维修资金；确认维修范围后由物业按内部流程执行。";
+    case "BUILDING_MAINTENANCE_FUND":
+      return "本工单拟使用楼栋维修资金。物业推荐供应商后，由楼主发起本楼栋接龙；物业根据接龙结果形成正式报审文件并附接龙截图，经业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
+    case "COMMUNITY_MAINTENANCE_FUND":
+      return "本工单拟使用小区公共维修资金。物业推荐供应商后，须经业主大会表决，并完成物业报审、业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
+    case "PUBLIC_REVENUE":
+      return "本工单拟使用小区公共收益。物业推荐供应商后，须经业主大会表决，并完成物业报审、业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
+    default:
+      return "资金来源确认后，系统将按对应规则进入后续审批与执行流程。";
+  }
+}
 
 const STATUS_TONE: Record<RepairStatus, Tone> = {
   SUBMITTED: "neutral",
@@ -165,11 +245,11 @@ const STEPS = [
   { key: "survey", label: "初勘" },
   { key: "plan", label: "方案" },
   { key: "quote", label: "报价" },
-  { key: "supplier", label: "定商" },
-  { key: "decision", label: "民意/表决" },
+  { key: "supplier", label: "推荐供应商" },
+  { key: "decision", label: "接龙/业主大会" },
   { key: "package", label: "报审" },
   { key: "price", label: "审价" },
-  { key: "confirm", label: "主任确认" },
+  { key: "confirm", label: "主任/副主任" },
   { key: "seal", label: "盖章" },
   { key: "contract", label: "合同" },
   { key: "work", label: "施工" },
@@ -304,7 +384,10 @@ export function WorkOrders() {
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceFile[]>([]);
   const [surveySummary, setSurveySummary] = useState("");
   const [riskLevel, setRiskLevel] = useState("LOW");
-  const [planBudget, setPlanBudget] = useState("600");
+  const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy>({ internalEstimateRequired: false });
+  const [planBudget, setPlanBudget] = useState("");
+  const [publicCeilingEnabled, setPublicCeilingEnabled] = useState(false);
+  const [publicCeilingPrice, setPublicCeilingPrice] = useState("");
   const [fundSource, setFundSource] = useState("PROPERTY_INTERNAL");
 
   const canRead = hasPermission("repair:workorder:read");
@@ -322,7 +405,7 @@ export function WorkOrders() {
     }
     setLoading(true);
     try {
-      const [page, options] = await Promise.all([
+      const [page, options, policy] = await Promise.all([
         pageRepairWorkOrders({
           status: statusFilter,
           keyword,
@@ -330,9 +413,11 @@ export function WorkOrders() {
           size: 50,
         }),
         canField ? listRepairLocationOptions() : Promise.resolve({ communities: [] }),
+        canField ? getRepairPlanningPolicy() : Promise.resolve({ internalEstimateRequired: false }),
       ]);
       setOrders(page.items);
       setLocationCommunities(options.communities);
+      setPlanningPolicy(policy);
       const next = page.items.find((item) => item.workOrderId === (keepSelectedId ?? selected?.workOrderId)) ?? page.items[0] ?? null;
       setSelected(next);
       if (next) {
@@ -370,19 +455,23 @@ export function WorkOrders() {
     setFieldSupplement("");
     setEvidenceFiles([]);
     setSurveySummary(order.surveySummary ?? "");
-    setPlanBudget(String(order.planBudget ?? 600));
+    setPlanBudget(order.planBudget == null ? "" : String(order.planBudget));
+    setPublicCeilingEnabled(order.publicCeilingPrice != null);
+    setPublicCeilingPrice(order.publicCeilingPrice == null ? "" : String(order.publicCeilingPrice));
     setFundSource(order.fundSource ?? "PROPERTY_INTERNAL");
   }
 
   async function doAction(action: string, body: unknown = {}, success = "操作已完成") {
-    if (!selected) return;
+    if (!selected) return false;
     setActing(true);
     try {
       const next = await repairAction(selected.workOrderId, action, body);
       toast.success(success);
       await reload(next.workOrderId);
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败");
+      return false;
     } finally {
       setActing(false);
     }
@@ -567,6 +656,11 @@ export function WorkOrders() {
               setRiskLevel={setRiskLevel}
               planBudget={planBudget}
               setPlanBudget={setPlanBudget}
+              planningPolicy={planningPolicy}
+              publicCeilingEnabled={publicCeilingEnabled}
+              setPublicCeilingEnabled={setPublicCeilingEnabled}
+              publicCeilingPrice={publicCeilingPrice}
+              setPublicCeilingPrice={setPublicCeilingPrice}
               fundSource={fundSource}
               setFundSource={setFundSource}
               doAction={doAction}
@@ -575,15 +669,21 @@ export function WorkOrders() {
             <SectionCard title="方案与资金">
               <div className="space-y-2 text-sm">
                 <Detail label="初勘结论" value={selected.surveySummary || "-"} />
-                <Detail label="风险等级" value={selected.riskLevel || "-"} />
-                <Detail label="资金来源" value={selected.fundSource || "-"} />
+                <Detail label="风险等级" value={selected.riskLevel ? RISK_LEVEL_LABEL[selected.riskLevel] ?? selected.riskLevel : "-"} />
+                <Detail label="资金来源" value={selected.fundSource ? FUND_SOURCE_LABEL[selected.fundSource] ?? selected.fundSource : "-"} />
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">预算金额</span>
+                  <span className="text-muted-foreground">物业内部参考估算</span>
                   {amount(selected) > 0 ? <Money value={amount(selected)} /> : <span>-</span>}
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">向供应商公开的最高限价</span>
+                  {Number(selected.publicCeilingPrice ?? 0) > 0
+                    ? <Money value={Number(selected.publicCeilingPrice)} />
+                    : <span>-</span>}
                 </div>
                 <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
                   <Banknote className="size-3 inline mr-1" />
-                  工单到达 VERIFIED 且位置锁定后，后端才打开资金闸门；大额方案会在路径判定时进入治理审批或换届熔断。
+                  {fundingProcessDescription(selected.fundSource)}
                 </div>
               </div>
             </SectionCard>
@@ -596,7 +696,7 @@ export function WorkOrders() {
                   {events.map((event) => (
                     <div key={event.eventId} className="p-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{event.action}</span>
+                        <span className="font-medium">{EVENT_ACTION_LABEL[event.action] ?? event.action}</span>
                         <span className="text-xs text-muted-foreground">{fmtDate(event.createTime)}</span>
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
@@ -652,9 +752,14 @@ function ActionPanel(props: {
   setRiskLevel: (v: string) => void;
   planBudget: string;
   setPlanBudget: (v: string) => void;
+  planningPolicy: RepairPlanningPolicy;
+  publicCeilingEnabled: boolean;
+  setPublicCeilingEnabled: (v: boolean) => void;
+  publicCeilingPrice: string;
+  setPublicCeilingPrice: (v: string) => void;
   fundSource: string;
   setFundSource: (v: string) => void;
-  doAction: (action: string, body?: unknown, success?: string) => Promise<void>;
+  doAction: (action: string, body?: unknown, success?: string) => Promise<boolean>;
 }) {
   const s = props.selected.status;
   const selectedBuilding = props.locationBuildings.find((item) => String(item.buildingId) === props.locationBuildingId);
@@ -666,14 +771,20 @@ function ActionPanel(props: {
   const [supplierContactName, setSupplierContactName] = useState("");
   const [supplierContactPhone, setSupplierContactPhone] = useState("");
   const [supplierOrganizations, setSupplierOrganizations] = useState<RepairSupplierOrganization[]>([]);
-  const [activationInvitations, setActivationInvitations] = useState<Record<number, SupplierActivationInvitation>>({});
   const [supplierQuotes, setSupplierQuotes] = useState<RepairSupplierQuote[]>([]);
+  const [quoteInvitations, setQuoteInvitations] = useState<RepairQuoteInvitation[]>([]);
   const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
   const [invitedSupplierDeptIds, setInvitedSupplierDeptIds] = useState<number[]>([]);
+  const [appendInvitationOpen, setAppendInvitationOpen] = useState(false);
+  const [appendInvitationReason, setAppendInvitationReason] = useState("");
   const [quoteSupplierDeptId, setQuoteSupplierDeptId] = useState("");
   const [quoteAmount, setQuoteAmount] = useState("");
   const [quoteSummary, setQuoteSummary] = useState("");
-  const [quoteAttachmentHash, setQuoteAttachmentHash] = useState("");
+  const [quoteSource, setQuoteSource] = useState("PAPER");
+  const [quoteOriginalConfirmed, setQuoteOriginalConfirmed] = useState(false);
+  const [quoteAttachment, setQuoteAttachment] = useState<RepairAttachment | null>(null);
+  const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
+  const [quoteUploading, setQuoteUploading] = useState(false);
   const [quoteId, setQuoteId] = useState("");
   const [selectionMethod, setSelectionMethod] = useState("COMPETITIVE_QUOTATION");
   const [insufficientQuoteReason, setInsufficientQuoteReason] = useState("");
@@ -713,15 +824,19 @@ function ActionPanel(props: {
     const loadQuotes = props.canManage
       ? listRepairSupplierQuotes(props.selected.workOrderId)
       : Promise.resolve([]);
+    const loadInvitations = props.canManage
+      ? listRepairQuoteInvitations(props.selected.workOrderId)
+      : Promise.resolve([]);
     const loadRelations = props.canManage
       ? listRepairFrameworkRelations(props.selected.category)
       : Promise.resolve([]);
-    void Promise.all([loadOrganizations, loadQuotes, loadRelations])
-      .then(([organizations, quotes, relations]) => {
+    void Promise.all([loadOrganizations, loadQuotes, loadRelations, loadInvitations])
+      .then(([organizations, quotes, relations, invitations]) => {
         if (cancelled) return;
         setSupplierOrganizations(organizations);
         setSupplierQuotes(quotes);
         setFrameworkRelations(relations);
+        setQuoteInvitations(invitations);
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "供应商资料加载失败"));
     return () => {
@@ -746,15 +861,19 @@ function ActionPanel(props: {
   async function createSupplierOrganization() {
     try {
       const supplierDeptId = await registerSupplierOrganization({
-        legalName: supplierLegalName,
-        unifiedSocialCreditCode: supplierUscc,
-        contactName: supplierContactName,
-        contactPhone: supplierContactPhone,
+        legalName: supplierLegalName.trim(),
+        unifiedSocialCreditCode: supplierUscc.trim() || undefined,
+        contactName: supplierContactName.trim() || undefined,
+        contactPhone: supplierContactPhone.trim() || undefined,
       });
       setQuoteSupplierDeptId(String(supplierDeptId));
       setInvitedSupplierDeptIds((current) => Array.from(new Set([...current, supplierDeptId])));
       setSupplierOrganizations(await listRepairSupplierOrganizations());
-      toast.success("供应商组织已登记，企业主体待独立核验");
+      setSupplierLegalName("");
+      setSupplierUscc("");
+      setSupplierContactName("");
+      setSupplierContactPhone("");
+      toast.success("供应商已登记，企业资料可稍后补充");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "供应商登记失败");
     }
@@ -763,16 +882,93 @@ function ActionPanel(props: {
   async function inviteSupplierAccount(supplierDeptId: number) {
     try {
       const invitation = await createSupplierActivationInvitation(supplierDeptId);
-      setActivationInvitations((current) => ({ ...current, [supplierDeptId]: invitation }));
+      setSupplierOrganizations(await listRepairSupplierOrganizations());
       toast.success(`账号激活邀请已创建，邀请编号 ${invitation.invitationId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "供应商账号邀请失败");
     }
   }
 
+  async function issueQuoteInvitations() {
+    const succeeded = await props.doAction("quote-invitations", {
+      supplierDeptIds: invitedSupplierDeptIds,
+      remark: "物业发出维修邀价",
+    });
+    if (succeeded) {
+      setInvitedSupplierDeptIds([]);
+      setQuoteInvitations(await listRepairQuoteInvitations(props.selected.workOrderId));
+    }
+  }
+
+  async function appendQuoteInvitations() {
+    const succeeded = await props.doAction("quote-invitations", {
+      supplierDeptIds: invitedSupplierDeptIds,
+      remark: appendInvitationReason.trim(),
+    });
+    if (!succeeded) return;
+    setInvitedSupplierDeptIds([]);
+    setAppendInvitationReason("");
+    setQuoteInvitations(await listRepairQuoteInvitations(props.selected.workOrderId));
+    setAppendInvitationOpen(false);
+  }
+
+  async function uploadQuoteDocument(file: File) {
+    setQuoteUploading(true);
+    try {
+      if (quoteAttachment) {
+        await deletePropertyQuoteAttachment(props.selected.workOrderId, quoteAttachment.attachmentId);
+      }
+      setQuoteAttachment(await uploadPropertyQuoteAttachment(props.selected.workOrderId, file));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "报价原件上传失败");
+    } finally {
+      setQuoteUploading(false);
+    }
+  }
+
+  async function setQuoteDialog(nextOpen: boolean) {
+    if (!nextOpen && quoteAttachment) {
+      try {
+        await deletePropertyQuoteAttachment(props.selected.workOrderId, quoteAttachment.attachmentId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "未提交附件清理失败");
+        return;
+      }
+      setQuoteAttachment(null);
+    }
+    setQuoteDialogOpen(nextOpen);
+  }
+
+  async function submitPropertyQuote() {
+    if (!quoteAttachment) return;
+    const succeeded = await props.doAction("supplier-quotes", {
+      supplierDeptId: Number(quoteSupplierDeptId),
+      quoteAmount: Number(quoteAmount),
+      quoteSummary,
+      attachmentId: quoteAttachment.attachmentId,
+      originalSource: quoteSource,
+      confirmationStatus: quoteOriginalConfirmed
+        ? "OFFLINE_EVIDENCE_VERIFIED"
+        : "PENDING_SUPPLIER_CONFIRMATION",
+      remark: "物业代录供应商原始报价",
+    });
+    if (!succeeded) return;
+    setQuoteAttachment(null);
+    setQuoteSupplierDeptId("");
+    setQuoteAmount("");
+    setQuoteSummary("");
+    setQuoteSource("PAPER");
+    setQuoteOriginalConfirmed(false);
+    setQuoteDialogOpen(false);
+  }
+
   const selectedSupplierQuote = supplierQuotes.find((quote) => String(quote.quoteId) === quoteId);
   const applicableFrameworkRelations = frameworkRelations.filter(
     (relation) => !selectedSupplierQuote || relation.supplierDeptId === selectedSupplierQuote.supplierDeptId,
+  );
+  const invitedSupplierIds = new Set(quoteInvitations.map((invitation) => invitation.supplierDeptId));
+  const appendableSuppliers = supplierOrganizations.filter(
+    (supplier) => !invitedSupplierIds.has(supplier.supplierDeptId),
   );
 
   return (
@@ -965,59 +1161,109 @@ function ActionPanel(props: {
           <div className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <Label>估算金额</Label>
-                <Input value={props.planBudget} onChange={(e) => props.setPlanBudget(e.target.value)} placeholder="估算金额" />
+                <Label>物业内部估算{props.planningPolicy.internalEstimateRequired ? " *" : "（选填）"}</Label>
+                <Input type="number" min="0.01" value={props.planBudget} onChange={(e) => props.setPlanBudget(e.target.value)} placeholder="内部参考金额" />
               </div>
               <div>
                 <Label>拟使用资金</Label>
-                <Select value={props.fundSource} onValueChange={props.setFundSource}>
+                <Select
+                  value={props.fundSource}
+                  onValueChange={(value) => {
+                    props.setFundSource(value);
+                    if (value === "PROPERTY_INTERNAL") {
+                      props.setPublicCeilingEnabled(false);
+                      props.setPublicCeilingPrice("");
+                    }
+                  }}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="PROPERTY_INTERNAL">物业包干成本</SelectItem>
                     <SelectItem value="PUBLIC_REVENUE">公共收益</SelectItem>
-                    <SelectItem value="BUILDING_MAINTENANCE_FUND">楼栋专项维修资金</SelectItem>
-                    <SelectItem value="COMMUNITY_MAINTENANCE_FUND">公共维修资金</SelectItem>
+                    <SelectItem value="BUILDING_MAINTENANCE_FUND">楼栋维修资金</SelectItem>
+                    <SelectItem value="COMMUNITY_MAINTENANCE_FUND">小区公共维修资金</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {props.fundSource !== "PROPERTY_INTERNAL" && (
+              <div className="space-y-3 border-t pt-3">
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="public-ceiling-price">向供应商公开最高限价</Label>
+                  <Switch
+                    id="public-ceiling-price"
+                    checked={props.publicCeilingEnabled}
+                    onCheckedChange={(checked) => {
+                      props.setPublicCeilingEnabled(checked);
+                      if (!checked) props.setPublicCeilingPrice("");
+                    }}
+                  />
+                </div>
+                {props.publicCeilingEnabled && (
+                  <div className="space-y-2">
+                    <Label htmlFor="public-ceiling-price-amount">公开最高限价 *</Label>
+                    <Input id="public-ceiling-price-amount" type="number" min="0.01" value={props.publicCeilingPrice} onChange={(e) => props.setPublicCeilingPrice(e.target.value)} placeholder="供应商报价不得超过的金额" />
+                  </div>
+                )}
+              </div>
+            )}
             <Button
               onClick={() => props.doAction("submit-plan", {
-                planBudget: Number(props.planBudget || 0),
+                planBudget: props.planBudget ? Number(props.planBudget) : undefined,
+                publicCeilingPrice: props.fundSource !== "PROPERTY_INTERNAL" && props.publicCeilingEnabled
+                  ? Number(props.publicCeilingPrice)
+                  : undefined,
                 fundSource: props.fundSource,
-                remark: "确认维修范围与估算",
+                remark: props.fundSource === "PROPERTY_INTERNAL" ? "确认物业包干维修范围" : "确认维修范围与询价口径",
               })}
-              disabled={props.acting || !props.planBudget}
+              disabled={props.acting
+                || (props.planningPolicy.internalEstimateRequired && !props.planBudget)
+                || (props.publicCeilingEnabled && !props.publicCeilingPrice)}
             >
-              <ClipboardList className="size-4 mr-1" /> 确认维修范围与估算
+              <ClipboardList className="size-4 mr-1" />
+              {props.fundSource === "PROPERTY_INTERNAL" ? "确认维修范围" : "确认维修范围与询价口径"}
             </Button>
           </div>
         )}
 
-        {s === "PLAN_SUBMITTED" && props.canManage && (
+        {["PLAN_SUBMITTED", "QUOTE_COLLECTING"].includes(s) && props.canManage && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div><Label>企业名称</Label><Input value={supplierLegalName} onChange={(e) => setSupplierLegalName(e.target.value)} /></div>
-              <div><Label>统一社会信用代码</Label><Input value={supplierUscc} onChange={(e) => setSupplierUscc(e.target.value)} /></div>
-              <div><Label>企业联系人</Label><Input value={supplierContactName} onChange={(e) => setSupplierContactName(e.target.value)} /></div>
-              <div><Label>联系人手机号</Label><Input value={supplierContactPhone} onChange={(e) => setSupplierContactPhone(e.target.value)} /></div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier-legal-name">企业名称</Label>
+                <Input id="supplier-legal-name" value={supplierLegalName} onChange={(e) => setSupplierLegalName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier-uscc">统一社会信用代码（选填）</Label>
+                <Input id="supplier-uscc" value={supplierUscc} onChange={(e) => setSupplierUscc(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier-contact-name">企业联系人（选填）</Label>
+                <Input id="supplier-contact-name" value={supplierContactName} onChange={(e) => setSupplierContactName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier-contact-phone">联系人手机号（选填）</Label>
+                <Input id="supplier-contact-phone" value={supplierContactPhone} onChange={(e) => setSupplierContactPhone(e.target.value)} />
+              </div>
             </div>
             <Button
               type="button"
               variant="outline"
               onClick={() => void createSupplierOrganization()}
-              disabled={!supplierLegalName || !supplierUscc || !supplierContactName || !supplierContactPhone}
+              disabled={!supplierLegalName.trim()}
             >
               <Building2 className="mr-1 size-4" />登记供应商
             </Button>
-            <div className="space-y-2">
-              <Label>选择邀价供应商</Label>
-              <div className="max-h-56 divide-y overflow-y-auto rounded-md border">
+            {s === "PLAN_SUBMITTED" && (
+              <div className="space-y-2">
+                <Label>选择邀价供应商</Label>
+                <div className="max-h-56 divide-y overflow-y-auto rounded-md border">
                 {supplierOrganizations.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground">暂无已登记供应商</div>
                 ) : supplierOrganizations.map((supplier) => (
-                  <div key={supplier.supplierDeptId} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <div key={supplier.supplierDeptId} className="flex items-start gap-3 px-3 py-2.5 text-sm">
                     <Checkbox
+                      className="mt-0.5"
                       checked={invitedSupplierDeptIds.includes(supplier.supplierDeptId)}
                       onCheckedChange={(checked) => setInvitedSupplierDeptIds((current) => checked
                         ? Array.from(new Set([...current, supplier.supplierDeptId]))
@@ -1025,81 +1271,100 @@ function ActionPanel(props: {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{supplier.legalName}</span>
-                      <span className="block text-xs text-muted-foreground">{supplier.contactName} · {supplier.contactPhone}</span>
-                      {activationInvitations[supplier.supplierDeptId] && (
+                      <span className="block text-xs text-muted-foreground">
+                        {supplier.contactName && supplier.contactPhone
+                          ? `${supplier.contactName} · ${supplier.contactPhone}`
+                          : supplier.contactName || supplier.contactPhone || "联系人未补充"}
+                      </span>
+                      {supplier.accountStatus === "ACTIVATED" && supplier.loginPhone && (
+                        <span className="block text-xs text-emerald-700">
+                          登录手机号 {supplier.loginPhone}
+                          {supplier.activeAccountCount > 1 ? ` · 共 ${supplier.activeAccountCount} 个账号` : ""}
+                        </span>
+                      )}
+                      {supplier.accountStatus === "PENDING_ACTIVATION" && (
                         <span className="block text-xs text-primary">
-                          激活邀请 #{activationInvitations[supplier.supplierDeptId].invitationId}
+                          激活邀请 #{supplier.activationInvitationId} · 登录手机号 {supplier.contactPhone}
                         </span>
                       )}
                     </span>
-                    <StatusChip tone={supplier.verificationStatus === "VERIFIED" ? "success" : "warning"}>
-                      {supplier.verificationStatus === "VERIFIED" ? "已核验" : "待核验"}
-                    </StatusChip>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      title="发送账号激活邀请"
-                      onClick={() => void inviteSupplierAccount(supplier.supplierDeptId)}
-                    >
-                      <Send className="size-4" />
-                    </Button>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <StatusChip tone={supplier.verificationStatus === "VERIFIED"
+                        ? "success"
+                        : supplier.verificationStatus === "REJECTED" ? "danger" : supplier.verificationStatus === "DISABLED" ? "neutral" : "warning"}>
+                        {supplier.verificationStatus === "VERIFIED"
+                          ? "企业已核验"
+                          : supplier.verificationStatus === "REJECTED"
+                            ? "企业核验未通过"
+                            : supplier.verificationStatus === "DISABLED" ? "企业已停用" : "企业待核验"}
+                      </StatusChip>
+                      <StatusChip tone={supplier.accountStatus === "ACTIVATED"
+                        ? "success"
+                        : supplier.accountStatus === "PENDING_ACTIVATION" ? "info" : "neutral"}>
+                        {supplier.accountStatus === "ACTIVATED"
+                          ? "账号已激活"
+                          : supplier.accountStatus === "PENDING_ACTIVATION"
+                            ? "账号待激活"
+                            : supplier.accountStatus === "CONTACT_MISSING" ? "联系人待补充" : "账号未邀请"}
+                      </StatusChip>
+                    </span>
+                    {supplier.contactName && supplier.contactPhone && supplier.accountStatus !== "ACTIVATED" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        title={supplier.accountStatus === "PENDING_ACTIVATION"
+                          ? "重新生成登录账号激活邀请（不会发出维修邀价）"
+                          : "发送登录账号激活邀请（不会发出维修邀价）"}
+                        onClick={() => void inviteSupplierAccount(supplier.supplierDeptId)}
+                      >
+                        <Send className="size-4" />
+                      </Button>
+                    )}
                   </div>
                 ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  发出邀价后，系统会为联系人资料完整且尚无账号的供应商创建账号激活邀请。企业核验与账号激活相互独立，签约前仍需完成企业核验。
+                </p>
+                <Button
+                  onClick={() => void issueQuoteInvitations()}
+                  disabled={props.acting || invitedSupplierDeptIds.length === 0}
+                >
+                  <Banknote className="size-4 mr-1" />发出邀价
+                </Button>
               </div>
-              <p className="text-xs text-muted-foreground">竞争性比价至少邀请三家；未完成平台核验的企业可先收取激活邀请，但签约前必须核验通过。</p>
-            </div>
-            <Button
-              onClick={() => props.doAction("quote-invitations", {
-                supplierDeptIds: invitedSupplierDeptIds,
-                remark: "物业发出维修邀价",
-              })}
-              disabled={props.acting || invitedSupplierDeptIds.length === 0}
-            >
-              <Banknote className="size-4 mr-1" /> 发出邀价
-            </Button>
+            )}
+            {s === "QUOTE_COLLECTING" && (
+              <div className="space-y-3 border-t pt-4">
+                <div>
+                  <div className="text-sm font-medium">邀价已发出</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {quoteInvitations.length > 0
+                      ? `已邀请 ${quoteInvitations.map((item) => item.supplierName).join("、")}`
+                      : "正在读取已邀价供应商"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setInvitedSupplierDeptIds([]);
+                    setAppendInvitationOpen(true);
+                  }}
+                  disabled={appendableSuppliers.length === 0}
+                >
+                  <Plus className="mr-1 size-4" />追加邀价供应商
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
         {["QUOTE_COLLECTING", "QUOTE_SUBMITTED"].includes(s) && props.canField && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label>报价供应商</Label>
-                <Select value={quoteSupplierDeptId} onValueChange={setQuoteSupplierDeptId}>
-                  <SelectTrigger><SelectValue placeholder="选择已登记的供应商" /></SelectTrigger>
-                  <SelectContent>
-                    {supplierOrganizations.map((supplier) => (
-                      <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>
-                        {supplier.legalName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>报价金额</Label>
-                <Input value={quoteAmount} onChange={(e) => setQuoteAmount(e.target.value)} placeholder="金额" />
-              </div>
-            </div>
-            <Textarea value={quoteSummary} onChange={(e) => setQuoteSummary(e.target.value)} rows={3} placeholder="报价范围、工期、保修、材料说明" />
-            <Input value={quoteAttachmentHash} onChange={(e) => setQuoteAttachmentHash(e.target.value)} placeholder="报价单附件哈希" />
-            <Button
-              onClick={() => props.doAction("supplier-quotes", {
-                supplierDeptId: Number(quoteSupplierDeptId),
-                quoteAmount: Number(quoteAmount || 0),
-                quoteSummary,
-                attachmentHash: quoteAttachmentHash,
-                originalSource: "PROPERTY_RECEIVED_FILE",
-                originalAttachmentHash: quoteAttachmentHash,
-                confirmationStatus: "PENDING_SUPPLIER_CONFIRMATION",
-                remark: "物业代录供应商原始报价",
-              })}
-              disabled={props.acting || !quoteSupplierDeptId || !quoteAmount || !quoteAttachmentHash}
-            >
-              <ClipboardList className="size-4 mr-1" /> 录入供应商报价
-            </Button>
-          </div>
+          <Button type="button" variant="outline" onClick={() => setQuoteDialogOpen(true)}>
+            <ClipboardList className="mr-1 size-4" />代录供应商报价
+          </Button>
         )}
 
         {s === "QUOTE_SUBMITTED" && props.canManage && (
@@ -1174,7 +1439,7 @@ function ActionPanel(props: {
 
         {s === "SUPPLIER_RECOMMENDED" && (
           <div className="space-y-3">
-            {props.canField && (
+            {props.canField && props.selected.fundSource === "BUILDING_MAINTENANCE_FUND" && (
               <div className="space-y-2 border-l pl-3">
                 <Label>楼栋接龙范围</Label>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1206,7 +1471,7 @@ function ActionPanel(props: {
                 </Button>
               </div>
             )}
-            {props.canManage && (
+            {props.canManage && ["COMMUNITY_MAINTENANCE_FUND", "PUBLIC_REVENUE"].includes(props.selected.fundSource || "") && (
               <div className="space-y-2 border-l pl-3">
                 <Label>业主大会表决包 ID</Label>
                 <Input value={assemblyPackageId} onChange={(e) => setAssemblyPackageId(e.target.value)} placeholder="仅小区整体事项使用" />
@@ -1329,12 +1594,6 @@ function ActionPanel(props: {
           </div>
         )}
 
-        {s === "PLAN_SUBMITTED" && props.canManage && (
-          <Button onClick={() => props.doAction("route-plan", { remark: "执行治理路径判定" })} disabled={props.acting}>
-            <Route className="size-4 mr-1" /> 治理路径判定
-          </Button>
-        )}
-
         {s === "GOVERNANCE_PENDING" && props.canGovernance && (
           <Button onClick={() => props.doAction("governance-confirm", { remark: "业委会主任或副主任确认" })} disabled={props.acting}>
             <CheckCircle2 className="size-4 mr-1" /> 主任/副主任确认
@@ -1433,7 +1692,12 @@ function ActionPanel(props: {
         )}
 
         {["APPROVED", "CONTRACT_EFFECTIVE"].includes(s) && props.canField && (
-          <Button onClick={() => props.doAction("start-work", { remark: "合同已生效，供应商进场" })} disabled={props.acting}>
+          <Button
+            onClick={() => props.doAction("start-work", {
+              remark: s === "APPROVED" ? "物业包干维修开始执行" : "合同已生效，供应商进场",
+            })}
+            disabled={props.acting}
+          >
             <Wrench className="size-4 mr-1" /> 开工
           </Button>
         )}
@@ -1537,6 +1801,140 @@ function ActionPanel(props: {
           </div>
         )}
       </div>
+      <Dialog open={appendInvitationOpen} onOpenChange={(open) => {
+        setAppendInvitationOpen(open);
+        if (!open) {
+          setInvitedSupplierDeptIds([]);
+          setAppendInvitationReason("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>追加邀价供应商</DialogTitle>
+            <DialogDescription>首次邀价记录保持不变；这里仅向尚未受邀的供应商追加发送。</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-64 divide-y overflow-y-auto rounded-md border">
+            {appendableSuppliers.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">没有可追加的供应商</div>
+            ) : appendableSuppliers.map((supplier) => (
+              <label key={supplier.supplierDeptId} className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm">
+                <Checkbox
+                  checked={invitedSupplierDeptIds.includes(supplier.supplierDeptId)}
+                  onCheckedChange={(checked) => setInvitedSupplierDeptIds((current) => checked
+                    ? [...current, supplier.supplierDeptId]
+                    : current.filter((id) => id !== supplier.supplierDeptId))}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{supplier.legalName}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {supplier.contactName && supplier.contactPhone
+                      ? `${supplier.contactName} · ${supplier.contactPhone}`
+                      : "联系人资料未补充"}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="append-invitation-reason">追加原因</Label>
+            <Textarea
+              id="append-invitation-reason"
+              rows={3}
+              value={appendInvitationReason}
+              onChange={(event) => setAppendInvitationReason(event.target.value)}
+              placeholder="如：原受邀供应商未响应，需要补充询价"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAppendInvitationOpen(false)}>取消</Button>
+            <Button
+              onClick={() => void appendQuoteInvitations()}
+              disabled={props.acting || invitedSupplierDeptIds.length === 0 || !appendInvitationReason.trim()}
+            >
+              <Send className="mr-1 size-4" />发送追加邀价
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={quoteDialogOpen} onOpenChange={(open) => void setQuoteDialog(open)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>代录供应商报价</DialogTitle>
+            <DialogDescription>录入物业收到的纸质、微信或电子报价，并保留原始文件。</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>报价供应商</Label>
+              <Select value={quoteSupplierDeptId} onValueChange={setQuoteSupplierDeptId}>
+                <SelectTrigger><SelectValue placeholder="选择供应商" /></SelectTrigger>
+                <SelectContent>
+                  {supplierOrganizations.map((supplier) => (
+                    <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>
+                      {supplier.legalName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="property-quote-amount">含税总价</Label>
+              <Input id="property-quote-amount" type="number" min="0" value={quoteAmount} onChange={(e) => setQuoteAmount(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>报价来源</Label>
+            <Select value={quoteSource} onValueChange={setQuoteSource}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PAPER">纸质报价单</SelectItem>
+                <SelectItem value="WECHAT">微信接收</SelectItem>
+                <SelectItem value="EMAIL">邮件接收</SelectItem>
+                <SelectItem value="OTHER">其他来源</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="property-quote-summary">报价说明</Label>
+            <Textarea id="property-quote-summary" rows={4} value={quoteSummary} onChange={(e) => setQuoteSummary(e.target.value)} placeholder="报价范围、工期、保修、材料说明" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="property-quote-file">报价原件</Label>
+            <Input
+              id="property-quote-file"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadQuoteDocument(file);
+                event.target.value = "";
+              }}
+              disabled={quoteUploading}
+            />
+            <div className="flex min-h-6 items-center text-xs text-muted-foreground">
+              {quoteUploading ? <><Loader2 className="mr-1 size-3.5 animate-spin" />正在上传</> : quoteAttachment ? (
+                <><FileText className="mr-1 size-3.5" />{quoteAttachment.originalFileName}</>
+              ) : "支持 PDF、图片、Word、Excel，单个文件不超过 20MB"}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">供应商已在原件上签字或盖章</div>
+              <div className="text-xs text-muted-foreground">未确认时，报价将标记为待供应商确认。</div>
+            </div>
+            <Switch checked={quoteOriginalConfirmed} onCheckedChange={setQuoteOriginalConfirmed} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => void setQuoteDialog(false)} disabled={quoteUploading}>取消</Button>
+            <Button
+              onClick={() => void submitPropertyQuote()}
+              disabled={props.acting || quoteUploading || !quoteSupplierDeptId || !quoteAmount || !quoteAttachment}
+            >
+              <Upload className="mr-1 size-4" />提交代录报价
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SectionCard>
   );
 }

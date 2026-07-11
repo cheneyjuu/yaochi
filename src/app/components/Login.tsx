@@ -31,6 +31,10 @@ const SEED_ACCOUNTS = [
   { phone: "13800000031", role: "供应商报价经办人 (S)" },
 ];
 
+const FIELD_GROUP_CLASS = "space-y-2.5";
+const FIELD_LABEL_CLASS = "block text-sm font-medium leading-5";
+const FIELD_INPUT_CLASS = "h-11 border-border bg-background pl-9 shadow-xs hover:border-primary/40";
+
 export function Login() {
   const { login } = useStore();
   const [phone, setPhone] = useState("13800000011");
@@ -168,40 +172,40 @@ export function Login() {
             </p>
           </div>
 
-          <form onSubmit={view === "login" ? submit : activate} className="space-y-4">
+          <form onSubmit={view === "login" ? submit : activate} className="space-y-5">
             {view === "activation" && (
               <>
-                <div className="space-y-1.5">
-                  <label className="text-sm">邀请编号</label>
+                <div className={FIELD_GROUP_CLASS}>
+                  <label className={FIELD_LABEL_CLASS}>邀请编号</label>
                   <div className="relative">
                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input value={invitationId} onChange={(e) => setInvitationId(e.target.value)} inputMode="numeric" placeholder="请输入邀请编号" className="pl-9 bg-input-background" />
+                    <Input value={invitationId} onChange={(e) => setInvitationId(e.target.value)} inputMode="numeric" placeholder="请输入邀请编号" className={FIELD_INPUT_CLASS} />
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm">经办人姓名</label>
+                <div className={FIELD_GROUP_CLASS}>
+                  <label className={FIELD_LABEL_CLASS}>经办人姓名</label>
                   <div className="relative">
                     <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input value={operatorName} onChange={(e) => setOperatorName(e.target.value)} placeholder="请输入本人姓名" className="pl-9 bg-input-background" />
+                    <Input value={operatorName} onChange={(e) => setOperatorName(e.target.value)} placeholder="请输入本人姓名" className={FIELD_INPUT_CLASS} />
                   </div>
                 </div>
               </>
             )}
             {/* 手机号 */}
-            <div className="space-y-1.5">
-              <label className="text-sm">手机号</label>
+            <div className={FIELD_GROUP_CLASS}>
+              <label className={FIELD_LABEL_CLASS}>手机号</label>
               <div className="relative">
                 <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入登录手机号" className="pl-9 bg-input-background" />
+                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入登录手机号" className={FIELD_INPUT_CLASS} />
               </div>
             </div>
 
             {/* 短信验证码 */}
-            <div className="space-y-1.5">
-              <label className="text-sm">短信验证码</label>
+            <div className={FIELD_GROUP_CLASS}>
+              <label className={FIELD_LABEL_CLASS}>短信验证码</label>
               <div className="relative">
                 <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input value={smsCode} onChange={(e) => setSmsCode(e.target.value)} placeholder="请输入短信验证码" className="pl-9 bg-input-background" />
+                <Input value={smsCode} onChange={(e) => setSmsCode(e.target.value)} placeholder="请输入短信验证码" className={FIELD_INPUT_CLASS} />
               </div>
             </div>
 

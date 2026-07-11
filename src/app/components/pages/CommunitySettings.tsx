@@ -270,6 +270,7 @@ export function CommunitySettings() {
       const next = await updateCommunityRules({
         ruleConfigId: rulesDraft.currentPolicy?.policyId ?? null,
         sharedOwnershipStrategy: rulesDraft.sharedOwnershipStrategy,
+        repairEstimateRequired: rulesDraft.repairEstimateRequired,
         fundManagedEnabled: rulesDraft.fundManagedEnabled,
         financialControlConfigId: rulesDraft.financialControlConfigId,
         quarterlyDisclosureDeadlineDay: rulesDraft.quarterlyDisclosureDeadlineDay,
@@ -675,6 +676,7 @@ export function CommunitySettings() {
                   </div>
                 </div>
                 <div className="space-y-4">
+                  <SwitchRow label="邀价前必须填写物业内部估算" checked={rules.repairEstimateRequired} disabled={!permissions.canEditRules} onCheckedChange={(v) => setRulesDraft((d) => d && { ...d, repairEstimateRequired: v })} />
                   <SwitchRow label="启用第三方资金托管" checked={rules.fundManagedEnabled} disabled={!permissions.canEditFinancialControl} onCheckedChange={(v) => setRulesDraft((d) => d && { ...d, fundManagedEnabled: v })} />
                   <Field label="财务审批配置" value={rules.financialControlConfigId} disabled={!permissions.canEditFinancialControl} onChange={(v) => setRulesDraft((d) => d && { ...d, financialControlConfigId: v })} />
                   <Field label="季度收益公示期限日" type="number" value={rules.quarterlyDisclosureDeadlineDay} disabled={!permissions.canEditFinancialControl} onChange={(v) => setRulesDraft((d) => d && { ...d, quarterlyDisclosureDeadlineDay: Number(v) })} />

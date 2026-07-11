@@ -99,6 +99,7 @@ export interface CommunityRules {
   currentPolicy: GovernancePolicy | null;
   policyOptions: GovernancePolicy[];
   sharedOwnershipStrategy: string;
+  repairEstimateRequired: boolean;
   fundManagedEnabled: boolean;
   financialControlConfigId: string;
   quarterlyDisclosureDeadlineDay: number;
@@ -155,6 +156,7 @@ export type UpdateCommunityAssetLedgerRequest = Partial<Omit<
 export type UpdateCommunityRulesRequest = Partial<{
   ruleConfigId: number | null;
   sharedOwnershipStrategy: string;
+  repairEstimateRequired: boolean;
   fundManagedEnabled: boolean;
   financialControlConfigId: string;
   quarterlyDisclosureDeadlineDay: number;

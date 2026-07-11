@@ -92,3 +92,31 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 export function apiDelete<T>(path: string): Promise<T> {
   return request<T>(path, { method: "DELETE" });
 }
+
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE}${path}`, { method: "POST", headers, body: formData });
+  } catch {
+    throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
+  }
+  if (resp.status === 401) {
+    clearSession();
+    onUnauthorized?.();
+    throw new ApiError(resp.status, "登录已失效，请重新登录", "AUTH", false);
+  }
+  let payload: { code: number; msg?: string; data?: T; errorType?: string; needRetry?: boolean };
+  try {
+    payload = await resp.json();
+  } catch {
+    throw new ApiError(resp.status, "响应解析失败", "PARSE", true);
+  }
+  if (payload.code !== 200) {
+    throw new ApiError(payload.code, payload.msg ?? "上传失败", payload.errorType, payload.needRetry);
+  }
+  return payload.data as T;
+}

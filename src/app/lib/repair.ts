@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./api";
+import { apiDelete, apiGet, apiPost, apiUpload } from "./api";
 
 export type RepairSpaceScope = "PRIVATE" | "PUBLIC";
 export type RepairStatus =
@@ -47,18 +47,23 @@ export type RepairStatus =
 
 export interface RegisterSupplierOrganizationInput {
   legalName: string;
-  unifiedSocialCreditCode: string;
-  contactName: string;
-  contactPhone: string;
+  unifiedSocialCreditCode?: string;
+  contactName?: string;
+  contactPhone?: string;
 }
 
 export interface RepairSupplierOrganization {
   supplierDeptId: number;
-  unifiedSocialCreditCode: string;
+  unifiedSocialCreditCode?: string;
   legalName: string;
-  contactName: string;
-  contactPhone: string;
+  contactName?: string;
+  contactPhone?: string;
   verificationStatus: "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "DISABLED";
+  accountStatus: "CONTACT_MISSING" | "NOT_INVITED" | "PENDING_ACTIVATION" | "ACTIVATED";
+  activeAccountCount: number;
+  loginPhone?: string;
+  activationInvitationId?: number;
+  activationInvitationExpiresAt?: string;
 }
 
 export interface SupplierActivationInvitation {
@@ -77,9 +82,26 @@ export interface RepairSupplierQuote {
   supplierName: string;
   quoteAmount: number;
   quoteSummary?: string | null;
+  attachmentId: number;
   submissionSource: string;
   confirmationStatus: string;
   createTime: string;
+}
+
+export interface RepairQuoteInvitation {
+  quoteInvitationId: number;
+  supplierDeptId: number;
+  supplierName: string;
+  status: string;
+  deadline?: string | null;
+  sentAt: string;
+}
+
+export interface RepairAttachment {
+  attachmentId: number;
+  originalFileName: string;
+  contentType: string;
+  actualSize: number;
 }
 
 export interface RepairFrameworkRelation {
@@ -115,11 +137,32 @@ export interface RepairWorkOrder {
   riskLevel?: string | null;
   surveySummary?: string | null;
   planBudget?: number | null;
+  publicCeilingPrice?: number | null;
   fundSource?: string | null;
   fundGateBlocked: boolean;
   satisfactionScore?: number | null;
   satisfactionComment?: string | null;
   version: number;
+  createTime: string;
+  updateTime: string;
+}
+
+export interface RepairPlanningPolicy {
+  internalEstimateRequired: boolean;
+}
+
+export interface RepairSupplierWorkOrder {
+  workOrderId: number;
+  orderNo: string;
+  title: string;
+  description?: string | null;
+  spaceScope: RepairSpaceScope;
+  status: RepairStatus;
+  buildingId?: number | null;
+  locationText?: string | null;
+  category?: string | null;
+  surveySummary?: string | null;
+  publicCeilingPrice?: number | null;
   createTime: string;
   updateTime: string;
 }
@@ -221,6 +264,10 @@ export function listRepairDecisionRooms(workOrderId: number): Promise<RepairDeci
   return apiGet<RepairDecisionRoom[]>(`/admin/repair-work-orders/${workOrderId}/local-decision-rooms`);
 }
 
+export function getRepairPlanningPolicy(): Promise<RepairPlanningPolicy> {
+  return apiGet<RepairPlanningPolicy>("/admin/repair-work-orders/planning-policy");
+}
+
 export function registerSupplierOrganization(input: RegisterSupplierOrganizationInput): Promise<number> {
   return apiPost<number>("/admin/supplier-organizations", input);
 }
@@ -243,15 +290,41 @@ export function listRepairSupplierQuotes(workOrderId: number): Promise<RepairSup
   return apiGet<RepairSupplierQuote[]>(`/admin/repair-work-orders/${workOrderId}/supplier-quotes`);
 }
 
+export function listRepairQuoteInvitations(workOrderId: number): Promise<RepairQuoteInvitation[]> {
+  return apiGet<RepairQuoteInvitation[]>(`/admin/repair-work-orders/${workOrderId}/quote-invitations`);
+}
+
+export function uploadPropertyQuoteAttachment(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("attachmentKind", "QUOTE_DOCUMENT");
+  form.append("contentType", file.type || "application/octet-stream");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
+}
+
+export function uploadSupplierQuoteAttachment(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/supplier/repair-work-orders/${workOrderId}/quote-attachments`, form);
+}
+
+export function deletePropertyQuoteAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  return apiDelete<void>(`/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}`);
+}
+
+export function deleteSupplierQuoteAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  return apiDelete<void>(`/supplier/repair-work-orders/${workOrderId}/quote-attachments/${attachmentId}`);
+}
+
 export function listRepairFrameworkRelations(serviceCategory?: string | null): Promise<RepairFrameworkRelation[]> {
   const query = serviceCategory ? `?serviceCategory=${encodeURIComponent(serviceCategory)}` : "";
   return apiGet<RepairFrameworkRelation[]>(`/admin/supplier-framework-relations${query}`);
 }
 
-export function listSupplierRepairWorkOrders(): Promise<RepairWorkOrder[]> {
-  return apiGet<RepairWorkOrder[]>("/supplier/repair-work-orders");
+export function listSupplierRepairWorkOrders(): Promise<RepairSupplierWorkOrder[]> {
+  return apiGet<RepairSupplierWorkOrder[]>("/supplier/repair-work-orders");
 }
 
-export function submitSupplierWorkbenchQuote(workOrderId: number, input: unknown): Promise<RepairWorkOrder> {
-  return apiPost<RepairWorkOrder>(`/supplier/repair-work-orders/${workOrderId}/quote`, input);
+export function submitSupplierWorkbenchQuote(workOrderId: number, input: unknown): Promise<RepairSupplierWorkOrder> {
+  return apiPost<RepairSupplierWorkOrder>(`/supplier/repair-work-orders/${workOrderId}/quote`, input);
 }

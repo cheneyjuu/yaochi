@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BriefcaseBusiness, ClipboardList, Loader2, RefreshCw } from "lucide-react";
+import { BriefcaseBusiness, FileText, Inbox, Loader2, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader, SectionCard, StatusChip } from "../gov/common";
 import { Button } from "../ui/button";
@@ -8,16 +8,20 @@ import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import {
   listSupplierRepairWorkOrders,
+  deleteSupplierQuoteAttachment,
   submitSupplierWorkbenchQuote,
-  type RepairWorkOrder,
+  uploadSupplierQuoteAttachment,
+  type RepairAttachment,
+  type RepairSupplierWorkOrder,
 } from "../../lib/repair";
 
 export function SupplierWorkbench() {
-  const [orders, setOrders] = useState<RepairWorkOrder[]>([]);
-  const [selected, setSelected] = useState<RepairWorkOrder | null>(null);
+  const [orders, setOrders] = useState<RepairSupplierWorkOrder[]>([]);
+  const [selected, setSelected] = useState<RepairSupplierWorkOrder | null>(null);
   const [amount, setAmount] = useState("");
   const [summary, setSummary] = useState("");
-  const [attachmentHash, setAttachmentHash] = useState("");
+  const [attachment, setAttachment] = useState<RepairAttachment | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,25 +43,39 @@ export function SupplierWorkbench() {
   }, []);
 
   async function submitQuote() {
-    if (!selected) return;
+    if (!selected || !attachment) return;
     setSubmitting(true);
     try {
       await submitSupplierWorkbenchQuote(selected.workOrderId, {
         quoteAmount: Number(amount),
         quoteSummary: summary,
-        attachmentHash,
-        originalAttachmentHash: attachmentHash,
+        attachmentId: attachment.attachmentId,
         originalSource: "SUPPLIER_PDF",
       });
       toast.success("报价已提交");
       setAmount("");
       setSummary("");
-      setAttachmentHash("");
+      setAttachment(null);
       await reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "报价提交失败");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function uploadQuoteDocument(file: File) {
+    if (!selected) return;
+    setUploading(true);
+    try {
+      if (attachment) {
+        await deleteSupplierQuoteAttachment(selected.workOrderId, attachment.attachmentId);
+      }
+      setAttachment(await uploadSupplierQuoteAttachment(selected.workOrderId, file));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "报价原件上传失败");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -79,7 +97,11 @@ export function SupplierWorkbench() {
               <Loader2 className="mr-2 size-4 animate-spin" />加载中
             </div>
           ) : orders.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">暂无待报价工单</div>
+            <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+              <Inbox className="mb-3 size-8 text-muted-foreground/60" />
+              <div className="text-sm font-medium text-foreground">尚未收到维修邀价</div>
+              <div className="mt-1 text-xs text-muted-foreground">账号已开通，当前没有物业发给本企业的待报价工单</div>
+            </div>
           ) : (
             <div className="divide-y">
               {orders.map((order) => (
@@ -110,6 +132,11 @@ export function SupplierWorkbench() {
                   <BriefcaseBusiness className="size-4" />{selected.title}
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">{selected.surveySummary || "物业尚未填写现场勘验摘要"}</div>
+                {selected.publicCeilingPrice != null && (
+                  <div className="mt-2 text-sm font-medium text-foreground">
+                    公开最高限价：¥{Number(selected.publicCeilingPrice).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+                  </div>
+                )}
               </div>
               <div>
                 <Label>含税总价</Label>
@@ -120,11 +147,26 @@ export function SupplierWorkbench() {
                 <Textarea rows={5} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="维修范围、材料、工期与保修承诺" />
               </div>
               <div>
-                <Label>盖章报价单</Label>
-                <Input value={attachmentHash} onChange={(event) => setAttachmentHash(event.target.value)} placeholder="已上传报价单的文件标识" />
+                <Label htmlFor="supplier-quote-file">报价原件</Label>
+                <Input
+                  id="supplier-quote-file"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void uploadQuoteDocument(file);
+                    event.target.value = "";
+                  }}
+                  disabled={uploading}
+                />
+                <div className="mt-1 flex min-h-5 items-center text-xs text-muted-foreground">
+                  {uploading ? <><Loader2 className="mr-1 size-3.5 animate-spin" />正在上传</> : attachment ? (
+                    <><FileText className="mr-1 size-3.5" />{attachment.originalFileName}</>
+                  ) : "支持 PDF、图片、Word、Excel，单个文件不超过 20MB"}
+                </div>
               </div>
-              <Button className="w-full" onClick={() => void submitQuote()} disabled={submitting || !amount || !attachmentHash}>
-                {submitting ? <Loader2 className="mr-1 size-4 animate-spin" /> : <ClipboardList className="mr-1 size-4" />}
+              <Button className="w-full" onClick={() => void submitQuote()} disabled={submitting || uploading || !amount || !attachment}>
+                {submitting ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Upload className="mr-1 size-4" />}
                 提交报价
               </Button>
             </div>
