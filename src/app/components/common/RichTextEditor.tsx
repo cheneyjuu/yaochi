@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import {
   Bold,
   CheckSquare2,
@@ -27,6 +27,7 @@ interface RichTextEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   rows?: number;
+  attachmentArea?: ReactNode;
 }
 
 export function RichTextEditor({
@@ -35,6 +36,7 @@ export function RichTextEditor({
   onChange,
   placeholder,
   rows = 7,
+  attachmentArea,
 }: RichTextEditorProps) {
   const preview = useMemo(() => toMiniappRichText(value), [value]);
 
@@ -134,6 +136,11 @@ export function RichTextEditor({
             </div>
           </div>
         </div>
+        {attachmentArea && (
+          <div className="border-t bg-slate-50/80 px-4 py-3">
+            {attachmentArea}
+          </div>
+        )}
       </div>
     </div>
   );

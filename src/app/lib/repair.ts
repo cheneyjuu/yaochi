@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiUpload } from "./api";
 
 export type RepairSpaceScope = "PRIVATE" | "PUBLIC";
+export type RepairPublicAreaScope = "BUILDING" | "COMMUNITY";
 export type RepairStatus =
   | "SUBMITTED"
   | "PENDING_VERIFY"
@@ -85,6 +86,9 @@ export interface RepairSupplierQuote {
   attachmentId: number;
   submissionSource: string;
   confirmationStatus: string;
+  quoteStatus: "ACTIVE" | "REVISION_REQUESTED" | "SUPERSEDED";
+  revisionNo: number;
+  supersededByQuoteId?: number | null;
   createTime: string;
 }
 
@@ -93,6 +97,9 @@ export interface RepairQuoteInvitation {
   supplierDeptId: number;
   supplierName: string;
   status: string;
+  invitationRound: number;
+  invitationType: "INITIAL" | "REVISION";
+  revisionReason?: string | null;
   deadline?: string | null;
   sentAt: string;
 }
@@ -102,11 +109,22 @@ export interface RepairAttachment {
   originalFileName: string;
   contentType: string;
   actualSize: number;
+  etag: string;
 }
 
 export interface RepairAttachmentDownloadTicket {
   attachmentId: number;
   downloadUrl: string;
+  expiresAt: string;
+}
+
+export interface RepairAttachmentPreviewTicket {
+  attachmentId: number;
+  originalFileName: string;
+  contentType: string;
+  actualSize: number;
+  previewUrl: string;
+  converted: boolean;
   expiresAt: string;
 }
 
@@ -127,6 +145,7 @@ export interface RepairWorkOrder {
   description?: string | null;
   source: string;
   spaceScope: RepairSpaceScope;
+  publicAreaScope?: RepairPublicAreaScope | null;
   status: RepairStatus;
   reporterAccountId: number;
   reporterUid?: number | null;
@@ -155,6 +174,7 @@ export interface RepairWorkOrder {
 
 export interface RepairPlanningPolicy {
   internalEstimateRequired: boolean;
+  buildingRepairDefaultDecisionChannel: "ONLINE" | "WECHAT";
 }
 
 export interface RepairSupplierWorkOrder {
@@ -193,7 +213,31 @@ export interface RepairLocationOptions {
 
 export interface RepairDecisionRoom {
   roomId: number;
+  roomLabel: string;
   buildArea: number;
+}
+
+export interface RepairLocalDecision {
+  decisionId: number;
+  decisionChannel: "ONLINE" | "WECHAT";
+  scopeType: "BUILDING" | "BUILDING_UNIT";
+  unitName?: string | null;
+  scopeLabel?: string | null;
+  totalOwnerCount: number;
+  totalArea: number;
+  participatedOwnerCount?: number | null;
+  participatedArea?: number | null;
+  agreeOwnerCount?: number | null;
+  agreeArea?: number | null;
+  disagreeOwnerCount?: number | null;
+  disagreeArea?: number | null;
+  abstainOwnerCount?: number | null;
+  abstainArea?: number | null;
+  invalidOwnerCount?: number | null;
+  invalidArea?: number | null;
+  evidenceAttachmentHash?: string | null;
+  currentThresholdPassed: boolean;
+  result: string;
 }
 
 export interface RepairLocationCommunityOption {
@@ -226,6 +270,7 @@ export interface PageResponse<T> {
 }
 
 export interface CreateRepairInput {
+  publicAreaScope?: RepairPublicAreaScope | null;
   buildingId?: number | null;
   locationText?: string;
   title: string;
@@ -254,6 +299,13 @@ export function createRepairWorkOrder(input: CreateRepairInput): Promise<RepairW
   return apiPost<RepairWorkOrder>("/admin/repair-work-orders", input);
 }
 
+export function uploadRepairIntakeAttachment(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("contentType", file.type || "application/octet-stream");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/intake-attachments`, form);
+}
+
 export function listRepairEvents(workOrderId: number): Promise<RepairEvent[]> {
   return apiGet<RepairEvent[]>(`/admin/repair-work-orders/${workOrderId}/events`);
 }
@@ -268,6 +320,10 @@ export function repairAction(workOrderId: number, action: string, body: unknown 
 
 export function listRepairDecisionRooms(workOrderId: number): Promise<RepairDecisionRoom[]> {
   return apiGet<RepairDecisionRoom[]>(`/admin/repair-work-orders/${workOrderId}/local-decision-rooms`);
+}
+
+export function getRepairLocalDecision(workOrderId: number): Promise<RepairLocalDecision> {
+  return apiGet<RepairLocalDecision>(`/admin/repair-work-orders/${workOrderId}/local-decision`);
 }
 
 export function getRepairPlanningPolicy(): Promise<RepairPlanningPolicy> {
@@ -296,6 +352,15 @@ export function listRepairSupplierQuotes(workOrderId: number): Promise<RepairSup
   return apiGet<RepairSupplierQuote[]>(`/admin/repair-work-orders/${workOrderId}/supplier-quotes`);
 }
 
+export function listRepairSupplierQuoteHistory(
+  workOrderId: number,
+  supplierDeptId: number,
+): Promise<RepairSupplierQuote[]> {
+  return apiGet<RepairSupplierQuote[]>(
+    `/admin/repair-work-orders/${workOrderId}/supplier-quotes/${supplierDeptId}/history`,
+  );
+}
+
 export function listRepairQuoteInvitations(workOrderId: number): Promise<RepairQuoteInvitation[]> {
   return apiGet<RepairQuoteInvitation[]>(`/admin/repair-work-orders/${workOrderId}/quote-invitations`);
 }
@@ -304,6 +369,34 @@ export function uploadPropertyQuoteAttachment(workOrderId: number, file: File): 
   const form = new FormData();
   form.append("attachmentKind", "QUOTE_DOCUMENT");
   form.append("contentType", file.type || "application/octet-stream");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
+}
+
+export function uploadSolitaireScreenshot(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("attachmentKind", "SOLITAIRE_SCREENSHOT");
+  form.append("contentType", file.type || "image/jpeg");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
+}
+
+export function uploadRepairApprovalDocument(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("attachmentKind", "APPROVAL_DOCUMENT");
+  form.append("contentType", file.type || "application/octet-stream");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
+}
+
+export function uploadRepairFieldAttachment(
+  workOrderId: number,
+  kind: "SURVEY_IMAGE" | "SURVEY_VIDEO",
+  file: File,
+): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("attachmentKind", kind);
+  form.append("contentType", file.type || (kind === "SURVEY_VIDEO" ? "video/mp4" : "image/jpeg"));
   form.append("file", file);
   return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
 }
@@ -318,6 +411,10 @@ export function deletePropertyQuoteAttachment(workOrderId: number, attachmentId:
   return apiDelete<void>(`/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}`);
 }
 
+export function deleteRepairAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  return apiDelete<void>(`/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}`);
+}
+
 export function deleteSupplierQuoteAttachment(workOrderId: number, attachmentId: number): Promise<void> {
   return apiDelete<void>(`/supplier/repair-work-orders/${workOrderId}/quote-attachments/${attachmentId}`);
 }
@@ -328,6 +425,15 @@ export function getPropertyQuoteAttachmentDownload(
 ): Promise<RepairAttachmentDownloadTicket> {
   return apiGet<RepairAttachmentDownloadTicket>(
     `/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}/download-url`,
+  );
+}
+
+export function getPropertyQuoteAttachmentPreview(
+  workOrderId: number,
+  attachmentId: number,
+): Promise<RepairAttachmentPreviewTicket> {
+  return apiGet<RepairAttachmentPreviewTicket>(
+    `/admin/repair-work-orders/${workOrderId}/attachments/${attachmentId}/preview-url`,
   );
 }
 

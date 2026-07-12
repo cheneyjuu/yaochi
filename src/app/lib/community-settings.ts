@@ -62,7 +62,15 @@ export interface CommunityAssetLedger {
     unitCount: number;
     buildingCount: number;
   };
+  buildings: CommunityBuilding[];
   denominatorBreakdown: DenominatorBreakdownItem[];
+}
+
+export interface CommunityBuilding {
+  buildingId: number;
+  buildingName: string;
+  unitCount: number;
+  roomCount: number;
 }
 
 export interface CommunityDenominator {
@@ -100,6 +108,7 @@ export interface CommunityRules {
   policyOptions: GovernancePolicy[];
   sharedOwnershipStrategy: string;
   repairEstimateRequired: boolean;
+  buildingRepairDefaultDecisionChannel: "ONLINE" | "WECHAT";
   fundManagedEnabled: boolean;
   financialControlConfigId: string;
   quarterlyDisclosureDeadlineDay: number;
@@ -157,6 +166,7 @@ export type UpdateCommunityRulesRequest = Partial<{
   ruleConfigId: number | null;
   sharedOwnershipStrategy: string;
   repairEstimateRequired: boolean;
+  buildingRepairDefaultDecisionChannel: "ONLINE" | "WECHAT";
   fundManagedEnabled: boolean;
   financialControlConfigId: string;
   quarterlyDisclosureDeadlineDay: number;

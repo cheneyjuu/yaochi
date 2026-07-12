@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   PageHeader,
   SectionCard,
@@ -14,6 +15,14 @@ import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { Switch } from "../ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +31,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { RichTextView } from "../common/RichTextEditor";
 import {
   Select,
@@ -46,8 +65,11 @@ import {
   ClipboardList,
   Download,
   Eye,
+  Info,
   FileText,
   Loader2,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Route,
@@ -55,37 +77,47 @@ import {
   ShieldCheck,
   Upload,
   Wrench,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import {
   listRepairLocationOptions,
   getRepairPlanningPolicy,
+  getRepairLocalDecision,
   getPropertyQuoteAttachmentDownload,
+  getPropertyQuoteAttachmentPreview,
   listRepairDecisionRooms,
   listRepairFrameworkRelations,
   listRepairEvents,
   listRepairSupplierOrganizations,
+  listRepairSupplierQuoteHistory,
   listRepairSupplierQuotes,
   listRepairQuoteInvitations,
   pageRepairWorkOrders,
   createSupplierActivationInvitation,
   registerSupplierOrganization,
   repairAction,
+  deleteRepairAttachment,
   deletePropertyQuoteAttachment,
+  uploadRepairFieldAttachment,
   uploadPropertyQuoteAttachment,
+  uploadRepairApprovalDocument,
+  uploadSolitaireScreenshot,
   type RepairLocationBuildingOption,
   type RepairPlanningPolicy,
   type RepairLocationCommunityOption,
   type RepairLocationRoomOption,
   type RepairEvent,
   type RepairDecisionRoom,
+  type RepairLocalDecision,
   type RepairFrameworkRelation,
   type RepairStatus,
   type RepairSupplierOrganization,
   type RepairSupplierQuote,
   type RepairQuoteInvitation,
   type RepairAttachment,
+  type RepairAttachmentPreviewTicket,
   type RepairWorkOrder,
 } from "../../lib/repair";
 
@@ -95,14 +127,14 @@ const STATUS_LABEL: Record<RepairStatus, string> = {
   NEED_MANUAL_LOCATION: "待补充位置",
   VERIFIED: "已核验",
   ASSIGNED: "已派单",
-  SURVEYING: "初勘中",
-  SURVEY_COMPLETED: "初勘已完成",
+  SURVEYING: "勘验中",
+  SURVEY_COMPLETED: "勘验已完成",
   QUOTE_COLLECTING: "询价中",
   QUOTE_SUBMITTED: "已报价",
   SUPPLIER_RECOMMENDED: "物业已推荐供应商",
   PLAN_SUBMITTED: "待邀价",
-  LOCAL_DECISION_PENDING: "楼栋接龙中",
-  LOCAL_DECISION_PASSED: "接龙已通过",
+  LOCAL_DECISION_PENDING: "楼栋表决中",
+  LOCAL_DECISION_PASSED: "楼栋表决已通过",
   ASSEMBLY_DECISION_PENDING: "业主大会表决中",
   APPROVAL_DOCUMENT_PREPARING: "报审文件编制中",
   PRICE_REVIEW_PENDING: "待审价",
@@ -149,12 +181,23 @@ const FUND_SOURCE_LABEL: Record<string, string> = {
 
 const REPAIR_CATEGORY_LABEL: Record<string, string> = {
   PLUMBING: "给排水",
+  PUBLIC_PIPE: "给排水",
   ELECTRICAL: "电气",
+  ELECTRIC: "电气",
   ELEVATOR: "电梯",
   FIRE_PROTECTION: "消防",
+  FIRE: "消防",
   WATERPROOFING: "防水",
+  WALL_LEAK: "防水",
   STRUCTURAL: "房屋结构",
-  PUBLIC_FACILITY: "公共设施",
+  ACCESS_CONTROL: "门禁",
+  PUBLIC_LIGHTING: "公共照明",
+  ROAD: "道路",
+  GREENING: "绿化",
+  SANITATION: "环卫",
+  DOOR_WINDOW: "门窗",
+  PUBLIC_AREA_FACILITY: "公共区域设施",
+  PUBLIC_FACILITY: "公共区域设施",
   OTHER: "其他",
 };
 
@@ -182,10 +225,13 @@ const EVENT_ACTION_LABEL: Record<string, string> = {
   SUBMIT_SURVEY: "提交初勘记录",
   SUBMIT_PLAN: "确认维修范围与询价口径",
   INVITE_REPAIR_SUPPLIERS: "发出维修邀价",
+  APPEND_REPAIR_SUPPLIERS: "追加维修邀价",
+  REQUEST_SUPPLIER_QUOTE_REVISIONS: "要求供应商修订报价",
   SUBMIT_SUPPLIER_QUOTE: "提交供应商报价",
   RECOMMEND_SUPPLIER: "物业推荐供应商",
-  START_LOCAL_DECISION: "发起楼栋接龙",
-  COMPLETE_LOCAL_DECISION: "确认楼栋接龙结果",
+  REUSE_SUPPLIER_QUOTE: "沿用上一轮推荐报价",
+  START_LOCAL_DECISION: "发起楼栋表决",
+  COMPLETE_LOCAL_DECISION: "确认楼栋表决结果",
   START_ASSEMBLY_DECISION: "关联业主大会表决",
   COMPLETE_ASSEMBLY_DECISION: "确认业主大会表决结果",
   SUBMIT_APPROVAL_PACKAGE: "提交正式报审文件",
@@ -210,7 +256,7 @@ function fundingProcessDescription(fundSource?: string | null) {
     case "PROPERTY_INTERNAL":
       return "本工单由物业包干成本承担，不动用楼栋维修资金或小区公共维修资金；确认维修范围后由物业按内部流程执行。";
     case "BUILDING_MAINTENANCE_FUND":
-      return "本工单拟使用楼栋维修资金。物业推荐供应商后，由楼主发起本楼栋接龙；物业根据接龙结果形成正式报审文件并附接龙截图，经业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
+      return "本工单拟使用楼栋维修资金。物业推荐供应商后，可选择 C 端在线表决或微信接龙；表决通过后，物业整理正式报审材料，经业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
     case "COMMUNITY_MAINTENANCE_FUND":
       return "本工单拟使用小区公共维修资金。物业推荐供应商后，须经业主大会表决，并完成物业报审、业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
     case "PUBLIC_REVENUE":
@@ -265,14 +311,12 @@ const STATUS_TONE: Record<RepairStatus, Tone> = {
   EMERGENCY_REPAIRING: "danger",
 };
 
-const STEPS = [
-  { key: "accept", label: "受理" },
-  { key: "verify", label: "核验" },
-  { key: "survey", label: "初勘" },
+const BASE_STEPS = [
+  { key: "survey", label: "勘验" },
   { key: "plan", label: "方案" },
   { key: "quote", label: "报价" },
   { key: "supplier", label: "推荐供应商" },
-  { key: "decision", label: "接龙/业主大会" },
+  { key: "decision", label: "待定路径" },
   { key: "package", label: "报审" },
   { key: "price", label: "审价" },
   { key: "confirm", label: "主任/副主任" },
@@ -282,58 +326,75 @@ const STEPS = [
   { key: "acceptance", label: "验收" },
 ];
 
+function workOrderSteps(order: RepairWorkOrder) {
+  const decisionLabel = order.fundSource === "BUILDING_MAINTENANCE_FUND"
+    ? "楼栋表决"
+    : ["COMMUNITY_MAINTENANCE_FUND", "PUBLIC_REVENUE"].includes(order.fundSource || "")
+      ? "业主大会"
+      : order.fundSource === "PROPERTY_INTERNAL"
+        ? "无需表决"
+        : "待定路径";
+  return BASE_STEPS.map((step) => step.key === "decision" ? { ...step, label: decisionLabel } : step);
+}
+
 const STATUS_STEP: Record<RepairStatus, number> = {
   SUBMITTED: 0,
-  NEED_MANUAL_LOCATION: 1,
-  PENDING_VERIFY: 1,
-  VERIFIED: 2,
-  ASSIGNED: 2,
-  SURVEYING: 2,
-  SURVEY_COMPLETED: 3,
-  PLAN_SUBMITTED: 3,
-  QUOTE_COLLECTING: 4,
-  QUOTE_SUBMITTED: 4,
-  SUPPLIER_RECOMMENDED: 5,
-  LOCAL_DECISION_PENDING: 6,
-  ASSEMBLY_DECISION_PENDING: 6,
-  LOCAL_DECISION_PASSED: 7,
-  APPROVAL_DOCUMENT_PREPARING: 7,
-  PRICE_REVIEW_PENDING: 8,
-  GOVERNANCE_PENDING: 9,
-  GOVERNANCE_CONFIRMED: 10,
-  SEALED: 10,
-  CONTRACT_SIGNING: 11,
-  CONTRACT_EFFECTIVE: 11,
-  APPROVED: 11,
-  IN_PROGRESS: 12,
-  PENDING_ACCEPTANCE: 13,
-  ACCEPTANCE_EXCEPTION: 13,
-  RECTIFICATION_REQUIRED: 12,
-  COMPLETED: 13,
-  EVALUATED: 13,
-  ARCHIVED: 13,
+  NEED_MANUAL_LOCATION: 0,
+  PENDING_VERIFY: 0,
+  VERIFIED: 0,
+  ASSIGNED: 0,
+  SURVEYING: 0,
+  SURVEY_COMPLETED: 1,
+  PLAN_SUBMITTED: 2,
+  QUOTE_COLLECTING: 2,
+  QUOTE_SUBMITTED: 3,
+  SUPPLIER_RECOMMENDED: 4,
+  LOCAL_DECISION_PENDING: 4,
+  ASSEMBLY_DECISION_PENDING: 4,
+  LOCAL_DECISION_PASSED: 5,
+  APPROVAL_DOCUMENT_PREPARING: 5,
+  PRICE_REVIEW_PENDING: 6,
+  GOVERNANCE_PENDING: 7,
+  GOVERNANCE_CONFIRMED: 8,
+  SEALED: 9,
+  CONTRACT_SIGNING: 9,
+  CONTRACT_EFFECTIVE: 10,
+  APPROVED: 10,
+  IN_PROGRESS: 10,
+  PENDING_ACCEPTANCE: 11,
+  ACCEPTANCE_EXCEPTION: 11,
+  RECTIFICATION_REQUIRED: 10,
+  COMPLETED: 12,
+  EVALUATED: 12,
+  ARCHIVED: 12,
   REJECTED: 0,
   CANCELLED: 0,
   SUSPENDED: 0,
   ESCALATED: 0,
-  REASSIGN_REQUIRED: 2,
-  PLAN_REVISION_REQUIRED: 3,
-  CHANGE_REVIEW_PENDING: 9,
-  PAYMENT_EXCEPTION: 13,
-  HANDOVER_LOCK: 13,
-  EMERGENCY_REPORTED: 2,
-  EMERGENCY_MITIGATION: 2,
-  EMERGENCY_PLAN_PENDING: 3,
-  EMERGENCY_REPAIRING: 12,
+  REASSIGN_REQUIRED: 0,
+  PLAN_REVISION_REQUIRED: 1,
+  CHANGE_REVIEW_PENDING: 7,
+  PAYMENT_EXCEPTION: 11,
+  HANDOVER_LOCK: 11,
+  EMERGENCY_REPORTED: 0,
+  EMERGENCY_MITIGATION: 0,
+  EMERGENCY_PLAN_PENDING: 1,
+  EMERGENCY_REPAIRING: 10,
 };
 
 type BuildingChoice = RepairLocationBuildingOption & { communityName: string };
 type RoomChoice = RepairLocationRoomOption & { unitName: string };
-type EvidenceFile = { name: string; dataUrl: string; base64: string };
+type EvidenceFile = { name: string; dataUrl: string; file: File };
 
 function fmtDate(value?: string | null) {
   if (!value) return "-";
   return value.replace("T", " ").slice(0, 16);
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function scopeLabel(order: RepairWorkOrder) {
@@ -386,7 +447,7 @@ function readEvidenceFile(file: File): Promise<EvidenceFile> {
       resolve({
         name: file.name,
         dataUrl,
-        base64: dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl,
+        file,
       });
     };
     reader.readAsDataURL(file);
@@ -408,13 +469,18 @@ export function WorkOrders() {
   const [locationText, setLocationText] = useState("");
   const [fieldSupplement, setFieldSupplement] = useState("");
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceFile[]>([]);
+  const [evidenceVideo, setEvidenceVideo] = useState<File | null>(null);
   const [surveySummary, setSurveySummary] = useState("");
   const [riskLevel, setRiskLevel] = useState("LOW");
-  const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy>({ internalEstimateRequired: false });
+  const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy>({
+    internalEstimateRequired: false,
+    buildingRepairDefaultDecisionChannel: "WECHAT",
+  });
   const [planBudget, setPlanBudget] = useState("");
   const [publicCeilingEnabled, setPublicCeilingEnabled] = useState(false);
   const [publicCeilingPrice, setPublicCeilingPrice] = useState("");
   const [fundSource, setFundSource] = useState("PROPERTY_INTERNAL");
+  const switchingOrderRef = useRef(false);
 
   const canRead = hasPermission("repair:workorder:read");
   const canIntake = hasPermission("repair:workorder:intake");
@@ -439,12 +505,18 @@ export function WorkOrders() {
           size: 50,
         }),
         canField ? listRepairLocationOptions() : Promise.resolve({ communities: [] }),
-        canField ? getRepairPlanningPolicy() : Promise.resolve({ internalEstimateRequired: false }),
+        canField ? getRepairPlanningPolicy() : Promise.resolve({
+          internalEstimateRequired: false,
+          buildingRepairDefaultDecisionChannel: "WECHAT" as const,
+        }),
       ]);
       setOrders(page.items);
       setLocationCommunities(options.communities);
       setPlanningPolicy(policy);
-      const next = page.items.find((item) => item.workOrderId === (keepSelectedId ?? selected?.workOrderId)) ?? page.items[0] ?? null;
+      const selectedId = keepSelectedId ?? selected?.workOrderId;
+      const next = selectedId == null
+        ? null
+        : page.items.find((item) => item.workOrderId === selectedId) ?? null;
       setSelected(next);
       if (next) {
         applySelected(next);
@@ -480,6 +552,7 @@ export function WorkOrders() {
     setLocationText(order.locationText ?? "");
     setFieldSupplement("");
     setEvidenceFiles([]);
+    setEvidenceVideo(null);
     setSurveySummary(order.surveySummary ?? "");
     setPlanBudget(order.planBudget == null ? "" : String(order.planBudget));
     setPublicCeilingEnabled(order.publicCeilingPrice != null);
@@ -518,7 +591,169 @@ export function WorkOrders() {
     );
   }
 
-  return (
+  if (selected) {
+    const showSupplierTab = STATUS_STEP[selected.status] >= STATUS_STEP.PLAN_SUBMITTED;
+    return (
+      <>
+        {renderWorkOrderList()}
+        <Sheet
+          open
+          modal={false}
+          onOpenChange={(open) => {
+            if (!open) {
+              if (switchingOrderRef.current) {
+                switchingOrderRef.current = false;
+                return;
+              }
+              setSelected(null);
+              setEvents([]);
+            }
+          }}
+        >
+          <SheetContent
+            side="right"
+            showOverlay={false}
+            onInteractOutside={(event) => {
+              const target = event.target;
+              switchingOrderRef.current = target instanceof Element
+                && Boolean(target.closest("[data-work-order-row]"));
+            }}
+            className="w-full max-w-none gap-0 p-0 sm:w-[78vw] sm:max-w-[1120px] lg:w-[72vw]"
+          >
+            <SheetHeader className="shrink-0 border-b px-4 py-4 pr-12 sm:px-6">
+              <div className="flex items-start justify-between gap-4 pr-7">
+                <div className="min-w-0">
+                  <SheetTitle className="text-lg leading-7 sm:text-xl">{selected.title}</SheetTitle>
+                  <SheetDescription className="mt-1">
+                    工单详情 · {selected.orderNo} · {fmtDate(selected.createTime)}
+                  </SheetDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="刷新工单"
+                  onClick={() => reload(selected.workOrderId)}
+                  disabled={loading}
+                  className="shrink-0"
+                >
+                  <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+            </SheetHeader>
+
+            <div className="gov-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+              <div className="space-y-5">
+
+        <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-y bg-background px-1 py-4 text-sm md:grid-cols-3 xl:grid-cols-6">
+          <SummaryItem label="当前状态"><StatusChip tone={STATUS_TONE[selected.status]} dot>{STATUS_LABEL[selected.status]}</StatusChip></SummaryItem>
+          <SummaryItem label="维修范围" value={scopeLabel(selected)} />
+          <SummaryItem label="现场位置" value={selected.locationText || "未填写"} />
+          <SummaryItem label="维修分类" value={selected.category ? REPAIR_CATEGORY_LABEL[selected.category] ?? selected.category : "未分类"} />
+          <SummaryItem label="资金来源" value={selected.fundSource ? FUND_SOURCE_LABEL[selected.fundSource] ?? selected.fundSource : "待确认"} />
+          <SummaryItem label="参考估算" value={amount(selected) > 0 ? `¥${amount(selected).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}` : "待填写"} />
+        </div>
+
+        {selected.needManualLocation && (
+          <div className="flex gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            该工单位置不足，必须由物业或网格现场补充并锁定位置后，才能进入方案和资金链路。
+          </div>
+        )}
+
+        <SectionCard title="工单进度">
+          <Stepper steps={workOrderSteps(selected)} current={STATUS_STEP[selected.status]} locked={selected.fundGateBlocked ? 2 : undefined} />
+        </SectionCard>
+
+        <Tabs defaultValue="handling" className="gap-4">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-md p-1">
+            <TabsTrigger value="handling" className="flex-none rounded px-4">
+              <Wrench className="size-4" />办理
+            </TabsTrigger>
+            <TabsTrigger value="details" className="flex-none rounded px-4">
+              <Info className="size-4" />详情与记录
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="handling" className="mt-0 space-y-4">
+            <ActionPanel
+              selected={selected}
+              acting={acting}
+              canManage={canManage}
+              canField={canField}
+              canGovernance={canGovernance}
+              hasPreviousRecommendation={events.some((event) =>
+                ["RECOMMEND_SUPPLIER", "REUSE_SUPPLIER_QUOTE"].includes(event.action))}
+              locationBuildings={locationBuildings}
+              locationBuildingId={locationBuildingId}
+              setLocationBuildingId={setLocationBuildingId}
+              locationRoomId={locationRoomId}
+              setLocationRoomId={setLocationRoomId}
+              locationText={locationText}
+              setLocationText={setLocationText}
+              fieldSupplement={fieldSupplement}
+              setFieldSupplement={setFieldSupplement}
+              evidenceFiles={evidenceFiles}
+              setEvidenceFiles={setEvidenceFiles}
+              evidenceVideo={evidenceVideo}
+              setEvidenceVideo={setEvidenceVideo}
+              surveySummary={surveySummary}
+              setSurveySummary={setSurveySummary}
+              riskLevel={riskLevel}
+              setRiskLevel={setRiskLevel}
+              planBudget={planBudget}
+              setPlanBudget={setPlanBudget}
+              planningPolicy={planningPolicy}
+              publicCeilingEnabled={publicCeilingEnabled}
+              setPublicCeilingEnabled={setPublicCeilingEnabled}
+              publicCeilingPrice={publicCeilingPrice}
+              setPublicCeilingPrice={setPublicCeilingPrice}
+              fundSource={fundSource}
+              setFundSource={setFundSource}
+              doAction={doAction}
+            />
+            {showSupplierTab && (
+              <SupplierQuoteArchive
+                workOrder={selected}
+                canManage={canManage}
+                acting={acting}
+                doAction={doAction}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="details" className="mt-0 space-y-4">
+            <SectionCard title="工单信息与资金">
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.7fr)]">
+                <div>
+                  <div className="mb-2 text-sm font-medium">报修内容</div>
+                  <RichTextView html={selected.description} />
+                </div>
+                <div className="space-y-2 border-l-0 text-sm lg:border-l lg:pl-6">
+                  <Detail label="初勘结论" value={selected.surveySummary || "-"} />
+                  <Detail label="风险等级" value={selected.riskLevel ? RISK_LEVEL_LABEL[selected.riskLevel] ?? selected.riskLevel : "-"} />
+                  <Detail label="资金来源" value={selected.fundSource ? FUND_SOURCE_LABEL[selected.fundSource] ?? selected.fundSource : "-"} />
+                  <Detail label="物业内部参考估算" value={amount(selected) > 0 ? `¥${amount(selected).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}` : "-"} />
+                  <Detail label="向供应商公开的最高限价" value={Number(selected.publicCeilingPrice ?? 0) > 0 ? `¥${Number(selected.publicCeilingPrice).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}` : "-"} />
+                </div>
+              </div>
+              <div className="mt-5 border-t pt-4 text-sm text-muted-foreground">
+                <Banknote className="mr-1 inline size-4" />{fundingProcessDescription(selected.fundSource)}
+              </div>
+            </SectionCard>
+            <AuditTimeline events={events} />
+          </TabsContent>
+        </Tabs>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+
+  function renderWorkOrderList() {
+    return (
     <div className="space-y-5">
       <PageHeader
         title="维修工单"
@@ -549,7 +784,7 @@ export function WorkOrders() {
         <KpiCard label="待验收" value={stats.acceptance} unit="单" tone="tech" />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)] gap-5">
+      <div>
         <SectionCard title="工单列表" bodyClassName="p-0">
           <div className="flex flex-col md:flex-row gap-3 p-3 border-b">
             <Input
@@ -569,8 +804,8 @@ export function WorkOrders() {
                 <SelectItem value="PLAN_SUBMITTED">方案已提交</SelectItem>
                 <SelectItem value="QUOTE_COLLECTING">询价中</SelectItem>
                 <SelectItem value="QUOTE_SUBMITTED">已报价</SelectItem>
-                <SelectItem value="LOCAL_DECISION_PENDING">楼栋接龙中</SelectItem>
-                <SelectItem value="LOCAL_DECISION_PASSED">接龙已通过</SelectItem>
+                <SelectItem value="LOCAL_DECISION_PENDING">楼栋表决中</SelectItem>
+                <SelectItem value="LOCAL_DECISION_PASSED">楼栋表决已通过</SelectItem>
                 <SelectItem value="ASSEMBLY_DECISION_PENDING">业主大会表决中</SelectItem>
                 <SelectItem value="PRICE_REVIEW_PENDING">待审价</SelectItem>
                 <SelectItem value="GOVERNANCE_PENDING">待主任确认</SelectItem>
@@ -595,12 +830,14 @@ export function WorkOrders() {
                   <TableHead>范围</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">预算</TableHead>
+                  <TableHead className="w-20 text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orders.map((order) => (
                   <TableRow
                     key={order.workOrderId}
+                    data-work-order-row
                     className={`cursor-pointer ${selected?.workOrderId === order.workOrderId ? "bg-primary/5" : "hover:bg-muted/40"}`}
                     onClick={() => selectOrder(order)}
                   >
@@ -619,6 +856,20 @@ export function WorkOrders() {
                     <TableCell className="text-right">
                       {amount(order) > 0 ? <Money value={amount(order)} className="text-sm" /> : <span className="text-muted-foreground">-</span>}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        title="查看工单"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void selectOrder(order);
+                        }}
+                      >
+                        <Eye className="size-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -626,123 +877,12 @@ export function WorkOrders() {
           )}
         </SectionCard>
 
-        {selected ? (
-          <div className="space-y-4">
-            <SectionCard title="工单详情" desc={`${selected.orderNo} · ${fmtDate(selected.createTime)}`}>
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-base font-semibold">{selected.title}</div>
-                    <div className="mt-2">
-                      <RichTextView html={selected.description} />
-                    </div>
-                  </div>
-                  <StatusChip tone={STATUS_TONE[selected.status]} dot>{STATUS_LABEL[selected.status]}</StatusChip>
-                </div>
-                <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                  <Detail label="范围" value={scopeLabel(selected)} />
-                  <Detail label="位置锁定" value={selected.locationLocked ? "已锁定" : "未锁定"} />
-                  <Detail label="资金闸门" value={selected.fundGateBlocked ? "关闭" : "已打开"} />
-                  <Detail label="分类" value={selected.category ? REPAIR_CATEGORY_LABEL[selected.category] ?? selected.category : "-"} />
-                </div>
-                {selected.needManualLocation && (
-                  <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-                    该工单位置不足，必须由物业或网格现场补充并锁定位置后，才能进入方案和资金链路。
-                  </div>
-                )}
-              </div>
-            </SectionCard>
-
-            <SectionCard title="工单进度">
-              <Stepper steps={STEPS} current={STATUS_STEP[selected.status]} locked={selected.fundGateBlocked ? 4 : undefined} />
-            </SectionCard>
-
-            <ActionPanel
-              selected={selected}
-              acting={acting}
-              canIntake={canIntake}
-              canManage={canManage}
-              canField={canField}
-              canGovernance={canGovernance}
-              locationBuildings={locationBuildings}
-              locationBuildingId={locationBuildingId}
-              setLocationBuildingId={setLocationBuildingId}
-              locationRoomId={locationRoomId}
-              setLocationRoomId={setLocationRoomId}
-              locationText={locationText}
-              setLocationText={setLocationText}
-              fieldSupplement={fieldSupplement}
-              setFieldSupplement={setFieldSupplement}
-              evidenceFiles={evidenceFiles}
-              setEvidenceFiles={setEvidenceFiles}
-              surveySummary={surveySummary}
-              setSurveySummary={setSurveySummary}
-              riskLevel={riskLevel}
-              setRiskLevel={setRiskLevel}
-              planBudget={planBudget}
-              setPlanBudget={setPlanBudget}
-              planningPolicy={planningPolicy}
-              publicCeilingEnabled={publicCeilingEnabled}
-              setPublicCeilingEnabled={setPublicCeilingEnabled}
-              publicCeilingPrice={publicCeilingPrice}
-              setPublicCeilingPrice={setPublicCeilingPrice}
-              fundSource={fundSource}
-              setFundSource={setFundSource}
-              doAction={doAction}
-            />
-
-            <SectionCard title="方案与资金">
-              <div className="space-y-2 text-sm">
-                <Detail label="初勘结论" value={selected.surveySummary || "-"} />
-                <Detail label="风险等级" value={selected.riskLevel ? RISK_LEVEL_LABEL[selected.riskLevel] ?? selected.riskLevel : "-"} />
-                <Detail label="资金来源" value={selected.fundSource ? FUND_SOURCE_LABEL[selected.fundSource] ?? selected.fundSource : "-"} />
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">物业内部参考估算</span>
-                  {amount(selected) > 0 ? <Money value={amount(selected)} /> : <span>-</span>}
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">向供应商公开的最高限价</span>
-                  {Number(selected.publicCeilingPrice ?? 0) > 0
-                    ? <Money value={Number(selected.publicCeilingPrice)} />
-                    : <span>-</span>}
-                </div>
-                <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  <Banknote className="size-3 inline mr-1" />
-                  {fundingProcessDescription(selected.fundSource)}
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard title="审计流水" bodyClassName="p-0">
-              {events.length === 0 ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">暂无流水</div>
-              ) : (
-                <div className="divide-y">
-                  {events.map((event) => (
-                    <div key={event.eventId} className="p-3 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{EVENT_ACTION_LABEL[event.action] ?? event.action}</span>
-                        <span className="text-xs text-muted-foreground">{fmtDate(event.createTime)}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {event.fromStatus ? STATUS_LABEL[event.fromStatus] : "创建"} {"->"} {event.toStatus ? STATUS_LABEL[event.toStatus] : "-"}
-                        {event.remark ? ` · ${event.remark}` : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-          </div>
-        ) : (
-          <SectionCard>
-            <div className="py-16 text-center text-sm text-muted-foreground">请选择工单</div>
-          </SectionCard>
-        )}
       </div>
     </div>
-  );
+    );
+  }
+
+  return renderWorkOrderList();
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
@@ -754,13 +894,490 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SummaryItem({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate font-medium" title={value}>{children ?? value}</div>
+    </div>
+  );
+}
+
+function SupplierQuoteArchive({
+  workOrder,
+  canManage,
+  acting,
+  doAction,
+}: {
+  workOrder: RepairWorkOrder;
+  canManage: boolean;
+  acting: boolean;
+  doAction: (action: string, body?: unknown, success?: string) => Promise<boolean>;
+}) {
+  const [quotes, setQuotes] = useState<RepairSupplierQuote[]>([]);
+  const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
+  const [loading, setLoading] = useState(canManage);
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTicket, setPreviewTicket] = useState<RepairAttachmentPreviewTicket | null>(null);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<number | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySupplierName, setHistorySupplierName] = useState("");
+  const [historyQuotes, setHistoryQuotes] = useState<RepairSupplierQuote[]>([]);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<number | null>(null);
+  const [selectionMethod, setSelectionMethod] = useState("COMPETITIVE_QUOTATION");
+  const [recommendationReason, setRecommendationReason] = useState("");
+  const [insufficientQuoteReason, setInsufficientQuoteReason] = useState("");
+  const [frameworkRelationId, setFrameworkRelationId] = useState("");
+
+  useEffect(() => {
+    if (!canManage) return;
+    let cancelled = false;
+    setLoading(true);
+    void Promise.all([
+      listRepairSupplierQuotes(workOrder.workOrderId),
+      workOrder.status === "QUOTE_SUBMITTED"
+        ? listRepairFrameworkRelations(workOrder.category)
+        : Promise.resolve([]),
+    ])
+      .then(([items, relations]) => {
+        if (cancelled) return;
+        setQuotes(items);
+        setFrameworkRelations(relations);
+      })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "供应商报价加载失败"))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, workOrder.category, workOrder.workOrderId, workOrder.status]);
+
+  async function openAttachment(attachmentId: number) {
+    setOpeningAttachmentId(attachmentId);
+    setPreviewAttachmentId(attachmentId);
+    setPreviewTicket(null);
+    setPreviewError("");
+    setPreviewOpen(true);
+    try {
+      setPreviewTicket(await getPropertyQuoteAttachmentPreview(workOrder.workOrderId, attachmentId));
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "报价附件预览失败");
+    } finally {
+      setOpeningAttachmentId(null);
+    }
+  }
+
+  async function downloadAttachment(attachmentId: number) {
+    const downloadWindow = window.open("", "_blank");
+    setDownloadingAttachmentId(attachmentId);
+    try {
+      const ticket = await getPropertyQuoteAttachmentDownload(workOrder.workOrderId, attachmentId);
+      if (downloadWindow) {
+        downloadWindow.opener = null;
+        downloadWindow.location.replace(ticket.downloadUrl);
+      } else {
+        window.open(ticket.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      downloadWindow?.close();
+      toast.error(error instanceof Error ? error.message : "报价原件下载失败");
+    } finally {
+      setDownloadingAttachmentId(null);
+    }
+  }
+
+  function openRecommendation(quoteId: number) {
+    setSelectedQuoteId(quoteId);
+    setSelectionMethod("COMPETITIVE_QUOTATION");
+    setRecommendationReason("");
+    setInsufficientQuoteReason("");
+    setFrameworkRelationId("");
+    setRecommendationOpen(true);
+  }
+
+  async function openQuoteHistory(quote: RepairSupplierQuote) {
+    setHistorySupplierName(quote.supplierName);
+    setHistoryQuotes([]);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      setHistoryQuotes(await listRepairSupplierQuoteHistory(
+        workOrder.workOrderId,
+        quote.supplierDeptId,
+      ));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "报价修订记录加载失败");
+      setHistoryOpen(false);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function submitRecommendation() {
+    if (!selectedQuoteId) return;
+    const succeeded = await doAction("recommend-supplier", {
+      quoteId: selectedQuoteId,
+      selectionMethod,
+      recommendationReason: recommendationReason.trim(),
+      insufficientQuoteReason: insufficientQuoteReason.trim(),
+      frameworkRelationId: frameworkRelationId ? Number(frameworkRelationId) : undefined,
+      remark: "物业推荐供应商",
+    });
+    if (succeeded) setRecommendationOpen(false);
+  }
+
+  const selectedQuote = quotes.find((quote) => quote.quoteId === selectedQuoteId);
+  const applicableFrameworkRelations = frameworkRelations.filter(
+    (relation) => !selectedQuote || relation.supplierDeptId === selectedQuote.supplierDeptId,
+  );
+  const needsInsufficientQuoteReason = selectionMethod === "COMPETITIVE_QUOTATION" && quotes.length < 3;
+
+  return (
+    <>
+      <SectionCard title="供应商与报价" desc="查看报价资料，并直接从报价记录中推荐供应商" bodyClassName="p-0">
+        {!canManage ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">当前身份无权查看供应商报价</div>
+        ) : loading ? (
+          <div className="flex items-center justify-center px-4 py-10 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 size-4 animate-spin" />加载报价
+          </div>
+        ) : quotes.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">尚未收到供应商报价</div>
+        ) : (
+          <div className="divide-y">
+            {quotes.map((quote) => (
+              <div key={quote.quoteId} className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(160px,1fr)_120px_130px_minmax(150px,1.2fr)_232px] md:items-center">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{quote.supplierName}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    第 {quote.revisionNo} 版 · {fmtDate(quote.createTime)}
+                  </div>
+                </div>
+                <div className="text-base font-semibold tabular-nums">
+                  ¥{Number(quote.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+                </div>
+                <div className="space-y-1">
+                  <StatusChip tone={quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "warning" : "success"}>
+                    {QUOTE_CONFIRMATION_LABEL[quote.confirmationStatus] ?? quote.confirmationStatus}
+                  </StatusChip>
+                  <div className="text-xs text-muted-foreground">{QUOTE_SOURCE_LABEL[quote.submissionSource] ?? quote.submissionSource}</div>
+                </div>
+                <div className="text-sm leading-6 text-foreground/80">{quote.quoteSummary || "未填写报价说明"}</div>
+                <div className="flex flex-nowrap items-center gap-2 md:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    aria-label="预览报价附件"
+                    title="预览报价附件"
+                    onClick={() => void openAttachment(quote.attachmentId)}
+                    disabled={openingAttachmentId === quote.attachmentId}
+                  >
+                    {openingAttachmentId === quote.attachmentId
+                      ? <Loader2 className="size-4 animate-spin" />
+                      : <Eye className="size-4" />}
+                  </Button>
+                  {quote.revisionNo > 1 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      aria-label="查看报价修订记录"
+                      title="查看报价修订记录"
+                      onClick={() => void openQuoteHistory(quote)}
+                    >
+                      <ClipboardList className="size-4" />
+                    </Button>
+                  )}
+                  {workOrder.status === "QUOTE_SUBMITTED" && (
+                    <Button type="button" className="shrink-0" onClick={() => openRecommendation(quote.quoteId)}>
+                      <CheckCircle2 className="mr-1 size-4" />推荐此供应商
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <Dialog
+        open={previewOpen}
+        onOpenChange={(open) => {
+          setPreviewOpen(open);
+          if (!open) {
+            setPreviewTicket(null);
+            setPreviewAttachmentId(null);
+            setPreviewError("");
+          }
+        }}
+      >
+        <DialogContent className="h-[100dvh] w-full max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-0 rounded-none border-0 p-0 sm:h-[85vh] sm:w-[calc(100vw-3rem)] sm:max-w-6xl sm:rounded-lg sm:border">
+          <DialogHeader className="border-b px-5 py-4 pr-12">
+            <DialogTitle>报价附件预览</DialogTitle>
+            <DialogDescription className="break-all">
+              {previewTicket
+                ? `${previewTicket.originalFileName} · ${formatFileSize(previewTicket.actualSize)}${previewTicket.converted ? " · Excel 已转换为 PDF 预览" : ""}`
+                : previewError ? "未能生成附件预览" : "正在读取附件信息"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-hidden bg-muted/30">
+            {previewError ? (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                <AlertTriangle className="mb-4 size-12 text-amber-600" />
+                <div className="font-medium">附件预览生成失败</div>
+                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{previewError}</p>
+                <p className="mt-1 text-sm text-muted-foreground">原始报价附件不受影响，可以下载原件查看。</p>
+              </div>
+            ) : !previewTicket ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 size-4 animate-spin" />加载预览
+              </div>
+            ) : previewTicket.contentType.startsWith("image/") ? (
+              <div className="flex h-full items-center justify-center overflow-auto p-4">
+                <img
+                  src={previewTicket.previewUrl}
+                  alt={previewTicket.originalFileName}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : previewTicket.contentType === "application/pdf" ? (
+              <iframe
+                src={previewTicket.previewUrl}
+                title={previewTicket.originalFileName}
+                className="h-full w-full border-0 bg-background"
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                <FileText className="mb-4 size-12 text-muted-foreground" />
+                <div className="max-w-full break-all font-medium">{previewTicket.originalFileName}</div>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {previewTicket.contentType} · {formatFileSize(previewTicket.actualSize)}
+                </div>
+                <p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">
+                  该文件格式暂不支持稳定的浏览器内预览，请点击下方按钮下载原件后查看。
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t px-5 py-3">
+            <Button type="button" variant="outline" onClick={() => setPreviewOpen(false)}>关闭</Button>
+            <Button
+              type="button"
+              onClick={() => previewAttachmentId && void downloadAttachment(previewAttachmentId)}
+              disabled={!previewAttachmentId || downloadingAttachmentId === previewAttachmentId}
+            >
+              {previewAttachmentId && downloadingAttachmentId === previewAttachmentId
+                ? <Loader2 className="mr-1 size-4 animate-spin" />
+                : <Download className="mr-1 size-4" />}
+              下载原件
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>报价修订记录</DialogTitle>
+            <DialogDescription>{historySupplierName} · 历史报价仅用于追溯，不能参与推荐或比价。</DialogDescription>
+          </DialogHeader>
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+              <Loader2 className="mr-2 size-4 animate-spin" />加载修订记录
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>版本</TableHead>
+                    <TableHead>报价金额</TableHead>
+                    <TableHead>提交方式</TableHead>
+                    <TableHead>提交时间</TableHead>
+                    <TableHead className="text-right">附件</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyQuotes.map((quote) => (
+                    <TableRow key={quote.quoteId}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span>第 {quote.revisionNo} 版</span>
+                          <StatusChip tone={quote.quoteStatus === "ACTIVE"
+                            ? "success"
+                            : quote.quoteStatus === "REVISION_REQUESTED" ? "warning" : "neutral"}>
+                            {quote.quoteStatus === "ACTIVE"
+                              ? "当前有效"
+                              : quote.quoteStatus === "REVISION_REQUESTED" ? "待修订" : "已被替代"}
+                          </StatusChip>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium tabular-nums">
+                        ¥{Number(quote.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell>{QUOTE_SOURCE_LABEL[quote.submissionSource] ?? quote.submissionSource}</TableCell>
+                      <TableCell>{fmtDate(quote.createTime)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button type="button" variant="outline" size="sm" onClick={() => {
+                          setHistoryOpen(false);
+                          void openAttachment(quote.attachmentId);
+                        }}>
+                          <Eye className="mr-1 size-4" />预览
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setHistoryOpen(false)}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={recommendationOpen} onOpenChange={setRecommendationOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>推荐供应商</DialogTitle>
+            <DialogDescription>确认推荐方式并记录物业推荐依据，提交后进入楼栋接龙或业主大会流程。</DialogDescription>
+          </DialogHeader>
+          {selectedQuote && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/30 px-3 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{selectedQuote.supplierName}</div>
+                <div className="mt-1 text-xs text-muted-foreground">已选报价</div>
+              </div>
+              <div className="shrink-0 text-lg font-semibold tabular-nums">
+                ¥{Number(selectedQuote.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label>供应商推荐方式</Label>
+            <Select value={selectionMethod} onValueChange={(value) => {
+              setSelectionMethod(value);
+              setFrameworkRelationId("");
+            }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="COMPETITIVE_QUOTATION">竞争性比价</SelectItem>
+                <SelectItem value="FRAMEWORK_SUPPLIER">长期合作供应商</SelectItem>
+                <SelectItem value="DIRECT_AWARD">直接推荐</SelectItem>
+                <SelectItem value="EMERGENCY_APPOINTMENT">应急指定</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="supplier-recommendation-reason">推荐理由</Label>
+            <Textarea
+              id="supplier-recommendation-reason"
+              value={recommendationReason}
+              onChange={(event) => setRecommendationReason(event.target.value)}
+              rows={4}
+              placeholder="说明价格、方案、工期、保修或既往服务等推荐依据"
+            />
+          </div>
+          {needsInsufficientQuoteReason && (
+            <div className="space-y-2">
+              <Label htmlFor="insufficient-quote-reason">响应不足三家说明</Label>
+              <Textarea
+                id="insufficient-quote-reason"
+                value={insufficientQuoteReason}
+                onChange={(event) => setInsufficientQuoteReason(event.target.value)}
+                rows={3}
+                placeholder={`当前收到 ${quotes.length} 家报价，请说明继续推荐的原因`}
+              />
+            </div>
+          )}
+          {selectionMethod === "FRAMEWORK_SUPPLIER" && (
+            <div className="space-y-2">
+              <Label>长期合作关系</Label>
+              <Select value={frameworkRelationId} onValueChange={setFrameworkRelationId}>
+                <SelectTrigger><SelectValue placeholder="选择已审批且在有效期内的合作关系" /></SelectTrigger>
+                <SelectContent>
+                  {applicableFrameworkRelations.map((relation) => (
+                    <SelectItem key={relation.relationId} value={String(relation.relationId)}>
+                      {relation.supplierLegalName}{relation.validUntil ? ` · 有效至 ${relation.validUntil}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {applicableFrameworkRelations.length === 0 && (
+                <p className="text-xs text-amber-700">该供应商没有适用于当前维修类别的有效长期合作关系。</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRecommendationOpen(false)}>取消</Button>
+            <Button
+              type="button"
+              onClick={() => void submitRecommendation()}
+              disabled={acting
+                || !selectedQuoteId
+                || !recommendationReason.trim()
+                || (needsInsufficientQuoteReason && !insufficientQuoteReason.trim())
+                || (selectionMethod === "FRAMEWORK_SUPPLIER" && !frameworkRelationId)}
+            >
+              <CheckCircle2 className="mr-1 size-4" />确认推荐
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function AuditTimeline({ events }: { events: RepairEvent[] }) {
+  return (
+    <SectionCard title="流程记录" desc="系统自动记录每次状态变化和操作人留痕" bodyClassName="p-0">
+      {events.length === 0 ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">暂无流程记录</div>
+      ) : (
+        <div className="divide-y">
+          {events.map((event) => (
+            <div key={event.eventId} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[180px_minmax(0,1fr)_140px] md:items-center">
+              <span className="font-medium">{EVENT_ACTION_LABEL[event.action] ?? event.action}</span>
+              <span className="text-muted-foreground">
+                {event.fromStatus ? STATUS_LABEL[event.fromStatus] : "创建"} {"->"} {event.toStatus ? STATUS_LABEL[event.toStatus] : "-"}
+                {event.remark ? ` · ${event.remark}` : ""}
+              </span>
+              <span className="text-xs text-muted-foreground md:text-right">{fmtDate(event.createTime)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 function ActionPanel(props: {
   selected: RepairWorkOrder;
   acting: boolean;
-  canIntake: boolean;
   canManage: boolean;
   canField: boolean;
   canGovernance: boolean;
+  hasPreviousRecommendation: boolean;
   locationBuildings: BuildingChoice[];
   locationBuildingId: string;
   setLocationBuildingId: (v: string) => void;
@@ -772,6 +1389,8 @@ function ActionPanel(props: {
   setFieldSupplement: (v: string) => void;
   evidenceFiles: EvidenceFile[];
   setEvidenceFiles: (v: EvidenceFile[] | ((current: EvidenceFile[]) => EvidenceFile[])) => void;
+  evidenceVideo: File | null;
+  setEvidenceVideo: (v: File | null) => void;
   surveySummary: string;
   setSurveySummary: (v: string) => void;
   riskLevel: string;
@@ -796,13 +1415,17 @@ function ActionPanel(props: {
   const [supplierUscc, setSupplierUscc] = useState("");
   const [supplierContactName, setSupplierContactName] = useState("");
   const [supplierContactPhone, setSupplierContactPhone] = useState("");
+  const [supplierRegistrationOpen, setSupplierRegistrationOpen] = useState(false);
   const [supplierOrganizations, setSupplierOrganizations] = useState<RepairSupplierOrganization[]>([]);
-  const [supplierQuotes, setSupplierQuotes] = useState<RepairSupplierQuote[]>([]);
   const [quoteInvitations, setQuoteInvitations] = useState<RepairQuoteInvitation[]>([]);
-  const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
+  const [availableQuotes, setAvailableQuotes] = useState<RepairSupplierQuote[]>([]);
   const [invitedSupplierDeptIds, setInvitedSupplierDeptIds] = useState<number[]>([]);
   const [appendInvitationOpen, setAppendInvitationOpen] = useState(false);
   const [appendInvitationReason, setAppendInvitationReason] = useState("");
+  const [reuseQuoteReason, setReuseQuoteReason] = useState("");
+  const [quoteRevisionOpen, setQuoteRevisionOpen] = useState(false);
+  const [quoteRevisionReason, setQuoteRevisionReason] = useState("");
+  const [revisionSupplierDeptIds, setRevisionSupplierDeptIds] = useState<number[]>([]);
   const [quoteSupplierDeptId, setQuoteSupplierDeptId] = useState("");
   const [quoteAmount, setQuoteAmount] = useState("");
   const [quoteSummary, setQuoteSummary] = useState("");
@@ -810,23 +1433,25 @@ function ActionPanel(props: {
   const [quoteOriginalConfirmed, setQuoteOriginalConfirmed] = useState(false);
   const [quoteAttachment, setQuoteAttachment] = useState<RepairAttachment | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
-  const [quoteListOpen, setQuoteListOpen] = useState(false);
   const [quoteUploading, setQuoteUploading] = useState(false);
-  const [openingQuoteAttachmentId, setOpeningQuoteAttachmentId] = useState<number | null>(null);
-  const [quoteId, setQuoteId] = useState("");
-  const [selectionMethod, setSelectionMethod] = useState("COMPETITIVE_QUOTATION");
-  const [insufficientQuoteReason, setInsufficientQuoteReason] = useState("");
-  const [frameworkRelationId, setFrameworkRelationId] = useState("");
-  const [recommendationReason, setRecommendationReason] = useState("");
+  const [inspectionUploading, setInspectionUploading] = useState(false);
   const [localScopeType, setLocalScopeType] = useState("BUILDING");
   const [localUnitName, setLocalUnitName] = useState("");
-  const [localScopeLabel, setLocalScopeLabel] = useState("");
+  const [localDecisionChannel, setLocalDecisionChannel] = useState<"ONLINE" | "WECHAT">("ONLINE");
+  const [activeLocalDecision, setActiveLocalDecision] = useState<RepairLocalDecision | null>(null);
   const [decisionRooms, setDecisionRooms] = useState<RepairDecisionRoom[]>([]);
   const [decisionChoices, setDecisionChoices] = useState<Record<number, string>>({});
-  const [localEvidenceHash, setLocalEvidenceHash] = useState("");
+  const [solitaireScreenshot, setSolitaireScreenshot] = useState<RepairAttachment | null>(null);
+  const [solitaireUploading, setSolitaireUploading] = useState(false);
+  const [decisionConfirmation, setDecisionConfirmation] = useState<"pause" | "complete" | null>(null);
+  const solitaireFileInputRef = useRef<HTMLInputElement>(null);
   const [assemblyPackageId, setAssemblyPackageId] = useState("");
-  const [officialDocumentHash, setOfficialDocumentHash] = useState("");
-  const [mergedPackageHash, setMergedPackageHash] = useState("");
+  const [approvalDocument, setApprovalDocument] = useState<RepairAttachment | null>(null);
+  const [approvalSolitaireScreenshot, setApprovalSolitaireScreenshot] = useState<RepairAttachment | null>(null);
+  const [approvalDocumentUploading, setApprovalDocumentUploading] = useState(false);
+  const [approvalSolitaireUploading, setApprovalSolitaireUploading] = useState(false);
+  const approvalDocumentInputRef = useRef<HTMLInputElement>(null);
+  const approvalSolitaireInputRef = useRef<HTMLInputElement>(null);
   const [priceReviewMode, setPriceReviewMode] = useState("INTERNAL_PRICE_REVIEW");
   const [reviewedAmount, setReviewedAmount] = useState("");
   const [reviewReportHash, setReviewReportHash] = useState("");
@@ -843,48 +1468,143 @@ function ActionPanel(props: {
   const [paymentMilestone, setPaymentMilestone] = useState("ACCEPTANCE");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentEvidenceHash, setPaymentEvidenceHash] = useState("");
+  const localDecisionBuilding = props.locationBuildings.find(
+    (item) => item.buildingId === props.selected.buildingId,
+  );
+  const localDecisionUnits = localDecisionBuilding?.units ?? [];
+  const localDecisionScopeLabel = `${props.selected.title}（${localScopeType === "BUILDING_UNIT" ? localUnitName : "整栋"}）`;
+
+  useEffect(() => {
+    setLocalScopeType("BUILDING");
+    setLocalUnitName("");
+    setLocalDecisionChannel(props.planningPolicy.buildingRepairDefaultDecisionChannel);
+    setActiveLocalDecision(null);
+    setDecisionConfirmation(null);
+    setApprovalDocument(null);
+    setApprovalSolitaireScreenshot(null);
+    setSolitaireScreenshot(null);
+    setReuseQuoteReason("");
+    setQuoteRevisionOpen(false);
+    setQuoteRevisionReason("");
+    setRevisionSupplierDeptIds([]);
+  }, [props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
 
   useEffect(() => {
     let cancelled = false;
     const loadOrganizations = props.canManage || props.canField
       ? listRepairSupplierOrganizations()
       : Promise.resolve([]);
-    const loadQuotes = props.canManage
-      ? listRepairSupplierQuotes(props.selected.workOrderId)
-      : Promise.resolve([]);
     const loadInvitations = props.canManage
       ? listRepairQuoteInvitations(props.selected.workOrderId)
       : Promise.resolve([]);
-    const loadRelations = props.canManage
-      ? listRepairFrameworkRelations(props.selected.category)
+    const loadQuotes = props.canManage
+      ? listRepairSupplierQuotes(props.selected.workOrderId)
       : Promise.resolve([]);
-    void Promise.all([loadOrganizations, loadQuotes, loadRelations, loadInvitations])
-      .then(([organizations, quotes, relations, invitations]) => {
+    void Promise.all([loadOrganizations, loadInvitations, loadQuotes])
+      .then(([organizations, invitations, quotes]) => {
         if (cancelled) return;
         setSupplierOrganizations(organizations);
-        setSupplierQuotes(quotes);
-        setFrameworkRelations(relations);
         setQuoteInvitations(invitations);
+        setAvailableQuotes(quotes);
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "供应商资料加载失败"));
     return () => {
       cancelled = true;
     };
-  }, [props.canField, props.canManage, props.selected.category, props.selected.status, props.selected.workOrderId]);
+  }, [props.canField, props.canManage, props.selected.status, props.selected.workOrderId]);
 
   useEffect(() => {
-    if (props.selected.status !== "LOCAL_DECISION_PENDING") {
+    if (!["LOCAL_DECISION_PENDING", "LOCAL_DECISION_PASSED"].includes(props.selected.status)) {
+      setActiveLocalDecision(null);
       setDecisionRooms([]);
       setDecisionChoices({});
       return;
     }
-    void listRepairDecisionRooms(props.selected.workOrderId)
-      .then((rooms) => {
+    let cancelled = false;
+    let intervalId: number | undefined;
+    let errorReported = false;
+    const loadDecision = async () => {
+      try {
+        const decision = await getRepairLocalDecision(props.selected.workOrderId);
+        if (cancelled) return;
+        setActiveLocalDecision(decision);
+        if (props.selected.status === "LOCAL_DECISION_PENDING"
+          && decision.decisionChannel === "ONLINE" && intervalId === undefined) {
+          intervalId = window.setInterval(() => void loadDecision(), 5000);
+        }
+        if (props.selected.status !== "LOCAL_DECISION_PENDING" || decision.decisionChannel !== "WECHAT") {
+          setDecisionRooms([]);
+          setDecisionChoices({});
+          return;
+        }
+        const rooms = await listRepairDecisionRooms(props.selected.workOrderId);
+        if (cancelled) return;
         setDecisionRooms(rooms);
         setDecisionChoices(Object.fromEntries(rooms.map((room) => [room.roomId, "NOT_VOTED"])));
-      })
-      .catch((error) => toast.error(error instanceof Error ? error.message : "接龙房屋清单加载失败"));
+      } catch (error) {
+        if (!errorReported) {
+          errorReported = true;
+          toast.error(error instanceof Error ? error.message : "楼栋表决信息加载失败");
+        }
+      }
+    };
+    void loadDecision();
+    return () => {
+      cancelled = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
   }, [props.selected.status, props.selected.workOrderId]);
+
+  async function uploadLocalDecisionScreenshot(file: File) {
+    setSolitaireUploading(true);
+    try {
+      if (solitaireScreenshot) {
+        await deletePropertyQuoteAttachment(props.selected.workOrderId, solitaireScreenshot.attachmentId);
+      }
+      setSolitaireScreenshot(await uploadSolitaireScreenshot(props.selected.workOrderId, file));
+      toast.success("微信接龙截图已上传");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "微信接龙截图上传失败");
+    } finally {
+      setSolitaireUploading(false);
+      if (solitaireFileInputRef.current) solitaireFileInputRef.current.value = "";
+    }
+  }
+
+  async function uploadApprovalAttachment(kind: "document" | "solitaire", file: File) {
+    const setUploading = kind === "document" ? setApprovalDocumentUploading : setApprovalSolitaireUploading;
+    const current = kind === "document" ? approvalDocument : approvalSolitaireScreenshot;
+    const inputRef = kind === "document" ? approvalDocumentInputRef : approvalSolitaireInputRef;
+    setUploading(true);
+    try {
+      const uploaded = kind === "document"
+        ? await uploadRepairApprovalDocument(props.selected.workOrderId, file)
+        : await uploadSolitaireScreenshot(props.selected.workOrderId, file);
+      if (kind === "document") setApprovalDocument(uploaded);
+      else setApprovalSolitaireScreenshot(uploaded);
+      if (current) {
+        await deleteRepairAttachment(props.selected.workOrderId, current.attachmentId).catch(() => undefined);
+      }
+      toast.success(kind === "document" ? "报审文件已上传" : "微信接龙截图已上传");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "报审附件上传失败");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function removeApprovalAttachment(kind: "document" | "solitaire") {
+    const attachment = kind === "document" ? approvalDocument : approvalSolitaireScreenshot;
+    if (!attachment) return;
+    try {
+      await deleteRepairAttachment(props.selected.workOrderId, attachment.attachmentId);
+      if (kind === "document") setApprovalDocument(null);
+      else setApprovalSolitaireScreenshot(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除报审附件失败");
+    }
+  }
 
   async function createSupplierOrganization() {
     try {
@@ -901,6 +1621,7 @@ function ActionPanel(props: {
       setSupplierUscc("");
       setSupplierContactName("");
       setSupplierContactPhone("");
+      setSupplierRegistrationOpen(false);
       toast.success("供应商已登记，企业资料可稍后补充");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "供应商登记失败");
@@ -938,6 +1659,26 @@ function ActionPanel(props: {
     setAppendInvitationReason("");
     setQuoteInvitations(await listRepairQuoteInvitations(props.selected.workOrderId));
     setAppendInvitationOpen(false);
+  }
+
+  async function reusePreviousSupplierQuote() {
+    const succeeded = await props.doAction("reuse-supplier-quote", {
+      remark: reuseQuoteReason.trim(),
+    }, "已沿用上一轮推荐报价");
+    if (succeeded) setReuseQuoteReason("");
+  }
+
+  async function requestSupplierQuoteRevisions() {
+    const succeeded = await props.doAction("revision-quote-invitations", {
+      supplierDeptIds: revisionSupplierDeptIds,
+      remark: quoteRevisionReason.trim(),
+    }, "已通知供应商修订报价");
+    if (!succeeded) return;
+    setQuoteRevisionOpen(false);
+    setQuoteRevisionReason("");
+    setRevisionSupplierDeptIds([]);
+    setQuoteInvitations(await listRepairQuoteInvitations(props.selected.workOrderId));
+    setAvailableQuotes(await listRepairSupplierQuotes(props.selected.workOrderId));
   }
 
   async function uploadQuoteDocument(file: File) {
@@ -990,158 +1731,165 @@ function ActionPanel(props: {
     setQuoteDialogOpen(false);
   }
 
-  async function openQuoteAttachment(attachmentId: number) {
-    const preview = window.open("", "_blank");
-    setOpeningQuoteAttachmentId(attachmentId);
-    try {
-      const ticket = await getPropertyQuoteAttachmentDownload(props.selected.workOrderId, attachmentId);
-      if (preview) {
-        preview.opener = null;
-        preview.location.replace(ticket.downloadUrl);
-      } else {
-        window.open(ticket.downloadUrl, "_blank", "noopener,noreferrer");
-      }
-    } catch (error) {
-      preview?.close();
-      toast.error(error instanceof Error ? error.message : "报价原件打开失败");
-    } finally {
-      setOpeningQuoteAttachmentId(null);
-    }
-  }
-
-  const selectedSupplierQuote = supplierQuotes.find((quote) => String(quote.quoteId) === quoteId);
-  const applicableFrameworkRelations = frameworkRelations.filter(
-    (relation) => !selectedSupplierQuote || relation.supplierDeptId === selectedSupplierQuote.supplierDeptId,
-  );
   const invitedSupplierIds = new Set(quoteInvitations.map((invitation) => invitation.supplierDeptId));
   const appendableSuppliers = supplierOrganizations.filter(
     (supplier) => !invitedSupplierIds.has(supplier.supplierDeptId),
   );
+  const participatedOwnerCount = activeLocalDecision?.participatedOwnerCount ?? 0;
+  const participatedArea = activeLocalDecision?.participatedArea ?? 0;
+  const ownerParticipationPercent = activeLocalDecision?.totalOwnerCount
+    ? Math.min(100, (participatedOwnerCount / activeLocalDecision.totalOwnerCount) * 100)
+    : 0;
+  const areaParticipationPercent = activeLocalDecision?.totalArea
+    ? Math.min(100, (participatedArea / activeLocalDecision.totalArea) * 100)
+    : 0;
+  const onlineDecisionProgress = activeLocalDecision?.decisionChannel === "ONLINE" ? (
+    <div className="space-y-3 pt-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">参与人数</span>
+            <span className="font-medium">{participatedOwnerCount} / {activeLocalDecision.totalOwnerCount} 人</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-sm bg-muted">
+            <div className="h-full bg-primary" style={{ width: `${ownerParticipationPercent}%` }} />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">参与面积</span>
+            <span className="font-medium">{participatedArea} / {activeLocalDecision.totalArea} ㎡</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-sm bg-muted">
+            <div className="h-full bg-primary" style={{ width: `${areaParticipationPercent}%` }} />
+          </div>
+        </div>
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        每 5 秒自动更新参与进度。为避免影响表决，进行中不展示各选项票数，结束结算后再展示汇总结果。
+      </p>
+    </div>
+  ) : null;
+
+  async function submitInspection() {
+    if (!props.surveySummary.trim() || props.evidenceFiles.length === 0) return;
+    if (canCorrectLocation && props.selected.spaceScope === "PRIVATE" && !props.locationBuildingId) {
+      toast.error("请先确认维修楼栋");
+      return;
+    }
+    if (canCorrectLocation && props.selected.spaceScope === "PUBLIC"
+      && !props.locationBuildingId && !props.locationText.trim()) {
+      toast.error("请确认维修楼栋，或填写小区公共区域的具体位置");
+      return;
+    }
+
+    const uploadedIds: number[] = [];
+    setInspectionUploading(true);
+    try {
+      const imageIds: number[] = [];
+      for (const evidence of props.evidenceFiles) {
+        const attachment = await uploadRepairFieldAttachment(
+          props.selected.workOrderId,
+          "SURVEY_IMAGE",
+          evidence.file,
+        );
+        imageIds.push(attachment.attachmentId);
+        uploadedIds.push(attachment.attachmentId);
+      }
+      let videoId: number | undefined;
+      if (props.evidenceVideo) {
+        const attachment = await uploadRepairFieldAttachment(
+          props.selected.workOrderId,
+          "SURVEY_VIDEO",
+          props.evidenceVideo,
+        );
+        videoId = attachment.attachmentId;
+        uploadedIds.push(attachment.attachmentId);
+      }
+      const succeeded = await props.doAction("submit-inspection", {
+        publicAreaScope: canCorrectLocation && props.selected.spaceScope === "PUBLIC"
+          ? (props.locationBuildingId ? "BUILDING" : "COMMUNITY")
+          : undefined,
+        buildingId: canCorrectLocation && props.locationBuildingId
+          ? Number(props.locationBuildingId)
+          : undefined,
+        roomId: canCorrectLocation && selectedRoom ? Number(selectedRoom.roomId) : undefined,
+        locationText: canCorrectLocation ? props.locationText : undefined,
+        fieldSupplement: canCorrectLocation ? props.fieldSupplement : undefined,
+        surveySummary: props.surveySummary,
+        riskLevel: props.riskLevel,
+        evidenceImageAttachmentIds: imageIds,
+        evidenceVideoAttachmentId: videoId,
+        remark: "管理后台提交现场勘验记录",
+      }, "勘验记录已提交");
+      if (succeeded) {
+        uploadedIds.length = 0;
+        props.setEvidenceFiles([]);
+        props.setEvidenceVideo(null);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "勘验附件上传失败");
+    } finally {
+      await Promise.all(uploadedIds.map((attachmentId) =>
+        deleteRepairAttachment(props.selected.workOrderId, attachmentId).catch(() => undefined)));
+      setInspectionUploading(false);
+    }
+  }
 
   return (
     <SectionCard title="当前动作">
       <div className="space-y-3">
-        {s === "SUBMITTED" && props.canIntake && (
-          <Button onClick={() => props.doAction("accept", { remark: "受理报修" })} disabled={props.acting}>
-            <ClipboardList className="size-4 mr-1" /> 受理
-          </Button>
-        )}
-
-        {canCorrectLocation && (
+        {["SUBMITTED", "NEED_MANUAL_LOCATION", "PENDING_VERIFY", "VERIFIED", "ASSIGNED", "SURVEYING"].includes(s)
+          && props.canField && (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label>锁定楼栋</Label>
-                <Select
-                  value={props.locationBuildingId}
-                  onValueChange={(value) => {
-                    props.setLocationBuildingId(value);
-                    props.setLocationRoomId("");
-                  }}
-                >
-                  <SelectTrigger><SelectValue placeholder="选择楼栋" /></SelectTrigger>
-                  <SelectContent>
-                    {props.locationBuildings.map((building) => (
-                      <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>
-                        {building.communityName} · {building.buildingName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>房号</Label>
-                <Select value={props.locationRoomId} onValueChange={props.setLocationRoomId} disabled={!selectedBuilding || roomOptions.length === 0}>
-                  <SelectTrigger><SelectValue placeholder="公共区域可不选" /></SelectTrigger>
-                  <SelectContent>
-                    {roomOptions.map((room) => (
-                      <SelectItem key={`${room.unitName}-${room.roomId}`} value={String(room.roomId)}>
-                        {room.unitName} {room.roomName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>现场位置</Label>
-                <Input value={props.locationText} onChange={(e) => props.setLocationText(e.target.value)} placeholder="如：2号楼大堂门禁" />
-              </div>
-              <div>
-                <Label>现场证据</Label>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    void readEvidenceFiles(e.currentTarget.files, props.setEvidenceFiles);
-                    e.currentTarget.value = "";
-                  }}
-                />
-              </div>
+            <div className="text-sm text-muted-foreground">
+              填写勘验结论并上传现场照片；可在现场使用物业端提交，也可返回管理后台补录。
             </div>
-            <div>
-              <Label>物业现场补充信息</Label>
-              <Textarea
-                value={props.fieldSupplement}
-                onChange={(e) => props.setFieldSupplement(e.target.value)}
-                rows={3}
-                placeholder="现场情况、纠偏原因、处理建议"
-              />
-            </div>
-            {props.evidenceFiles.length > 0 && (
-              <div className="flex flex-wrap gap-3">
-                {props.evidenceFiles.map((file, index) => (
-                  <div key={`${file.name}-${index}`} className="relative size-20 overflow-hidden rounded-md border bg-muted">
-                    <img src={file.dataUrl} alt={file.name} className="size-full object-cover" />
-                    <button
-                      type="button"
-                      className="absolute right-1 top-1 rounded-full bg-background/90 px-1 text-xs shadow"
-                      onClick={() => props.setEvidenceFiles((current) => current.filter((_, i) => i !== index))}
-                    >
-                      ×
-                    </button>
+            {canCorrectLocation && (
+              <div className="space-y-3 border-b pb-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>维修楼栋</Label>
+                    <Select value={props.locationBuildingId} onValueChange={(value) => {
+                      props.setLocationBuildingId(value);
+                      props.setLocationRoomId("");
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="小区公共区域可不选" /></SelectTrigger>
+                      <SelectContent>
+                        {props.locationBuildings.map((building) => (
+                          <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>
+                            {building.communityName} · {building.buildingName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ))}
+                  <div>
+                    <Label>房号（选填）</Label>
+                    <Select value={props.locationRoomId} onValueChange={props.setLocationRoomId} disabled={!selectedBuilding || roomOptions.length === 0}>
+                      <SelectTrigger><SelectValue placeholder="公共区域可不选" /></SelectTrigger>
+                      <SelectContent>
+                        {roomOptions.map((room) => (
+                          <SelectItem key={`${room.unitName}-${room.roomId}`} value={String(room.roomId)}>
+                            {room.unitName} {room.roomName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label>具体位置</Label>
+                  <Input value={props.locationText} onChange={(e) => props.setLocationText(e.target.value)} placeholder="如：2号楼大堂门禁、中心花园东侧" />
+                </div>
+                <div>
+                  <Label>位置补充说明（选填）</Label>
+                  <Textarea value={props.fieldSupplement} onChange={(e) => props.setFieldSupplement(e.target.value)} rows={2} placeholder="现场定位依据和范围说明" />
+                </div>
               </div>
             )}
-            <Button
-              onClick={() => props.doAction("correct-location", {
-                buildingId: props.locationBuildingId ? Number(props.locationBuildingId) : undefined,
-                roomId: selectedRoom ? Number(selectedRoom.roomId) : undefined,
-                locationText: props.locationText,
-                reason: "现场补充并纠偏位置",
-                fieldSupplement: props.fieldSupplement,
-                evidenceImagesBase64: props.evidenceFiles.map((file) => file.base64),
-              })}
-              disabled={props.acting || !props.locationBuildingId}
-            >
-              <Route className="size-4 mr-1" /> 补充并纠偏位置
-            </Button>
-          </div>
-        )}
-
-        {s === "PENDING_VERIFY" && props.canField && (
-          <Button onClick={() => props.doAction("verify-location", { remark: "现场核验通过" })} disabled={props.acting}>
-            <ShieldCheck className="size-4 mr-1" /> 核验通过
-          </Button>
-        )}
-
-        {s === "VERIFIED" && props.canManage && (
-          <Button onClick={() => props.doAction("assign", { remark: "派给当前处理人" })} disabled={props.acting}>
-            <ClipboardList className="size-4 mr-1" /> 派单
-          </Button>
-        )}
-
-        {s === "ASSIGNED" && props.canField && (
-          <Button onClick={() => props.doAction("start-survey", { remark: "开始现场初勘" })} disabled={props.acting}>
-            <Wrench className="size-4 mr-1" /> 开始初勘
-          </Button>
-        )}
-
-        {s === "SURVEYING" && props.canField && (
-          <div className="space-y-3">
             <div>
-              <Label>初勘结论与维修建议</Label>
+              <Label>勘验结论与维修建议</Label>
               <Textarea
                 value={props.surveySummary}
                 onChange={(e) => props.setSurveySummary(e.target.value)}
@@ -1161,7 +1909,7 @@ function ActionPanel(props: {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label>现场照片（至少 1 张，最多 3 张）</Label>
                 <Input
                   type="file"
@@ -1172,6 +1920,24 @@ function ActionPanel(props: {
                     e.currentTarget.value = "";
                   }}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>现场视频（选填，最多 1 段）</Label>
+                <Input type="file" accept="video/mp4,video/quicktime" onChange={(e) => {
+                  const file = e.currentTarget.files?.[0] ?? null;
+                  if (file && file.size > 20 * 1024 * 1024) {
+                    toast.error("现场视频不能超过 20MB");
+                  } else {
+                    props.setEvidenceVideo(file);
+                  }
+                  e.currentTarget.value = "";
+                }} />
+                {props.evidenceVideo && (
+                  <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <span className="truncate">{props.evidenceVideo.name}</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => props.setEvidenceVideo(null)}>移除</Button>
+                  </div>
+                )}
               </div>
             </div>
             {props.evidenceFiles.length > 0 && (
@@ -1191,21 +1957,25 @@ function ActionPanel(props: {
               </div>
             )}
             <Button
-              onClick={() => props.doAction("submit-survey", {
-                surveySummary: props.surveySummary,
-                riskLevel: props.riskLevel,
-                evidenceImagesBase64: props.evidenceFiles.map((file) => file.base64),
-                remark: "提交现场初勘记录",
-              })}
-              disabled={props.acting || !props.surveySummary.trim() || props.evidenceFiles.length === 0}
+              onClick={() => void submitInspection()}
+              disabled={props.acting || inspectionUploading || !props.surveySummary.trim() || props.evidenceFiles.length === 0}
             >
-              <ClipboardList className="size-4 mr-1" /> 提交初勘
+              {inspectionUploading ? <Loader2 className="size-4 mr-1 animate-spin" /> : <ClipboardList className="size-4 mr-1" />}
+              提交勘验记录
             </Button>
           </div>
         )}
 
-        {s === "SURVEY_COMPLETED" && props.canField && (
+        {["SURVEY_COMPLETED", "PLAN_REVISION_REQUIRED"].includes(s) && props.canField && (
           <div className="space-y-3">
+            {s === "PLAN_REVISION_REQUIRED" && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="text-sm font-medium text-amber-900">上一轮表决未通过</div>
+                <div className="mt-1 text-xs leading-5 text-amber-800">
+                  请调整维修范围、资金安排或询价口径。提交后将进入新一轮询价和表决，上一轮结果保留在流程记录中。
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label>物业内部估算{props.planningPolicy.internalEstimateRequired ? " *" : "（选填）"}</Label>
@@ -1254,54 +2024,128 @@ function ActionPanel(props: {
                 )}
               </div>
             )}
-            <Button
-              onClick={() => props.doAction("submit-plan", {
-                planBudget: props.planBudget ? Number(props.planBudget) : undefined,
-                publicCeilingPrice: props.fundSource !== "PROPERTY_INTERNAL" && props.publicCeilingEnabled
-                  ? Number(props.publicCeilingPrice)
-                  : undefined,
-                fundSource: props.fundSource,
-                remark: props.fundSource === "PROPERTY_INTERNAL" ? "确认物业包干维修范围" : "确认维修范围与询价口径",
-              })}
-              disabled={props.acting
-                || (props.planningPolicy.internalEstimateRequired && !props.planBudget)
-                || (props.publicCeilingEnabled && !props.publicCeilingPrice)}
-            >
-              <ClipboardList className="size-4 mr-1" />
-              {props.fundSource === "PROPERTY_INTERNAL" ? "确认维修范围" : "确认维修范围与询价口径"}
-            </Button>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => props.doAction("submit-plan", {
+                  planBudget: props.planBudget ? Number(props.planBudget) : undefined,
+                  publicCeilingPrice: props.fundSource !== "PROPERTY_INTERNAL" && props.publicCeilingEnabled
+                    ? Number(props.publicCeilingPrice)
+                    : undefined,
+                  fundSource: props.fundSource,
+                  remark: s === "PLAN_REVISION_REQUIRED"
+                    ? "根据上一轮表决结果提交修订方案"
+                    : props.fundSource === "PROPERTY_INTERNAL" ? "确认物业包干维修范围" : "确认维修范围与询价口径",
+                })}
+                disabled={props.acting
+                  || (props.planningPolicy.internalEstimateRequired && !props.planBudget)
+                  || (props.publicCeilingEnabled && !props.publicCeilingPrice)}
+              >
+                <ClipboardList className="size-4 mr-1" />
+                {s === "PLAN_REVISION_REQUIRED"
+                  ? "提交修订方案"
+                  : props.fundSource === "PROPERTY_INTERNAL" ? "确认维修范围" : "确认维修范围与询价口径"}
+              </Button>
+            </div>
           </div>
         )}
 
-        {["PLAN_SUBMITTED", "QUOTE_COLLECTING"].includes(s) && props.canManage && (
+        {["PLAN_SUBMITTED", "QUOTE_COLLECTING", "QUOTE_SUBMITTED"].includes(s) && props.canManage && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="supplier-legal-name">企业名称</Label>
-                <Input id="supplier-legal-name" value={supplierLegalName} onChange={(e) => setSupplierLegalName(e.target.value)} />
+            {props.hasPreviousRecommendation && availableQuotes.length > 0 && (
+              <div className="space-y-3 border-l-2 border-primary pl-4">
+                <div>
+                  <div className="text-sm font-medium">上一轮推荐报价仍有效</div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    方案重新提交不会自动覆盖历史报价。维修范围和询价条件未变化时可沿用；发生变化时应要求供应商提交新版本。
+                  </p>
+                </div>
+                <div className="divide-y rounded-md border">
+                  {availableQuotes.map((quote) => (
+                    <div key={quote.quoteId} className="flex items-center justify-between gap-4 px-3 py-2.5 text-sm">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{quote.supplierName}</span>
+                        <span className="block text-xs text-muted-foreground">第 {quote.revisionNo} 版 · 已确认报价</span>
+                      </span>
+                      <Money value={quote.quoteAmount} className="shrink-0 text-sm" />
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reuse-quote-reason">沿用原因</Label>
+                  <Textarea
+                    id="reuse-quote-reason"
+                    value={reuseQuoteReason}
+                    onChange={(event) => setReuseQuoteReason(event.target.value)}
+                    rows={2}
+                    placeholder="说明维修范围、预算口径和供应商报价条件未发生变化"
+                  />
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setRevisionSupplierDeptIds(availableQuotes.map((quote) => quote.supplierDeptId));
+                      setQuoteRevisionOpen(true);
+                    }}
+                  >
+                    <RefreshCw className="mr-1 size-4" />要求修订报价
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void reusePreviousSupplierQuote()}
+                    disabled={props.acting || !reuseQuoteReason.trim()}
+                  >
+                    <CheckCircle2 className="mr-1 size-4" />沿用上一轮推荐
+                  </Button>
+                </div>
+                {quoteRevisionOpen && (
+                  <div className="space-y-3 border-t pt-3">
+                    <div className="text-sm font-medium">选择需要修订报价的供应商</div>
+                    <div className="divide-y rounded-md border">
+                      {availableQuotes.map((quote) => (
+                        <label key={quote.quoteId} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm">
+                          <Checkbox
+                            checked={revisionSupplierDeptIds.includes(quote.supplierDeptId)}
+                            onCheckedChange={(checked) => setRevisionSupplierDeptIds((current) => checked
+                              ? Array.from(new Set([...current, quote.supplierDeptId]))
+                              : current.filter((id) => id !== quote.supplierDeptId))}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{quote.supplierName}</span>
+                          <span className="text-xs text-muted-foreground">第 {quote.revisionNo} 版</span>
+                        </label>
+                      ))}
+                    </div>
+                    <Textarea
+                      value={quoteRevisionReason}
+                      onChange={(event) => setQuoteRevisionReason(event.target.value)}
+                      rows={3}
+                      placeholder="填写方案、工程量、预算口径或报价条件的具体变化"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="ghost" onClick={() => setQuoteRevisionOpen(false)}>取消</Button>
+                      <Button
+                        type="button"
+                        onClick={() => void requestSupplierQuoteRevisions()}
+                        disabled={props.acting || revisionSupplierDeptIds.length === 0 || !quoteRevisionReason.trim()}
+                      >
+                        <Send className="mr-1 size-4" />发送修订通知
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="supplier-uscc">统一社会信用代码（选填）</Label>
-                <Input id="supplier-uscc" value={supplierUscc} onChange={(e) => setSupplierUscc(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="supplier-contact-name">企业联系人（选填）</Label>
-                <Input id="supplier-contact-name" value={supplierContactName} onChange={(e) => setSupplierContactName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="supplier-contact-phone">联系人手机号（选填）</Label>
-                <Input id="supplier-contact-phone" value={supplierContactPhone} onChange={(e) => setSupplierContactPhone(e.target.value)} />
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void createSupplierOrganization()}
-              disabled={!supplierLegalName.trim()}
-            >
-              <Building2 className="mr-1 size-4" />登记供应商
-            </Button>
-            {s === "PLAN_SUBMITTED" && (
+            )}
+            {s !== "QUOTE_SUBMITTED" && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSupplierRegistrationOpen(true)}
+              >
+                <Plus className="mr-1 size-4" />登记新供应商
+              </Button>
+            )}
+            {s === "PLAN_SUBMITTED" && !(props.hasPreviousRecommendation && availableQuotes.length > 0) && (
               <div className="space-y-2">
                 <Label>选择邀价供应商</Label>
                 <div className="max-h-56 divide-y overflow-y-auto rounded-md border">
@@ -1413,81 +2257,6 @@ function ActionPanel(props: {
             <Button type="button" variant="outline" onClick={() => setQuoteDialogOpen(true)}>
               <ClipboardList className="mr-1 size-4" />代录供应商报价
             </Button>
-            {props.canManage && supplierQuotes.length > 0 && (
-              <Button type="button" variant="outline" onClick={() => setQuoteListOpen(true)}>
-                <Eye className="mr-1 size-4" />查看报价（{supplierQuotes.length}）
-              </Button>
-            )}
-          </div>
-        )}
-
-        {s === "QUOTE_SUBMITTED" && props.canManage && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label>选定报价</Label>
-                <Select value={quoteId} onValueChange={(value) => {
-                  setQuoteId(value);
-                  setFrameworkRelationId("");
-                }}>
-                  <SelectTrigger><SelectValue placeholder="选择供应商报价" /></SelectTrigger>
-                  <SelectContent>
-                    {supplierQuotes.map((quote) => (
-                      <SelectItem key={quote.quoteId} value={String(quote.quoteId)}>
-                        {quote.supplierName} · ¥{Number(quote.quoteAmount).toLocaleString("zh-CN")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>供应商选择方式</Label>
-                <Select value={selectionMethod} onValueChange={setSelectionMethod}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="COMPETITIVE_QUOTATION">竞争性比价</SelectItem>
-                    <SelectItem value="FRAMEWORK_SUPPLIER">长期合作供应商</SelectItem>
-                    <SelectItem value="DIRECT_AWARD">直接选定</SelectItem>
-                    <SelectItem value="EMERGENCY_APPOINTMENT">应急指定</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <Textarea value={recommendationReason} onChange={(e) => setRecommendationReason(e.target.value)} rows={3} placeholder="物业选定供应商的理由" />
-            {selectionMethod === "COMPETITIVE_QUOTATION" && (
-              <Input value={insufficientQuoteReason} onChange={(e) => setInsufficientQuoteReason(e.target.value)} placeholder="响应不足三家时填写继续推荐理由" />
-            )}
-            {selectionMethod === "FRAMEWORK_SUPPLIER" && (
-              <div>
-                <Label>长期合作关系</Label>
-                <Select value={frameworkRelationId} onValueChange={setFrameworkRelationId}>
-                  <SelectTrigger><SelectValue placeholder="选择已审批且在有效期内的合作关系" /></SelectTrigger>
-                  <SelectContent>
-                    {applicableFrameworkRelations.map((relation) => (
-                      <SelectItem key={relation.relationId} value={String(relation.relationId)}>
-                        {relation.supplierLegalName}{relation.validUntil ? ` · 有效至 ${relation.validUntil}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedSupplierQuote && applicableFrameworkRelations.length === 0 && (
-                  <p className="mt-1 text-xs text-amber-700">该供应商没有适用于当前维修类别的有效长期合作关系。</p>
-                )}
-              </div>
-            )}
-            <Button
-              onClick={() => props.doAction("recommend-supplier", {
-                quoteId: Number(quoteId || 0),
-                selectionMethod,
-                recommendationReason,
-                insufficientQuoteReason,
-                frameworkRelationId: frameworkRelationId ? Number(frameworkRelationId) : undefined,
-                remark: "物业选定推荐供应商",
-              })}
-              disabled={props.acting || !quoteId || !recommendationReason || (selectionMethod === "FRAMEWORK_SUPPLIER" && !frameworkRelationId)}
-            >
-              <CheckCircle2 className="size-4 mr-1" /> 选定供应商
-            </Button>
           </div>
         )}
 
@@ -1495,33 +2264,84 @@ function ActionPanel(props: {
           <div className="space-y-3">
             {props.canField && props.selected.fundSource === "BUILDING_MAINTENANCE_FUND" && (
               <div className="space-y-2 border-l pl-3">
-                <Label>楼栋接龙范围</Label>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Select value={localScopeType} onValueChange={setLocalScopeType}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BUILDING">整栋</SelectItem>
-                      <SelectItem value="BUILDING_UNIT">单元</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={localUnitName}
-                    onChange={(e) => setLocalUnitName(e.target.value)}
-                    placeholder="单元名称"
-                    disabled={localScopeType !== "BUILDING_UNIT"}
-                  />
+                <div className="space-y-2">
+                  <Label>表决方式</Label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setLocalDecisionChannel("ONLINE")}
+                      className={`rounded-md border px-3 py-3 text-left transition-colors ${localDecisionChannel === "ONLINE"
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-background hover:bg-muted/40"}`}
+                    >
+                      <span className="block text-sm font-medium">C 端在线表决</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">范围内实名业主登录 C 端查看方案并表决</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocalDecisionChannel("WECHAT")}
+                      className={`rounded-md border px-3 py-3 text-left transition-colors ${localDecisionChannel === "WECHAT"
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-background hover:bg-muted/40"}`}
+                    >
+                      <span className="block text-sm font-medium">微信接龙</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">楼栋长在微信群发起，完成后由物业上传并核验</span>
+                    </button>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    社区默认：{props.planningPolicy.buildingRepairDefaultDecisionChannel === "ONLINE" ? "C 端在线表决" : "微信接龙"}。
+                    当前工单可在发起前调整，发起后渠道锁定且不能混用。
+                  </p>
                 </div>
-                <Input value={localScopeLabel} onChange={(e) => setLocalScopeLabel(e.target.value)} placeholder="如：46号楼 1 单元公共区域维修" />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>表决范围</Label>
+                    <Select value={localScopeType} onValueChange={(value) => {
+                      setLocalScopeType(value);
+                      setLocalUnitName(value === "BUILDING_UNIT" ? localDecisionUnits[0]?.unitName ?? "" : "");
+                    }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="BUILDING">整栋业主</SelectItem>
+                        <SelectItem value="BUILDING_UNIT">单元业主</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>具体范围</Label>
+                    {localScopeType === "BUILDING_UNIT" ? (
+                      <Select value={localUnitName} onValueChange={setLocalUnitName}>
+                        <SelectTrigger><SelectValue placeholder="选择资产台账中的单元" /></SelectTrigger>
+                        <SelectContent>
+                          {localDecisionUnits.map((unit) => (
+                            <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">整栋</div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>表决事项</Label>
+                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm leading-6">{localDecisionScopeLabel}</div>
+                </div>
                 <Button
                   onClick={() => props.doAction("start-local-decision", {
                     scopeType: localScopeType,
+                    decisionChannel: localDecisionChannel,
                     unitName: localScopeType === "BUILDING_UNIT" ? localUnitName : undefined,
-                    scopeLabel: localScopeLabel,
-                    remark: "楼组长发起微信接龙，作为楼栋维修正式表决",
+                    scopeLabel: localDecisionScopeLabel,
+                    remark: localDecisionChannel === "ONLINE"
+                      ? "物业选择C端在线表决"
+                      : "物业登记由楼栋长发起微信接龙",
                   })}
-                  disabled={props.acting || (localScopeType === "BUILDING_UNIT" && !localUnitName)}
+                  disabled={props.acting
+                    || (localScopeType === "BUILDING_UNIT" && (!localUnitName || localDecisionUnits.length === 0))}
                 >
-                  <ClipboardList className="size-4 mr-1" /> 发起楼栋接龙
+                  <ClipboardList className="size-4 mr-1" />
+                  {localDecisionChannel === "ONLINE" ? "发起 C 端表决" : "登记微信接龙"}
                 </Button>
               </div>
             )}
@@ -1546,44 +2366,117 @@ function ActionPanel(props: {
 
         {s === "LOCAL_DECISION_PENDING" && props.canField && (
           <div className="space-y-3">
-            <div className="max-h-80 divide-y overflow-y-auto rounded-md border">
-              {decisionRooms.map((room) => (
-                <div key={room.roomId} className="grid grid-cols-1 items-center gap-3 px-3 py-2 sm:grid-cols-[1fr_180px]">
-                  <div>
-                    <div className="text-sm font-medium">房屋 {room.roomId}</div>
-                    <div className="text-xs text-muted-foreground">专有面积 {room.buildArea} ㎡</div>
+            {activeLocalDecision?.decisionChannel === "ONLINE" && activeLocalDecision.result === "PAUSED" ? (
+              <>
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+                  <div className="text-sm font-medium text-amber-900">C 端在线表决已暂停</div>
+                  <div className="mt-1 text-xs leading-5 text-amber-800">
+                    已提交的选票完整保留，暂停期间业主无法继续表决。恢复后仍沿用原表决范围和已有选票。
                   </div>
-                  <Select
-                    value={decisionChoices[room.roomId] ?? "NOT_VOTED"}
-                    onValueChange={(value) => setDecisionChoices((current) => ({ ...current, [room.roomId]: value }))}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="AGREE">同意</SelectItem>
-                      <SelectItem value="DISAGREE">不同意</SelectItem>
-                      <SelectItem value="ABSTAIN">弃权</SelectItem>
-                      <SelectItem value="INVALID">无效</SelectItem>
-                      <SelectItem value="NOT_VOTED">未参与</SelectItem>
-                      <SelectItem value="CONFLICTED">待核验冲突</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {onlineDecisionProgress}
                 </div>
-              ))}
-            </div>
-            <Input value={localEvidenceHash} onChange={(e) => setLocalEvidenceHash(e.target.value)} placeholder="微信接龙截图文件标识" />
-            <Button
-              onClick={() => props.doAction("complete-local-decision", {
-                entries: decisionRooms.map((room) => ({
-                  roomId: room.roomId,
-                  choice: decisionChoices[room.roomId] ?? "NOT_VOTED",
-                })),
-                evidenceAttachmentHash: localEvidenceHash,
-                remark: "物业完成微信接龙明细核验",
-              })}
-              disabled={props.acting || decisionRooms.length === 0 || !localEvidenceHash || Object.values(decisionChoices).includes("CONFLICTED")}
-            >
-              <CheckCircle2 className="size-4 mr-1" /> 完成楼栋接龙
-            </Button>
+                <Button
+                  onClick={() => props.doAction("resume-local-decision", { remark: "物业恢复C端在线表决" }, "在线表决已恢复")}
+                  disabled={props.acting}
+                >
+                  <Play className="mr-1 size-4" />恢复表决
+                </Button>
+              </>
+            ) : activeLocalDecision?.decisionChannel === "ONLINE" ? (
+              <>
+                <div className="rounded-md border bg-muted/30 px-4 py-3">
+                  <div className="text-sm font-medium">C 端在线表决进行中</div>
+                  <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                    已向范围内 {activeLocalDecision.totalOwnerCount} 名产权人开放。结束表决后，系统按已提交选择计票，未提交的产权人记为未参与。
+                  </div>
+                  {onlineDecisionProgress}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDecisionConfirmation("pause")}
+                    disabled={props.acting}
+                  >
+                    <Pause className="mr-1 size-4" />暂停表决
+                  </Button>
+                  <Button
+                    onClick={() => setDecisionConfirmation("complete")}
+                    disabled={props.acting}
+                  >
+                    <CheckCircle2 className="mr-1 size-4" />结束并结算表决
+                  </Button>
+                </div>
+              </>
+            ) : activeLocalDecision?.decisionChannel === "WECHAT" ? (
+              <>
+                <div className="rounded-md border bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                  楼栋长在微信群完成接龙并将截图交给物业。物业在此逐户核对结果并上传原始截图，系统不会向业主开放 C 端表决入口。
+                </div>
+                <div className="max-h-80 divide-y overflow-y-auto rounded-md border">
+                  {decisionRooms.map((room) => (
+                    <div key={room.roomId} className="grid grid-cols-1 items-center gap-3 px-3 py-2 sm:grid-cols-[1fr_180px]">
+                      <div>
+                        <div className="text-sm font-medium">产权范围 {room.roomLabel || room.roomId}</div>
+                        <div className="text-xs text-muted-foreground">合计专有面积 {room.buildArea} ㎡</div>
+                      </div>
+                      <Select
+                        value={decisionChoices[room.roomId] ?? "NOT_VOTED"}
+                        onValueChange={(value) => setDecisionChoices((current) => ({ ...current, [room.roomId]: value }))}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="AGREE">同意</SelectItem>
+                          <SelectItem value="DISAGREE">不同意</SelectItem>
+                          <SelectItem value="ABSTAIN">弃权</SelectItem>
+                          <SelectItem value="INVALID">无效</SelectItem>
+                          <SelectItem value="NOT_VOTED">未参与</SelectItem>
+                          <SelectItem value="CONFLICTED">待核验冲突</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={solitaireFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadLocalDecisionScreenshot(file);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => solitaireFileInputRef.current?.click()}
+                    disabled={solitaireUploading}
+                  >
+                    {solitaireUploading ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Upload className="mr-1 size-4" />}
+                    上传微信接龙截图
+                  </Button>
+                  {solitaireScreenshot && (
+                    <span className="text-xs text-muted-foreground">{solitaireScreenshot.originalFileName}</span>
+                  )}
+                </div>
+                <Button
+                  onClick={() => props.doAction("complete-local-decision", {
+                    entries: decisionRooms.map((room) => ({
+                      roomId: room.roomId,
+                      choice: decisionChoices[room.roomId] ?? "NOT_VOTED",
+                    })),
+                    evidenceAttachmentId: solitaireScreenshot?.attachmentId,
+                    remark: "物业完成微信接龙明细及截图核验",
+                  })}
+                  disabled={props.acting || decisionRooms.length === 0 || !solitaireScreenshot || Object.values(decisionChoices).includes("CONFLICTED")}
+                >
+                  <CheckCircle2 className="mr-1 size-4" />核验并提交微信接龙
+                </Button>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">正在读取表决方式…</div>
+            )}
           </div>
         )}
 
@@ -1594,26 +2487,106 @@ function ActionPanel(props: {
         )}
 
         {["LOCAL_DECISION_PASSED", "APPROVAL_DOCUMENT_PREPARING"].includes(s) && props.canManage && (
-          <div className="space-y-3">
-            <div>
-              <Label>物业正式报审文件</Label>
-              <Input value={officialDocumentHash} onChange={(e) => setOfficialDocumentHash(e.target.value)} placeholder="已上传正式文件的文件标识" />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>物业正式报审文件 <span className="text-red-600">*</span></Label>
+              <input
+                ref={approvalDocumentInputRef}
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadApprovalAttachment("document", file);
+                }}
+              />
+              {approvalDocument ? (
+                <div className="flex items-center gap-3 rounded-md border bg-muted/20 px-3 py-2.5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                    <FileText className="size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{approvalDocument.originalFileName}</div>
+                    <div className="text-xs text-muted-foreground">{formatFileSize(approvalDocument.actualSize)}</div>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => approvalDocumentInputRef.current?.click()} disabled={approvalDocumentUploading}>
+                    替换
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => void removeApprovalAttachment("document")} aria-label="移除报审文件">
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Button type="button" variant="outline" onClick={() => approvalDocumentInputRef.current?.click()} disabled={approvalDocumentUploading}>
+                  {approvalDocumentUploading ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Upload className="mr-1 size-4" />}
+                  上传报审文件
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">支持 PDF、图片、Word 或 Excel，单个文件不超过 20MB。</p>
             </div>
-            <div>
-              <Label>系统合并报审包</Label>
-              <Input value={mergedPackageHash} onChange={(e) => setMergedPackageHash(e.target.value)} placeholder="不可变合并文件标识" />
+            {activeLocalDecision?.decisionChannel === "WECHAT" && (
+              <div className="space-y-2 border-t pt-4">
+                <Label>微信接龙截图 <span className="text-red-600">*</span></Label>
+                <input
+                  ref={approvalSolitaireInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void uploadApprovalAttachment("solitaire", file);
+                  }}
+                />
+                {approvalSolitaireScreenshot ? (
+                  <div className="flex items-center gap-3 rounded-md border bg-muted/20 px-3 py-2.5">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
+                      <FileText className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{approvalSolitaireScreenshot.originalFileName}</div>
+                      <div className="text-xs text-muted-foreground">将替换表决阶段上传的截图</div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => approvalSolitaireInputRef.current?.click()} disabled={approvalSolitaireUploading}>
+                      替换
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => void removeApprovalAttachment("solitaire")} aria-label="移除微信接龙截图">
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ) : activeLocalDecision.evidenceAttachmentHash ? (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                    <div className="flex items-center gap-2 text-sm text-emerald-800">
+                      <CheckCircle2 className="size-4 shrink-0" />
+                      表决阶段上传的微信接龙截图将自动加入报审包
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => approvalSolitaireInputRef.current?.click()} disabled={approvalSolitaireUploading}>
+                      {approvalSolitaireUploading && <Loader2 className="mr-1 size-4 animate-spin" />}
+                      重新上传
+                    </Button>
+                  </div>
+                ) : (
+                  <Button type="button" variant="outline" onClick={() => approvalSolitaireInputRef.current?.click()} disabled={approvalSolitaireUploading}>
+                    {approvalSolitaireUploading ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Upload className="mr-1 size-4" />}
+                    上传微信接龙截图
+                  </Button>
+                )}
+              </div>
+            )}
+            <div className="rounded-md border bg-muted/20 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+              提交时系统会将报审文件与表决材料生成不可变报审包摘要，无需手工填写文件标识。
             </div>
             <Button
               onClick={() => props.doAction("approval-package", {
-                officialDocumentHash,
-                mergedPackageHash,
-                printedAndAttached: s === "LOCAL_DECISION_PASSED",
-                attachments: s === "LOCAL_DECISION_PASSED"
-                  ? [{ attachmentType: "SOLITAIRE_SCREENSHOT", attachmentHash: localEvidenceHash || officialDocumentHash, originalFileName: "微信接龙截图", sortOrder: 1 }]
-                  : [{ attachmentType: "ASSEMBLY_RESULT", attachmentHash: officialDocumentHash, originalFileName: "业主大会表决结果", sortOrder: 1 }],
+                officialDocumentAttachmentId: approvalDocument?.attachmentId,
+                solitaireScreenshotAttachmentIds: approvalSolitaireScreenshot
+                  ? [approvalSolitaireScreenshot.attachmentId]
+                  : [],
                 remark: "物业上传正式报审文件并锁定版本",
               })}
-              disabled={props.acting || !officialDocumentHash || !mergedPackageHash || (s === "LOCAL_DECISION_PASSED" && !localEvidenceHash)}
+              disabled={props.acting || approvalDocumentUploading || approvalSolitaireUploading || !approvalDocument
+                || (s === "LOCAL_DECISION_PASSED" && !activeLocalDecision)
+                || (activeLocalDecision?.decisionChannel === "WECHAT"
+                  && !activeLocalDecision.evidenceAttachmentHash && !approvalSolitaireScreenshot)}
             >
               <ClipboardList className="mr-1 size-4" />提交报审文件
             </Button>
@@ -1645,6 +2618,18 @@ function ActionPanel(props: {
             >
               <Banknote className="mr-1 size-4" />审价通过
             </Button>
+          </div>
+        )}
+
+        {s === "PRICE_REVIEW_PENDING" && !props.canGovernance && (
+          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-700" />
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-amber-950">等待业委会审价</div>
+              <p className="text-sm leading-6 text-amber-900/80">
+                物业报审已完成，当前工单已移交业委会。请由具有维修治理权限的业委会账号登录，完成内部审价或发起第三方专业审价。
+              </p>
+            </div>
           </div>
         )}
 
@@ -1855,6 +2840,124 @@ function ActionPanel(props: {
           </div>
         )}
       </div>
+      <AlertDialog
+        open={decisionConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !props.acting) setDecisionConfirmation(null);
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <div className={`mb-1 flex size-10 items-center justify-center rounded-md ${
+              decisionConfirmation === "complete"
+                ? "bg-red-50 text-red-600"
+                : "bg-amber-50 text-amber-600"
+            }`}>
+              {decisionConfirmation === "complete"
+                ? <AlertTriangle className="size-5" />
+                : <Pause className="size-5" />}
+            </div>
+            <AlertDialogTitle>
+              {decisionConfirmation === "complete" ? "确认结束并结算表决？" : "确认暂停表决？"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left leading-6">
+              {decisionConfirmation === "complete"
+                ? "系统将立即按现有选票结算，未提交的产权人记为未参与。"
+                : "暂停期间业主将无法继续投票，已经提交的选票会完整保留。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {decisionConfirmation === "complete" && (
+            <div className="space-y-2.5">
+              <div className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 ${
+                activeLocalDecision?.currentThresholdPassed
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-red-200 bg-red-50 text-red-800"
+              }`}>
+                {activeLocalDecision?.currentThresholdPassed
+                  ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                  : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+                <div>
+                  <div className="text-sm font-medium">
+                    {activeLocalDecision?.currentThresholdPassed
+                      ? "当前已达到表决通过条件"
+                      : "当前尚未达到表决通过条件"}
+                  </div>
+                  <div className="mt-0.5 text-xs leading-5 opacity-90">
+                    {activeLocalDecision?.currentThresholdPassed
+                      ? "参与人数、面积均已达到 2/3，且赞成人数、面积均超过已参与的 1/2。"
+                      : "当前尚未同时满足参与人数、面积达到 2/3，以及赞成人数、面积过半；此刻结束将进入“方案需修改”。"}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                最终结果以系统结算时锁定的选票为准。本轮表决结束后不能恢复。
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={props.acting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className={decisionConfirmation === "complete"
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : undefined}
+              disabled={props.acting}
+              onClick={(event) => {
+                event.preventDefault();
+                const action = decisionConfirmation;
+                if (!action) return;
+                void (async () => {
+                  const success = action === "complete"
+                    ? await props.doAction("complete-local-decision", {
+                        entries: [],
+                        remark: "物业结束C端在线表决并生成结果",
+                      }, "表决已结束并完成结算")
+                    : await props.doAction(
+                        "pause-local-decision",
+                        { remark: "物业暂停C端在线表决" },
+                        "在线表决已暂停",
+                      );
+                  if (success) setDecisionConfirmation(null);
+                })();
+              }}
+            >
+              {props.acting && <Loader2 className="mr-1 size-4 animate-spin" />}
+              {decisionConfirmation === "complete" ? "结束并结算" : "确认暂停"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Dialog open={supplierRegistrationOpen} onOpenChange={setSupplierRegistrationOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>登记新供应商</DialogTitle>
+            <DialogDescription>先登记企业名称即可参与邀价，其余主体资料可稍后补齐。</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="supplier-legal-name">企业名称</Label>
+              <Input id="supplier-legal-name" value={supplierLegalName} onChange={(e) => setSupplierLegalName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="supplier-uscc">统一社会信用代码（选填）</Label>
+              <Input id="supplier-uscc" value={supplierUscc} onChange={(e) => setSupplierUscc(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="supplier-contact-name">企业联系人（选填）</Label>
+              <Input id="supplier-contact-name" value={supplierContactName} onChange={(e) => setSupplierContactName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="supplier-contact-phone">联系人手机号（选填）</Label>
+              <Input id="supplier-contact-phone" value={supplierContactPhone} onChange={(e) => setSupplierContactPhone(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSupplierRegistrationOpen(false)}>取消</Button>
+            <Button onClick={() => void createSupplierOrganization()} disabled={!supplierLegalName.trim()}>
+              <Building2 className="mr-1 size-4" />确认登记
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={appendInvitationOpen} onOpenChange={(open) => {
         setAppendInvitationOpen(open);
         if (!open) {
@@ -1990,46 +3093,6 @@ function ActionPanel(props: {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={quoteListOpen} onOpenChange={setQuoteListOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>已收供应商报价</DialogTitle>
-            <DialogDescription>共收到 {supplierQuotes.length} 份报价，按报价金额从低到高排列。</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] divide-y overflow-y-auto rounded-md border">
-            {supplierQuotes.map((quote) => (
-              <div key={quote.quoteId} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{quote.supplierName}</span>
-                    <StatusChip tone={quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "warning" : "success"}>
-                      {QUOTE_CONFIRMATION_LABEL[quote.confirmationStatus] ?? quote.confirmationStatus}
-                    </StatusChip>
-                  </div>
-                  <div className="mt-1 text-lg font-semibold tabular-nums">
-                    ¥{Number(quote.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {QUOTE_SOURCE_LABEL[quote.submissionSource] ?? quote.submissionSource} · {fmtDate(quote.createTime)}
-                  </div>
-                  {quote.quoteSummary && <div className="mt-2 text-sm leading-6 text-foreground/80">{quote.quoteSummary}</div>}
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void openQuoteAttachment(quote.attachmentId)}
-                  disabled={openingQuoteAttachmentId === quote.attachmentId}
-                >
-                  {openingQuoteAttachmentId === quote.attachmentId
-                    ? <Loader2 className="mr-1 size-4 animate-spin" />
-                    : <Download className="mr-1 size-4" />}
-                  查看报价原件
-                </Button>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
     </SectionCard>
   );
 }

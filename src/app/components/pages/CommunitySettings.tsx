@@ -112,7 +112,8 @@ function formatArea(value: string | number | null | undefined) {
 }
 
 function buildBoundaryNodes(asset: CommunityAssetLedger): BoundaryNode[] {
-  const buildingCount = Math.max(1, Math.min(asset.buildingCount || asset.liveLedgerStats.buildingCount || 1, 12));
+  const directory = asset.buildings.slice(0, 12);
+  const buildingCount = Math.max(1, directory.length || asset.liveLedgerStats.buildingCount || 1);
   const unitBase = Math.max(1, Math.floor((asset.registeredPropertyUnitCount || asset.liveLedgerStats.unitCount || buildingCount) / buildingCount));
   const totalArea = Number(asset.registeredVotingTotalArea || asset.liveLedgerStats.totalArea || 0);
   const columns = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(buildingCount))));
@@ -123,19 +124,21 @@ function buildBoundaryNodes(asset: CommunityAssetLedger): BoundaryNode[] {
   const originZ = -((rows - 1) * gapZ) / 2;
   const averageArea = buildingCount > 0 ? totalArea / buildingCount : 0;
   const nodes = Array.from({ length: buildingCount }, (_, index) => {
+    const building = directory[index];
     const col = index % columns;
     const row = Math.floor(index / columns);
     const height = Math.max(0.72, Math.min(2.45, averageArea > 0 ? Math.sqrt(averageArea) / 145 : 1.1));
     return {
-      id: `building-${index + 1}`,
-      label: `${index + 1}号楼`,
+      id: building ? `building-${building.buildingId}` : `building-${index + 1}`,
+      label: building?.buildingName ?? `${index + 1}号楼`,
       type: "building" as const,
       mapX: originX + col * gapX,
       mapZ: originZ + row * gapZ,
       width: 1.18,
       depth: rows > 2 ? 0.95 : 1.1,
       height,
-      unitCount: unitBase + (index < (asset.registeredPropertyUnitCount % buildingCount) ? 1 : 0),
+      unitCount: building?.unitCount
+        ?? unitBase + (index < (asset.registeredPropertyUnitCount % buildingCount) ? 1 : 0),
       area: buildingCount > 0 ? totalArea / buildingCount : 0,
     };
   });
@@ -255,7 +258,7 @@ export function CommunitySettings() {
       });
       setData(next);
       setAssetDraft(next.assetLedger);
-      toast.success("建筑名册已保存");
+      toast.success("规划指标已保存");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -271,6 +274,7 @@ export function CommunitySettings() {
         ruleConfigId: rulesDraft.currentPolicy?.policyId ?? null,
         sharedOwnershipStrategy: rulesDraft.sharedOwnershipStrategy,
         repairEstimateRequired: rulesDraft.repairEstimateRequired,
+        buildingRepairDefaultDecisionChannel: rulesDraft.buildingRepairDefaultDecisionChannel,
         fundManagedEnabled: rulesDraft.fundManagedEnabled,
         financialControlConfigId: rulesDraft.financialControlConfigId,
         quarterlyDisclosureDeadlineDay: rulesDraft.quarterlyDisclosureDeadlineDay,
@@ -452,12 +456,12 @@ export function CommunitySettings() {
 
         <TabsContent value="building" className="space-y-4">
           <SectionCard
-            title="物业区域与建筑名册"
-            desc="物业管理区域、开发商法人、建筑面积与物理资产台账。"
+            title="物业区域与规划指标"
+            desc="维护物业区域和规划口径；维修工单可选楼栋以有效房屋名册为准。"
             extra={permissions.canEditAssetLedger ? (
               <Button onClick={saveAssetLedger} disabled={saving === "asset"}>
                 <Save className="size-4 mr-2" />
-                保存建筑名册
+                保存规划指标
               </Button>
             ) : <StatusChip tone="warning">只读</StatusChip>}
           >
@@ -475,8 +479,8 @@ export function CommunitySettings() {
               <Field label="登记可计票面积" value={asset.registeredVotingTotalArea} disabled={!permissions.canEditLegalArea} onChange={(v) => setAssetDraft((d) => d && { ...d, registeredVotingTotalArea: v })} />
               <Field label="应扣除车位面积" value={asset.excludedParkingArea} disabled={!permissions.canEditLegalArea} onChange={(v) => setAssetDraft((d) => d && { ...d, excludedParkingArea: v })} />
               <Field label="公共服务空间面积" value={asset.publicArea} disabled={!permissions.canEditLegalArea} onChange={(v) => setAssetDraft((d) => d && { ...d, publicArea: v })} />
-              <Field label="楼栋数量" type="number" value={asset.buildingCount} disabled={!permissions.canEditAssetLedger} onChange={(v) => setAssetDraft((d) => d && { ...d, buildingCount: Number(v) })} />
-              <Field label="单元数量" type="number" value={asset.unitCount} disabled={!permissions.canEditAssetLedger} onChange={(v) => setAssetDraft((d) => d && { ...d, unitCount: Number(v) })} />
+              <Field label="规划楼栋数" type="number" value={asset.buildingCount} disabled={!permissions.canEditAssetLedger} onChange={(v) => setAssetDraft((d) => d && { ...d, buildingCount: Number(v) })} />
+              <Field label="规划单元数" type="number" value={asset.unitCount} disabled={!permissions.canEditAssetLedger} onChange={(v) => setAssetDraft((d) => d && { ...d, unitCount: Number(v) })} />
               <Field label="车位数量" type="number" value={asset.parkingSpaceCount} disabled={!permissions.canEditAssetLedger} onChange={(v) => setAssetDraft((d) => d && { ...d, parkingSpaceCount: Number(v) })} />
             </div>
           </SectionCard>
@@ -485,8 +489,41 @@ export function CommunitySettings() {
             <Metric label="实时台账面积" value={`${asset.liveLedgerStats.totalArea} ㎡`} />
             <Metric label="实时业主数" value={`${asset.liveLedgerStats.ownerCount} 人`} />
             <Metric label="实时房屋单元" value={`${asset.liveLedgerStats.unitCount} 套`} />
-            <Metric label="楼栋覆盖" value={`${asset.liveLedgerStats.buildingCount} 栋`} />
+            <Metric label="在册楼栋" value={`${asset.liveLedgerStats.buildingCount} 栋`} />
           </div>
+
+          <SectionCard
+            title="在册楼栋目录"
+            desc="来源于有效房屋名册，与维修工单登记时的楼栋选项保持一致。"
+            extra={<StatusChip tone="info">共 {asset.buildings.length} 栋</StatusChip>}
+          >
+            {asset.buildings.length === 0 ? (
+              <EmptyState title="暂无在册楼栋" description="请先通过小区空间名册导入有效房屋数据。" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="border-y bg-muted/60 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">楼栋名称</th>
+                      <th className="px-3 py-2 font-medium">楼栋编号</th>
+                      <th className="px-3 py-2 font-medium">单元数</th>
+                      <th className="px-3 py-2 font-medium">房屋数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {asset.buildings.map((building) => (
+                      <tr key={building.buildingId} className="border-b last:border-b-0">
+                        <td className="px-3 py-3 font-medium">{building.buildingName}</td>
+                        <td className="px-3 py-3 font-mono text-muted-foreground">{building.buildingId}</td>
+                        <td className="px-3 py-3">{building.unitCount}</td>
+                        <td className="px-3 py-3">{building.roomCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
 
           <SectionCard
             title="交互式物权边界图"
@@ -495,8 +532,8 @@ export function CommunitySettings() {
           >
             <div className="grid gap-3 md:grid-cols-4">
               <Metric label="物业区域编码" value={asset.propertyAreaCode || "-"} />
-              <Metric label="名册楼栋" value={`${asset.buildingCount} 栋`} />
-              <Metric label="名册单元" value={`${asset.unitCount} 个`} />
+              <Metric label="在册楼栋" value={`${asset.buildings.length} 栋`} />
+              <Metric label="在册单元" value={`${asset.buildings.reduce((sum, building) => sum + building.unitCount, 0)} 个`} />
               <Metric label="车位数量" value={`${asset.parkingSpaceCount} 个`} />
             </div>
           </SectionCard>
@@ -671,6 +708,38 @@ export function CommunitySettings() {
                       <option value="PROPORTIONAL_SPLIT">按份额拆分</option>
                     </select>
                   </div>
+                  <div className="space-y-2">
+                    <Label>楼栋维修默认表决方式</Label>
+                    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="楼栋维修默认表决方式">
+                      {([
+                        ["ONLINE", "C 端在线表决"],
+                        ["WECHAT", "微信接龙"],
+                      ] as const).map(([value, label]) => {
+                        const selected = rules.buildingRepairDefaultDecisionChannel === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={!permissions.canEditRules}
+                            onClick={() => setRulesDraft((draft) => draft && {
+                              ...draft,
+                              buildingRepairDefaultDecisionChannel: value,
+                            })}
+                            className={`rounded-md border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${selected
+                              ? "border-primary bg-primary/5 font-medium text-primary"
+                              : "border-border bg-background hover:bg-muted/40"}`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      作为新楼栋维修工单的默认值；物业可在发起表决前为单个工单调整，发起后不可切换渠道。
+                    </p>
+                  </div>
                   <div className="rounded-md border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
                     {rules.currentPolicy?.summaryJson ?? "暂无规则摘要"}
                   </div>
@@ -812,7 +881,7 @@ function BoundaryViewerDialog({
               <div className="mt-3 grid gap-2 text-sm">
                 <BoundaryLine label="法定专有面积" value={`${formatArea(asset.totalExclusiveArea)} ㎡`} />
                 <BoundaryLine label="登记可计票面积" value={`${formatArea(asset.registeredVotingTotalArea)} ㎡`} />
-                <BoundaryLine label="楼栋数量" value={`${asset.buildingCount} 栋`} />
+                <BoundaryLine label="在册楼栋" value={`${asset.buildings.length} 栋`} />
                 <BoundaryLine label="车位数量" value={`${asset.parkingSpaceCount} 个`} />
               </div>
             </div>

@@ -69,14 +69,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Topbar onOpenNavigation={() => setMobileNavigationOpen(true)} />
       <div className="flex flex-1 min-h-0">
         <Sidebar mobileOpen={mobileNavigationOpen} onMobileClose={() => setMobileNavigationOpen(false)} />
-        <main className="flex-1 min-w-0 flex flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ContentHeader />
           {lockdown && (
             <div className="flex items-center gap-2 px-6 py-2 text-sm gov-lock-stripes border-b border-[#d14343]/30" style={{ color: "#a32f2f" }}>
               ⚠ 本小区已进入 <b className="mx-1">HANDOVER_LOCK 换届熔断态</b>，大额资金划拨接口已死锁，相关放行操作被锁定。
             </div>
           )}
-          <div className="flex-1 overflow-y-auto gov-scroll p-3 sm:p-6">
+          <div className="gov-scroll min-h-0 flex-1 overflow-y-auto p-3 sm:p-6">
             <div className="mx-auto max-w-[1440px]">{children}</div>
           </div>
         </main>
