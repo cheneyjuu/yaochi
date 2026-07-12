@@ -87,6 +87,7 @@ import {
   listRepairLocationOptions,
   getRepairPlanningPolicy,
   getRepairLocalDecision,
+  getRepairContractSupplierCandidate,
   getPropertyQuoteAttachmentDownload,
   getPropertyQuoteAttachmentPreview,
   listRepairDecisionRooms,
@@ -117,6 +118,7 @@ import {
   type RepairFrameworkRelation,
   type RepairStatus,
   type RepairSupplierOrganization,
+  type RepairContractSupplierCandidate,
   type RepairSupplierQuote,
   type RepairQuoteInvitation,
   type RepairAttachment,
@@ -1437,6 +1439,7 @@ function ActionPanel(props: {
   const [supplierOrganizations, setSupplierOrganizations] = useState<RepairSupplierOrganization[]>([]);
   const [quoteInvitations, setQuoteInvitations] = useState<RepairQuoteInvitation[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<RepairSupplierQuote[]>([]);
+  const [contractSupplierCandidate, setContractSupplierCandidate] = useState<RepairContractSupplierCandidate | null>(null);
   const [invitedSupplierDeptIds, setInvitedSupplierDeptIds] = useState<number[]>([]);
   const [appendInvitationOpen, setAppendInvitationOpen] = useState(false);
   const [appendInvitationReason, setAppendInvitationReason] = useState("");
@@ -1484,7 +1487,6 @@ function ActionPanel(props: {
   const [contractAmount, setContractAmount] = useState("");
   const [contractScopeHash, setContractScopeHash] = useState("");
   const [contractFileHash, setContractFileHash] = useState("");
-  const [contractSupplierDeptId, setContractSupplierDeptId] = useState("");
   const [contractSigningMethod, setContractSigningMethod] = useState("MIXED");
   const [affectedRoomId, setAffectedRoomId] = useState("");
   const [acceptanceParticipantName, setAcceptanceParticipantName] = useState("");
@@ -1517,6 +1519,10 @@ function ActionPanel(props: {
     setQuoteRevisionOpen(false);
     setQuoteRevisionReason("");
     setRevisionSupplierDeptIds([]);
+    setContractSupplierCandidate(null);
+    setContractAmount("");
+    setContractScopeHash("");
+    setContractFileHash("");
   }, [props.canUseElectronicSeal, props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
 
   useEffect(() => {
@@ -1541,6 +1547,7 @@ function ActionPanel(props: {
 
   useEffect(() => {
     let cancelled = false;
+    setContractSupplierCandidate(null);
     const loadOrganizations = props.canManage || props.canField
       ? listRepairSupplierOrganizations()
       : Promise.resolve([]);
@@ -1550,12 +1557,16 @@ function ActionPanel(props: {
     const loadQuotes = props.canManage
       ? listRepairSupplierQuotes(props.selected.workOrderId)
       : Promise.resolve([]);
-    void Promise.all([loadOrganizations, loadInvitations, loadQuotes])
-      .then(([organizations, invitations, quotes]) => {
+    const loadContractSupplierCandidate = props.canManage && props.selected.status === "SEALED"
+      ? getRepairContractSupplierCandidate(props.selected.workOrderId)
+      : Promise.resolve(null);
+    void Promise.all([loadOrganizations, loadInvitations, loadQuotes, loadContractSupplierCandidate])
+      .then(([organizations, invitations, quotes, candidate]) => {
         if (cancelled) return;
         setSupplierOrganizations(organizations);
         setQuoteInvitations(invitations);
         setAvailableQuotes(quotes);
+        setContractSupplierCandidate(candidate);
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "供应商资料加载失败"));
     return () => {
@@ -2871,18 +2882,44 @@ function ActionPanel(props: {
         {s === "SEALED" && props.canManage && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Select value={contractSupplierDeptId} onValueChange={setContractSupplierDeptId}>
-                <SelectTrigger><SelectValue placeholder="选择签约供应商" /></SelectTrigger>
-                <SelectContent>
-                  {supplierOrganizations.filter((supplier) => supplier.verificationStatus === "VERIFIED").map((supplier) => (
-                    <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>
-                      {supplier.legalName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input value={contractAmount} onChange={(e) => setContractAmount(e.target.value)} placeholder="合同金额" />
+              <div className="space-y-1.5">
+                <Label>签约供应商</Label>
+                <div className="flex min-h-9 items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+                  {contractSupplierCandidate ? (
+                    <>
+                      <span className="min-w-0 truncate text-sm font-medium">
+                        {contractSupplierCandidate.supplierName}
+                      </span>
+                      <StatusChip tone={contractSupplierCandidate.contractEligible ? "success" : "warning"}>
+                        {contractSupplierCandidate.contractEligible ? "企业已核验" : "暂不可签约"}
+                      </StatusChip>
+                    </>
+                  ) : (
+                    <span className="flex items-center text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 size-4 animate-spin" />读取推荐结果
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  签约供应商由已通过表决和报审的推荐结果锁定，合同阶段不能改选。
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="repair-contract-amount">合同金额</Label>
+                <Input
+                  id="repair-contract-amount"
+                  value={contractAmount}
+                  onChange={(e) => setContractAmount(e.target.value)}
+                  placeholder="填写合同金额"
+                />
+              </div>
             </div>
+            {contractSupplierCandidate && !contractSupplierCandidate.contractEligible && (
+              <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+                <AlertTriangle className="mt-1 size-4 shrink-0" />
+                <span>{contractSupplierCandidate.contractEligibilityMessage}</span>
+              </div>
+            )}
             <Input value={contractScopeHash} onChange={(e) => setContractScopeHash(e.target.value)} placeholder="锁定维修范围文件标识" />
             <Input value={contractFileHash} onChange={(e) => setContractFileHash(e.target.value)} placeholder="三方合同文件标识" />
             <Select value={contractSigningMethod} onValueChange={setContractSigningMethod}>
@@ -2894,16 +2931,23 @@ function ActionPanel(props: {
               </SelectContent>
             </Select>
             <Button
-              onClick={() => props.doAction("contracts", {
-                supplierDeptId: Number(contractSupplierDeptId),
-                contractAmount: Number(contractAmount || 0),
-                repairScopeHash: contractScopeHash,
-                fundSource: props.selected.fundSource || "BUILDING_MAINTENANCE_FUND",
-                signingMethod: contractSigningMethod,
-                contractFileHash,
-                remark: "物业发起三方施工合同签署",
-              })}
-              disabled={props.acting || !contractSupplierDeptId || !contractAmount || !contractScopeHash || !contractFileHash}
+              onClick={() => {
+                if (!contractSupplierCandidate) return;
+                void props.doAction("contracts", {
+                  supplierDeptId: contractSupplierCandidate.supplierDeptId ?? undefined,
+                  supplierName: contractSupplierCandidate.supplierDeptId
+                    ? undefined
+                    : contractSupplierCandidate.supplierName,
+                  contractAmount: Number(contractAmount || 0),
+                  repairScopeHash: contractScopeHash,
+                  fundSource: props.selected.fundSource || "BUILDING_MAINTENANCE_FUND",
+                  signingMethod: contractSigningMethod,
+                  contractFileHash,
+                  remark: "物业发起三方施工合同签署",
+                });
+              }}
+              disabled={props.acting || !contractSupplierCandidate?.contractEligible
+                || !contractAmount || !contractScopeHash || !contractFileHash}
             >
               <ClipboardList className="mr-1 size-4" />发起合同签署
             </Button>

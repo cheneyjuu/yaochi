@@ -68,6 +68,16 @@ export interface RepairSupplierOrganization {
   activationInvitationExpiresAt?: string;
 }
 
+export interface RepairContractSupplierCandidate {
+  quoteId: number;
+  supplierDeptId?: number | null;
+  supplierName: string;
+  quoteAmount: number;
+  verificationStatus?: "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "DISABLED" | "NOT_REGISTERED" | null;
+  contractEligible: boolean;
+  contractEligibilityMessage?: string | null;
+}
+
 export interface SupplierActivationInvitation {
   invitationId: number;
   supplierDeptId: number;
@@ -351,6 +361,14 @@ export function listRepairSupplierOrganizations(): Promise<RepairSupplierOrganiz
 
 export function listRepairSupplierQuotes(workOrderId: number): Promise<RepairSupplierQuote[]> {
   return apiGet<RepairSupplierQuote[]>(`/admin/repair-work-orders/${workOrderId}/supplier-quotes`);
+}
+
+export function getRepairContractSupplierCandidate(
+  workOrderId: number,
+): Promise<RepairContractSupplierCandidate> {
+  return apiGet<RepairContractSupplierCandidate>(
+    `/admin/repair-work-orders/${workOrderId}/contract-supplier-candidate`,
+  );
 }
 
 export function listRepairSupplierQuoteHistory(
