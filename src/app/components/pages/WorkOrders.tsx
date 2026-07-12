@@ -88,18 +88,22 @@ import {
   getRepairPlanningPolicy,
   getRepairLocalDecision,
   getRepairContractSupplierCandidate,
+  getEnterpriseVerificationProvider,
   getPropertyQuoteAttachmentDownload,
   getPropertyQuoteAttachmentPreview,
   listRepairDecisionRooms,
   listRepairFrameworkRelations,
   listRepairEvents,
   listRepairSupplierOrganizations,
+  listSupplierEnterpriseVerifications,
   listRepairSupplierQuoteHistory,
   listRepairSupplierQuotes,
   listRepairQuoteInvitations,
   pageRepairWorkOrders,
   createSupplierActivationInvitation,
   registerSupplierOrganization,
+  verifySupplierEnterpriseManually,
+  verifySupplierEnterpriseWithPlatform,
   repairAction,
   deleteRepairAttachment,
   deletePropertyQuoteAttachment,
@@ -118,6 +122,8 @@ import {
   type RepairFrameworkRelation,
   type RepairStatus,
   type RepairSupplierOrganization,
+  type EnterpriseVerificationProviderDescriptor,
+  type SupplierEnterpriseVerificationRecord,
   type RepairContractSupplierCandidate,
   type RepairSupplierQuote,
   type RepairQuoteInvitation,
@@ -404,6 +410,26 @@ function fmtDate(value?: string | null) {
   return value.replace("T", " ").slice(0, 16);
 }
 
+function supplierVerificationLabel(supplier: RepairSupplierOrganization) {
+  if (supplier.verificationMethod === "PROPERTY_MANUAL") return "物业手工已核验";
+  if (supplier.verificationMethod === "PLATFORM_API") {
+    const providerName = supplier.verificationProviderCode === "ALIYUN"
+      ? "阿里云"
+      : supplier.verificationProviderCode || "平台";
+    return `${providerName}${supplier.verificationSimulated ? "模拟" : ""}已核验`;
+  }
+  return "企业已核验";
+}
+
+function verificationMethodLabel(record: SupplierEnterpriseVerificationRecord) {
+  if (record.verificationMethod === "PROPERTY_MANUAL") {
+    return record.sourceCode === "GSXT_WEB"
+      ? "物业手工 · 国家企业信用信息公示系统"
+      : "物业手工 · 其他政府来源";
+  }
+  return `${record.providerCode || "平台"}${record.simulated ? " · 模拟" : ""}`;
+}
+
 function formatFileSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -498,6 +524,7 @@ export function WorkOrders() {
   const canRead = hasPermission("repair:workorder:read");
   const canIntake = hasPermission("repair:workorder:intake");
   const canManage = hasPermission("repair:workorder:manage");
+  const canVerifySuppliers = hasPermission("repair:supplier:verify");
   const canField = hasPermission("repair:workorder:field");
   const canGovernance = hasPermission("repair:workorder:governance");
   const canSealGovernance = canGovernance
@@ -696,6 +723,7 @@ export function WorkOrders() {
               selected={selected}
               acting={acting}
               canManage={canManage}
+              canVerifySuppliers={canVerifySuppliers}
               canField={canField}
               canGovernance={canGovernance}
               canSealGovernance={canSealGovernance}
@@ -937,6 +965,7 @@ function SupplierQuoteArchive({
 }: {
   workOrder: RepairWorkOrder;
   canManage: boolean;
+  canVerifySuppliers: boolean;
   acting: boolean;
   doAction: (action: string, body?: unknown, success?: string) => Promise<boolean>;
 }) {
@@ -1437,6 +1466,19 @@ function ActionPanel(props: {
   const [supplierContactPhone, setSupplierContactPhone] = useState("");
   const [supplierRegistrationOpen, setSupplierRegistrationOpen] = useState(false);
   const [supplierOrganizations, setSupplierOrganizations] = useState<RepairSupplierOrganization[]>([]);
+  const [verificationDialogOpen, setVerificationDialogOpen] = useState(false);
+  const [verificationSupplier, setVerificationSupplier] = useState<RepairSupplierOrganization | null>(null);
+  const [verificationProvider, setVerificationProvider] = useState<EnterpriseVerificationProviderDescriptor | null>(null);
+  const [verificationHistory, setVerificationHistory] = useState<SupplierEnterpriseVerificationRecord[]>([]);
+  const [verificationHistoryLoading, setVerificationHistoryLoading] = useState(false);
+  const [verificationActing, setVerificationActing] = useState(false);
+  const [verificationMode, setVerificationMode] = useState<"PROPERTY_MANUAL" | "PLATFORM_API">("PROPERTY_MANUAL");
+  const [verificationUscc, setVerificationUscc] = useState("");
+  const [manualVerificationSource, setManualVerificationSource] = useState<"GSXT_WEB" | "OTHER_GOVERNMENT_SOURCE">("GSXT_WEB");
+  const [manualVerificationResult, setManualVerificationResult] = useState<"PASSED" | "REJECTED">("PASSED");
+  const [verificationEvidenceReference, setVerificationEvidenceReference] = useState("");
+  const [verificationRemark, setVerificationRemark] = useState("");
+  const [supplierAuthorizationConfirmed, setSupplierAuthorizationConfirmed] = useState(false);
   const [quoteInvitations, setQuoteInvitations] = useState<RepairQuoteInvitation[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<RepairSupplierQuote[]>([]);
   const [contractSupplierCandidate, setContractSupplierCandidate] = useState<RepairContractSupplierCandidate | null>(null);
@@ -1501,6 +1543,9 @@ function ActionPanel(props: {
   const localDecisionUnits = localDecisionBuilding?.units ?? [];
   const localDecisionScopeLabel = `${props.selected.title}（${localScopeType === "BUILDING_UNIT" ? localUnitName : "整栋"}）`;
   const selectedElectronicSeal = committeeSeals.find((item) => String(item.sealId) === electronicSealId);
+  const contractSupplierOrganization = supplierOrganizations.find(
+    (supplier) => supplier.supplierDeptId === contractSupplierCandidate?.supplierDeptId,
+  );
 
   useEffect(() => {
     setLocalScopeType("BUILDING");
@@ -1523,6 +1568,9 @@ function ActionPanel(props: {
     setContractAmount("");
     setContractScopeHash("");
     setContractFileHash("");
+    setVerificationDialogOpen(false);
+    setVerificationSupplier(null);
+    setVerificationHistory([]);
   }, [props.canUseElectronicSeal, props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
 
   useEffect(() => {
@@ -1686,6 +1734,65 @@ function ActionPanel(props: {
       toast.success("供应商已登记，企业资料可稍后补充");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "供应商登记失败");
+    }
+  }
+
+  async function openSupplierVerification(supplier: RepairSupplierOrganization) {
+    setVerificationSupplier(supplier);
+    setVerificationUscc(supplier.unifiedSocialCreditCode || "");
+    setVerificationMode("PROPERTY_MANUAL");
+    setManualVerificationSource("GSXT_WEB");
+    setManualVerificationResult("PASSED");
+    setVerificationEvidenceReference("");
+    setVerificationRemark("");
+    setSupplierAuthorizationConfirmed(false);
+    setVerificationHistory([]);
+    setVerificationHistoryLoading(true);
+    setVerificationDialogOpen(true);
+    try {
+      const [providerDescriptor, history] = await Promise.all([
+        getEnterpriseVerificationProvider(),
+        listSupplierEnterpriseVerifications(supplier.supplierDeptId),
+      ]);
+      setVerificationProvider(providerDescriptor);
+      setVerificationHistory(history);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "企业核验信息加载失败");
+    } finally {
+      setVerificationHistoryLoading(false);
+    }
+  }
+
+  async function submitSupplierVerification() {
+    if (!verificationSupplier) return;
+    const uscc = verificationUscc.trim().toUpperCase();
+    setVerificationActing(true);
+    try {
+      if (verificationMode === "PROPERTY_MANUAL") {
+        await verifySupplierEnterpriseManually(verificationSupplier.supplierDeptId, {
+          unifiedSocialCreditCode: uscc,
+          sourceCode: manualVerificationSource,
+          verificationResult: manualVerificationResult,
+          evidenceReference: verificationEvidenceReference.trim() || undefined,
+          remark: verificationRemark.trim() || undefined,
+        });
+      } else {
+        await verifySupplierEnterpriseWithPlatform(verificationSupplier.supplierDeptId, {
+          unifiedSocialCreditCode: uscc,
+          supplierAuthorizationConfirmed,
+        });
+      }
+      const organizations = await listRepairSupplierOrganizations();
+      setSupplierOrganizations(organizations);
+      if (props.selected.status === "SEALED") {
+        setContractSupplierCandidate(await getRepairContractSupplierCandidate(props.selected.workOrderId));
+      }
+      setVerificationDialogOpen(false);
+      toast.success(verificationMode === "PROPERTY_MANUAL" ? "物业手工核验已记录" : "平台核验已完成");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "企业核验失败");
+    } finally {
+      setVerificationActing(false);
     }
   }
 
@@ -2286,13 +2393,18 @@ function ActionPanel(props: {
                           激活邀请 #{supplier.activationInvitationId} · 登录手机号 {supplier.contactPhone}
                         </span>
                       )}
+                      {supplier.verifiedAt && supplier.verifiedByAccountId && (
+                        <span className="block text-xs text-muted-foreground">
+                          核验账号 {supplier.verifiedByAccountId} · {fmtDate(supplier.verifiedAt)}
+                        </span>
+                      )}
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-1">
                       <StatusChip tone={supplier.verificationStatus === "VERIFIED"
                         ? "success"
                         : supplier.verificationStatus === "REJECTED" ? "danger" : supplier.verificationStatus === "DISABLED" ? "neutral" : "warning"}>
                         {supplier.verificationStatus === "VERIFIED"
-                          ? "企业已核验"
+                          ? supplierVerificationLabel(supplier)
                           : supplier.verificationStatus === "REJECTED"
                             ? "企业核验未通过"
                             : supplier.verificationStatus === "DISABLED" ? "企业已停用" : "企业待核验"}
@@ -2307,6 +2419,17 @@ function ActionPanel(props: {
                             : supplier.accountStatus === "CONTACT_MISSING" ? "联系人待补充" : "账号未邀请"}
                       </StatusChip>
                     </span>
+                    {props.canVerifySuppliers && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        title="办理企业核验"
+                        onClick={() => void openSupplierVerification(supplier)}
+                      >
+                        <ShieldCheck className="size-4" />
+                      </Button>
+                    )}
                     {supplier.contactName && supplier.contactPhone && supplier.accountStatus !== "ACTIVATED" && (
                       <Button
                         type="button"
@@ -2891,7 +3014,9 @@ function ActionPanel(props: {
                         {contractSupplierCandidate.supplierName}
                       </span>
                       <StatusChip tone={contractSupplierCandidate.contractEligible ? "success" : "warning"}>
-                        {contractSupplierCandidate.contractEligible ? "企业已核验" : "暂不可签约"}
+                        {contractSupplierCandidate.contractEligible && contractSupplierOrganization
+                          ? supplierVerificationLabel(contractSupplierOrganization)
+                          : contractSupplierCandidate.contractEligible ? "企业已核验" : "暂不可签约"}
                       </StatusChip>
                     </>
                   ) : (
@@ -2915,9 +3040,20 @@ function ActionPanel(props: {
               </div>
             </div>
             {contractSupplierCandidate && !contractSupplierCandidate.contractEligible && (
-              <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+              <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
                 <AlertTriangle className="mt-1 size-4 shrink-0" />
-                <span>{contractSupplierCandidate.contractEligibilityMessage}</span>
+                <span className="min-w-0 flex-1">{contractSupplierCandidate.contractEligibilityMessage}</span>
+                {props.canVerifySuppliers && contractSupplierOrganization && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-amber-400 bg-white text-amber-900 hover:bg-amber-100"
+                    onClick={() => void openSupplierVerification(contractSupplierOrganization)}
+                  >
+                    <ShieldCheck className="mr-1 size-4" />办理企业核验
+                  </Button>
+                )}
               </div>
             )}
             <Input value={contractScopeHash} onChange={(e) => setContractScopeHash(e.target.value)} placeholder="锁定维修范围文件标识" />
@@ -3183,6 +3319,192 @@ function ActionPanel(props: {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={verificationDialogOpen} onOpenChange={(open) => {
+        if (verificationActing) return;
+        setVerificationDialogOpen(open);
+        if (!open) setVerificationSupplier(null);
+      }}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>企业主体核验</DialogTitle>
+            <DialogDescription>
+              {verificationSupplier?.legalName || "供应商"} · 核验结论仅对当前小区生效，每次操作保留账号与时间审计记录。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label>核验方式</Label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  className={`min-h-16 border px-3 py-2 text-left transition-colors ${verificationMode === "PROPERTY_MANUAL"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border bg-background hover:bg-muted/50"}`}
+                  onClick={() => setVerificationMode("PROPERTY_MANUAL")}
+                >
+                  <span className="block text-sm font-medium">物业手工核验</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">查阅政府公示信息后，由当前物业账号记录结论</span>
+                </button>
+                <button
+                  type="button"
+                  className={`min-h-16 border px-3 py-2 text-left transition-colors ${verificationMode === "PLATFORM_API"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border bg-background hover:bg-muted/50"}`}
+                  onClick={() => setVerificationMode("PLATFORM_API")}
+                  disabled={!verificationProvider}
+                >
+                  <span className="block text-sm font-medium">
+                    {verificationProvider?.displayName || "平台核验"}
+                    {verificationProvider?.simulated ? "（模拟）" : ""}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">由后端 Provider 调用，后续可按配置更换核验平台</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="verification-uscc">统一社会信用代码</Label>
+              <Input
+                id="verification-uscc"
+                value={verificationUscc}
+                maxLength={18}
+                className="font-mono uppercase"
+                onChange={(event) => setVerificationUscc(event.target.value.toUpperCase())}
+                placeholder="18 位统一社会信用代码"
+              />
+            </div>
+
+            {verificationMode === "PROPERTY_MANUAL" ? (
+              <div className="space-y-4 border-t pt-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>核验来源</Label>
+                    <Select
+                      value={manualVerificationSource}
+                      onValueChange={(value) => setManualVerificationSource(
+                        value as "GSXT_WEB" | "OTHER_GOVERNMENT_SOURCE",
+                      )}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="GSXT_WEB">国家企业信用信息公示系统</SelectItem>
+                        <SelectItem value="OTHER_GOVERNMENT_SOURCE">其他政府信息来源</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>核验结论</Label>
+                    <Select
+                      value={manualVerificationResult}
+                      onValueChange={(value) => setManualVerificationResult(value as "PASSED" | "REJECTED")}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PASSED">核验通过</SelectItem>
+                        <SelectItem value="REJECTED">核验不通过</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {manualVerificationSource === "OTHER_GOVERNMENT_SOURCE" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="verification-evidence-reference">查询来源或凭证编号</Label>
+                    <Input
+                      id="verification-evidence-reference"
+                      value={verificationEvidenceReference}
+                      onChange={(event) => setVerificationEvidenceReference(event.target.value)}
+                      placeholder="填写政府网站名称、查询编号或可追溯凭证"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="verification-remark">
+                    核验说明{manualVerificationResult === "REJECTED" ? "（必填）" : "（选填）"}
+                  </Label>
+                  <Textarea
+                    id="verification-remark"
+                    value={verificationRemark}
+                    rows={3}
+                    maxLength={500}
+                    onChange={(event) => setVerificationRemark(event.target.value)}
+                    placeholder="记录异常信息、名称差异或其他需要追溯的情况"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 border-t pt-4">
+                {verificationProvider?.simulated && (
+                  <div className="flex gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+                    <ShieldAlert className="mt-1 size-4 shrink-0" />
+                    当前为开发测试模拟核验，不调用真实平台，也不代表企业主体真实有效。
+                  </div>
+                )}
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6">
+                  <Checkbox
+                    className="mt-1"
+                    checked={supplierAuthorizationConfirmed}
+                    onCheckedChange={(checked) => setSupplierAuthorizationConfirmed(checked === true)}
+                  />
+                  <span>已确认供应商授权本次企业要素核验，并同意将企业名称与统一社会信用代码提交至当前核验平台。</span>
+                </label>
+              </div>
+            )}
+
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">核验记录</span>
+                <span className="text-xs text-muted-foreground">{verificationHistory.length} 条</span>
+              </div>
+              {verificationHistoryLoading ? (
+                <div className="flex min-h-16 items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 size-4 animate-spin" />读取审计记录
+                </div>
+              ) : verificationHistory.length === 0 ? (
+                <div className="border px-3 py-4 text-sm text-muted-foreground">暂无核验记录</div>
+              ) : (
+                <div className="max-h-48 divide-y overflow-y-auto border">
+                  {verificationHistory.map((record) => (
+                    <div key={record.verificationId} className="flex items-start gap-3 px-3 py-2.5 text-sm">
+                      <StatusChip tone={record.verificationResult === "PASSED"
+                        ? "success"
+                        : record.verificationResult === "REJECTED" ? "danger" : "warning"}>
+                        {record.verificationResult === "PASSED" ? "通过" : record.verificationResult === "REJECTED" ? "未通过" : "调用失败"}
+                      </StatusChip>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{verificationMethodLabel(record)}</span>
+                        <span className="block text-xs leading-5 text-muted-foreground">
+                          核验账号 {record.operatorAccountId} · {fmtDate(record.verifiedAt)}
+                        </span>
+                        {record.resultMessage && (
+                          <span className="block text-xs leading-5 text-muted-foreground">{record.resultMessage}</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerificationDialogOpen(false)} disabled={verificationActing}>取消</Button>
+            <Button
+              onClick={() => void submitSupplierVerification()}
+              disabled={verificationActing
+                || verificationUscc.trim().length !== 18
+                || (verificationMode === "PROPERTY_MANUAL"
+                  && ((manualVerificationSource === "OTHER_GOVERNMENT_SOURCE" && !verificationEvidenceReference.trim())
+                    || (manualVerificationResult === "REJECTED" && !verificationRemark.trim())))
+                || (verificationMode === "PLATFORM_API" && !supplierAuthorizationConfirmed)}
+            >
+              {verificationActing && <Loader2 className="mr-1 size-4 animate-spin" />}
+              <ShieldCheck className="mr-1 size-4" />
+              {verificationMode === "PROPERTY_MANUAL" ? "记录核验结论" : "发起平台核验"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={supplierRegistrationOpen} onOpenChange={setSupplierRegistrationOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>

@@ -61,11 +61,48 @@ export interface RepairSupplierOrganization {
   contactName?: string;
   contactPhone?: string;
   verificationStatus: "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "DISABLED";
+  verificationId?: number;
+  verificationMethod?: "PROPERTY_MANUAL" | "PLATFORM_API";
+  verificationProviderCode?: string;
+  verificationSourceCode?: string;
+  verificationSimulated: boolean;
+  verifiedByAccountId?: number;
+  verifiedByUserId?: number;
+  verifiedAt?: string;
   accountStatus: "CONTACT_MISSING" | "NOT_INVITED" | "PENDING_ACTIVATION" | "ACTIVATED";
   activeAccountCount: number;
   loginPhone?: string;
   activationInvitationId?: number;
   activationInvitationExpiresAt?: string;
+}
+
+export interface EnterpriseVerificationProviderDescriptor {
+  providerCode: string;
+  displayName: string;
+  simulated: boolean;
+}
+
+export interface SupplierEnterpriseVerificationRecord {
+  verificationId: number;
+  supplierDeptId: number;
+  legalNameSnapshot: string;
+  unifiedSocialCreditCodeSnapshot: string;
+  verificationMethod: "PROPERTY_MANUAL" | "PLATFORM_API";
+  providerCode?: string;
+  sourceCode?: string;
+  providerRequestId?: string;
+  providerResultCode?: string;
+  verificationResult: "PASSED" | "REJECTED" | "ERROR";
+  businessStatus?: string;
+  resultMessage?: string;
+  inconsistentFields: string[];
+  evidenceReference?: string;
+  remark?: string;
+  operatorAccountId: number;
+  operatorUserId: number;
+  operatorRoleKey: string;
+  simulated: boolean;
+  verifiedAt: string;
 }
 
 export interface RepairContractSupplierCandidate {
@@ -357,6 +394,46 @@ export function createSupplierActivationInvitation(
 
 export function listRepairSupplierOrganizations(): Promise<RepairSupplierOrganization[]> {
   return apiGet<RepairSupplierOrganization[]>("/admin/supplier-organizations");
+}
+
+export function getEnterpriseVerificationProvider(): Promise<EnterpriseVerificationProviderDescriptor> {
+  return apiGet<EnterpriseVerificationProviderDescriptor>(
+    "/admin/supplier-organizations/verification-provider",
+  );
+}
+
+export function verifySupplierEnterpriseManually(
+  supplierDeptId: number,
+  input: {
+    unifiedSocialCreditCode: string;
+    sourceCode: "GSXT_WEB" | "OTHER_GOVERNMENT_SOURCE";
+    verificationResult: "PASSED" | "REJECTED";
+    evidenceReference?: string;
+    remark?: string;
+  },
+): Promise<SupplierEnterpriseVerificationRecord> {
+  return apiPost<SupplierEnterpriseVerificationRecord>(
+    `/admin/supplier-organizations/${supplierDeptId}/manual-verifications`,
+    input,
+  );
+}
+
+export function verifySupplierEnterpriseWithPlatform(
+  supplierDeptId: number,
+  input: { unifiedSocialCreditCode: string; supplierAuthorizationConfirmed: boolean },
+): Promise<SupplierEnterpriseVerificationRecord> {
+  return apiPost<SupplierEnterpriseVerificationRecord>(
+    `/admin/supplier-organizations/${supplierDeptId}/platform-verifications`,
+    input,
+  );
+}
+
+export function listSupplierEnterpriseVerifications(
+  supplierDeptId: number,
+): Promise<SupplierEnterpriseVerificationRecord[]> {
+  return apiGet<SupplierEnterpriseVerificationRecord[]>(
+    `/admin/supplier-organizations/${supplierDeptId}/verifications`,
+  );
 }
 
 export function listRepairSupplierQuotes(workOrderId: number): Promise<RepairSupplierQuote[]> {
