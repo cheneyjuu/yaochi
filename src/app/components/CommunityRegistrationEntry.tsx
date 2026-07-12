@@ -490,7 +490,18 @@ function RegistrationForm({
               小区审核通过后才会创建租户，并按核验结果授予最小工作身份。
             </p>
           </div>
-          {application && <Badge variant="secondary">{application.applicationNo}</Badge>}
+          {application && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Badge variant="secondary">{application.applicationNo}</Badge>
+              <Button type="button" size="sm" variant="outline" onClick={onWithdraw} disabled={working}>
+                撤回申请
+              </Button>
+              <Button type="submit" size="sm" disabled={working}>
+                {working ? <Loader2 className="mr-2 size-4 animate-spin" /> : <FileCheck2 className="mr-2 size-4" />}
+                保存修改
+              </Button>
+            </div>
+          )}
         </div>
         {returned && application?.reviewComment && (
           <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -499,7 +510,7 @@ function RegistrationForm({
         )}
       </div>
 
-      <div className="space-y-8 px-6 py-6 pb-24 sm:px-8">
+      <div className={`space-y-8 px-6 py-6 sm:px-8 ${application ? "pb-6" : "pb-24"}`}>
         <FormSection icon={Building2} title="小区信息">
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="省份"><Input value="上海市" disabled className="h-10" /></Field>
@@ -612,17 +623,14 @@ function RegistrationForm({
           </div>
         </FormSection>
 
-        <div className="sticky bottom-0 z-10 -mx-6 flex justify-end gap-2 border-t bg-white/95 px-6 py-3 shadow-[0_-10px_22px_-18px_rgba(15,23,42,0.55)] backdrop-blur sm:-mx-8 sm:px-8">
-          {application && (
-            <Button type="button" variant="outline" onClick={onWithdraw} disabled={working}>
-              撤回申请
+        {!application && (
+          <div className="sticky bottom-0 z-10 -mx-6 flex justify-end border-t bg-white/95 px-6 py-3 shadow-[0_-10px_22px_-18px_rgba(15,23,42,0.55)] backdrop-blur sm:-mx-8 sm:px-8">
+            <Button type="submit" disabled={working}>
+              {working ? <Loader2 className="mr-2 size-4 animate-spin" /> : <FileCheck2 className="mr-2 size-4" />}
+              保存并进入材料上传
             </Button>
-          )}
-          <Button type="submit" disabled={working}>
-            {working ? <Loader2 className="mr-2 size-4 animate-spin" /> : <FileCheck2 className="mr-2 size-4" />}
-            {application ? "保存修改" : "保存并进入材料上传"}
-          </Button>
-        </div>
+          </div>
+        )}
 
         {application && (
           <FormSection icon={FileText} title="审核材料">
