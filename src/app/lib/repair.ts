@@ -1,3 +1,4 @@
+// 关联业务：对接维修工单登记、勘验、表决、报审、盖章、合同和验收接口。
 import { apiDelete, apiGet, apiPost, apiUpload } from "./api";
 
 export type RepairSpaceScope = "PRIVATE" | "PUBLIC";
@@ -384,6 +385,14 @@ export function uploadSolitaireScreenshot(workOrderId: number, file: File): Prom
 export function uploadRepairApprovalDocument(workOrderId: number, file: File): Promise<RepairAttachment> {
   const form = new FormData();
   form.append("attachmentKind", "APPROVAL_DOCUMENT");
+  form.append("contentType", file.type || "application/octet-stream");
+  form.append("file", file);
+  return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);
+}
+
+export function uploadGovernanceSealedDocument(workOrderId: number, file: File): Promise<RepairAttachment> {
+  const form = new FormData();
+  form.append("attachmentKind", "GOVERNANCE_SEALED_DOCUMENT");
   form.append("contentType", file.type || "application/octet-stream");
   form.append("file", file);
   return apiUpload<RepairAttachment>(`/admin/repair-work-orders/${workOrderId}/attachments`, form);

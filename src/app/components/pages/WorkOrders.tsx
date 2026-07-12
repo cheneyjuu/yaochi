@@ -1,3 +1,4 @@
+// 关联业务：承载维修工单从登记、勘验、表决、报审、盖章到验收的管理端工作台。
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -74,6 +75,7 @@ import {
   RefreshCw,
   Route,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Upload,
   Wrench,
@@ -103,6 +105,7 @@ import {
   uploadRepairFieldAttachment,
   uploadPropertyQuoteAttachment,
   uploadRepairApprovalDocument,
+  uploadGovernanceSealedDocument,
   uploadSolitaireScreenshot,
   type RepairLocationBuildingOption,
   type RepairPlanningPolicy,
@@ -120,6 +123,10 @@ import {
   type RepairAttachmentPreviewTicket,
   type RepairWorkOrder,
 } from "../../lib/repair";
+import {
+  listCommitteeSeals,
+  type CommitteeElectronicSeal,
+} from "../../lib/committee-seals";
 
 const STATUS_LABEL: Record<RepairStatus, string> = {
   SUBMITTED: "已提交",
@@ -385,6 +392,10 @@ const STATUS_STEP: Record<RepairStatus, number> = {
 type BuildingChoice = RepairLocationBuildingOption & { communityName: string };
 type RoomChoice = RepairLocationRoomOption & { unitName: string };
 type EvidenceFile = { name: string; dataUrl: string; file: File };
+type GovernanceSealingMethod =
+  | "PLATFORM_ELECTRONIC"
+  | "UPLOADED_PHYSICAL"
+  | "UPLOADED_EXTERNAL_ELECTRONIC";
 
 function fmtDate(value?: string | null) {
   if (!value) return "-";
@@ -455,7 +466,7 @@ function readEvidenceFile(file: File): Promise<EvidenceFile> {
 }
 
 export function WorkOrders() {
-  const { hasPermission, setPage } = useStore();
+  const { hasPermission, roleKey, setPage } = useStore();
   const [orders, setOrders] = useState<RepairWorkOrder[]>([]);
   const [selected, setSelected] = useState<RepairWorkOrder | null>(null);
   const [events, setEvents] = useState<RepairEvent[]>([]);
@@ -487,6 +498,9 @@ export function WorkOrders() {
   const canManage = hasPermission("repair:workorder:manage");
   const canField = hasPermission("repair:workorder:field");
   const canGovernance = hasPermission("repair:workorder:governance");
+  const canSealGovernance = canGovernance
+    && (roleKey === "COMMITTEE_DIRECTOR" || roleKey === "COMMITTEE_MEMBER");
+  const canUseElectronicSeal = hasPermission("committee:seal:use");
   const canCreateAssembly = hasPermission("voting:subject:create");
   const locationBuildings = useMemo(() => flattenBuildings(locationCommunities), [locationCommunities]);
 
@@ -682,6 +696,8 @@ export function WorkOrders() {
               canManage={canManage}
               canField={canField}
               canGovernance={canGovernance}
+              canSealGovernance={canSealGovernance}
+              canUseElectronicSeal={canUseElectronicSeal}
               hasPreviousRecommendation={events.some((event) =>
                 ["RECOMMEND_SUPPLIER", "REUSE_SUPPLIER_QUOTE"].includes(event.action))}
               locationBuildings={locationBuildings}
@@ -1377,6 +1393,8 @@ function ActionPanel(props: {
   canManage: boolean;
   canField: boolean;
   canGovernance: boolean;
+  canSealGovernance: boolean;
+  canUseElectronicSeal: boolean;
   hasPreviousRecommendation: boolean;
   locationBuildings: BuildingChoice[];
   locationBuildingId: string;
@@ -1455,7 +1473,14 @@ function ActionPanel(props: {
   const [priceReviewMode, setPriceReviewMode] = useState("INTERNAL_PRICE_REVIEW");
   const [reviewedAmount, setReviewedAmount] = useState("");
   const [reviewReportHash, setReviewReportHash] = useState("");
-  const [sealedFileHash, setSealedFileHash] = useState("");
+  const [sealingMethod, setSealingMethod] = useState<GovernanceSealingMethod>(
+    props.canUseElectronicSeal ? "PLATFORM_ELECTRONIC" : "UPLOADED_PHYSICAL",
+  );
+  const [committeeSeals, setCommitteeSeals] = useState<CommitteeElectronicSeal[]>([]);
+  const [electronicSealId, setElectronicSealId] = useState("");
+  const [sealedDocument, setSealedDocument] = useState<RepairAttachment | null>(null);
+  const [sealedDocumentUploading, setSealedDocumentUploading] = useState(false);
+  const sealedDocumentInputRef = useRef<HTMLInputElement>(null);
   const [contractAmount, setContractAmount] = useState("");
   const [contractScopeHash, setContractScopeHash] = useState("");
   const [contractFileHash, setContractFileHash] = useState("");
@@ -1473,6 +1498,7 @@ function ActionPanel(props: {
   );
   const localDecisionUnits = localDecisionBuilding?.units ?? [];
   const localDecisionScopeLabel = `${props.selected.title}（${localScopeType === "BUILDING_UNIT" ? localUnitName : "整栋"}）`;
+  const selectedElectronicSeal = committeeSeals.find((item) => String(item.sealId) === electronicSealId);
 
   useEffect(() => {
     setLocalScopeType("BUILDING");
@@ -1483,11 +1509,35 @@ function ActionPanel(props: {
     setApprovalDocument(null);
     setApprovalSolitaireScreenshot(null);
     setSolitaireScreenshot(null);
+    setSealingMethod(props.canUseElectronicSeal ? "PLATFORM_ELECTRONIC" : "UPLOADED_PHYSICAL");
+    setCommitteeSeals([]);
+    setElectronicSealId("");
+    setSealedDocument(null);
     setReuseQuoteReason("");
     setQuoteRevisionOpen(false);
     setQuoteRevisionReason("");
     setRevisionSupplierDeptIds([]);
-  }, [props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
+  }, [props.canUseElectronicSeal, props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
+
+  useEffect(() => {
+    if (props.selected.status !== "GOVERNANCE_CONFIRMED" || !props.canSealGovernance) {
+      setCommitteeSeals([]);
+      setElectronicSealId("");
+      return;
+    }
+    let cancelled = false;
+    void listCommitteeSeals()
+      .then((items) => {
+        if (cancelled) return;
+        const active = items.filter((item) => item.status === "ACTIVE");
+        setCommitteeSeals(active);
+        setElectronicSealId((current) => current || (active[0] ? String(active[0].sealId) : ""));
+      })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "电子印章台账加载失败"));
+    return () => {
+      cancelled = true;
+    };
+  }, [props.canSealGovernance, props.selected.status, props.selected.workOrderId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1833,6 +1883,53 @@ function ActionPanel(props: {
       await Promise.all(uploadedIds.map((attachmentId) =>
         deleteRepairAttachment(props.selected.workOrderId, attachmentId).catch(() => undefined)));
       setInspectionUploading(false);
+    }
+  }
+
+  async function uploadSealedDocument(file?: File) {
+    if (!file) return;
+    const supported = file.type === "application/pdf" || file.type.startsWith("image/");
+    if (!supported) {
+      toast.error("已盖章文件仅支持 PDF 或图片");
+      return;
+    }
+    if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
+      toast.error("单个已盖章文件大小必须在 20MB 以内");
+      return;
+    }
+    setSealedDocumentUploading(true);
+    try {
+      const uploaded = await uploadGovernanceSealedDocument(props.selected.workOrderId, file);
+      const previous = sealedDocument;
+      setSealedDocument(uploaded);
+      if (previous) {
+        await deleteRepairAttachment(props.selected.workOrderId, previous.attachmentId).catch(() => undefined);
+      }
+      toast.success("已盖章文件上传成功");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "已盖章文件上传失败");
+    } finally {
+      setSealedDocumentUploading(false);
+    }
+  }
+
+  async function submitGovernanceSeal() {
+    const body = sealingMethod === "PLATFORM_ELECTRONIC"
+      ? {
+          sealingMethod,
+          electronicSealId: Number(electronicSealId),
+          remark: "业委会使用平台电子印章完成盖章",
+        }
+      : {
+          sealingMethod,
+          sealedAttachmentId: sealedDocument?.attachmentId,
+          remark: sealingMethod === "UPLOADED_PHYSICAL"
+            ? "业委会上传实物章盖章文件"
+            : "业委会上传外部电子签章文件并验签",
+        };
+    const succeeded = await props.doAction("seal", body, "盖章文件已归档");
+    if (succeeded) {
+      setSealedDocument(null);
     }
   }
 
@@ -2639,18 +2736,134 @@ function ActionPanel(props: {
           </Button>
         )}
 
-        {s === "GOVERNANCE_CONFIRMED" && props.canGovernance && (
-          <div className="space-y-3">
-            <Input value={sealedFileHash} onChange={(e) => setSealedFileHash(e.target.value)} placeholder="盖章报批文件哈希" />
+        {s === "GOVERNANCE_CONFIRMED" && props.canSealGovernance && (
+          <div className="space-y-4">
+            <div>
+              <Label>盖章方式</Label>
+              <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => setSealingMethod("PLATFORM_ELECTRONIC")}
+                  disabled={!props.canUseElectronicSeal}
+                  className={`min-h-20 rounded-md border px-3 py-3 text-left transition-colors ${
+                    sealingMethod === "PLATFORM_ELECTRONIC"
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border bg-background hover:border-primary/50"
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <span className="block text-sm font-medium">平台电子签章</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                    {props.canUseElectronicSeal ? "由登记保管人调用当前届期印章" : "当前账号无电子印章使用权限"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSealingMethod("UPLOADED_PHYSICAL")}
+                  className={`min-h-20 rounded-md border px-3 py-3 text-left transition-colors ${
+                    sealingMethod === "UPLOADED_PHYSICAL"
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border bg-background hover:border-primary/50"
+                  }`}
+                >
+                  <span className="block text-sm font-medium">上传实物盖章文件</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">上传纸质盖章文件的扫描件或照片</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSealingMethod("UPLOADED_EXTERNAL_ELECTRONIC")}
+                  className={`min-h-20 rounded-md border px-3 py-3 text-left transition-colors ${
+                    sealingMethod === "UPLOADED_EXTERNAL_ELECTRONIC"
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border bg-background hover:border-primary/50"
+                  }`}
+                >
+                  <span className="block text-sm font-medium">上传外部电子签章文件</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">上传 PDF 并记录服务商验签结果</span>
+                </button>
+              </div>
+            </div>
+
+            {sealingMethod === "PLATFORM_ELECTRONIC" ? (
+              <div className="space-y-3">
+                <div>
+                  <Label>电子印章</Label>
+                  <Select value={electronicSealId} onValueChange={setElectronicSealId}>
+                    <SelectTrigger className="mt-2"><SelectValue placeholder="选择当前届期有效印章" /></SelectTrigger>
+                    <SelectContent>
+                      {committeeSeals.map((seal) => (
+                        <SelectItem key={seal.sealId} value={String(seal.sealId)}>
+                          {seal.sealName} · 保管人 {seal.custodianName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {committeeSeals.length === 0 && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    当前届期没有有效电子印章，请先在“委员会操作 / 印章管理”中启用模拟印章。
+                  </div>
+                )}
+                {selectedElectronicSeal?.simulated && (
+                  <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800">
+                    <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                    当前为模拟电子印章。生成文件会标记“NO LEGAL EFFECT”，仅用于开发测试，不得作为正式报审文件。
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  ref={sealedDocumentInputRef}
+                  type="file"
+                  accept={sealingMethod === "UPLOADED_EXTERNAL_ELECTRONIC" ? "application/pdf" : "application/pdf,image/*"}
+                  className="hidden"
+                  onChange={(event) => {
+                    void uploadSealedDocument(event.target.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <div className="flex min-h-16 items-center justify-between gap-3 rounded-md border border-dashed px-3 py-3">
+                  <div className="min-w-0">
+                    {sealedDocument ? (
+                      <>
+                        <div className="truncate text-sm font-medium">{sealedDocument.originalFileName}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{formatFileSize(sealedDocument.actualSize)}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm font-medium">尚未上传已盖章文件</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {sealingMethod === "UPLOADED_EXTERNAL_ELECTRONIC" ? "仅支持 PDF，单个不超过 20MB" : "支持 PDF 或图片，单个不超过 20MB"}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => sealedDocumentInputRef.current?.click()}
+                    disabled={sealedDocumentUploading}
+                  >
+                    {sealedDocumentUploading ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Upload className="mr-1 size-4" />}
+                    {sealedDocument ? "重新上传" : "选择文件"}
+                  </Button>
+                </div>
+                {sealingMethod === "UPLOADED_EXTERNAL_ELECTRONIC" && (
+                  <div className="text-xs leading-5 text-muted-foreground">
+                    开发环境只验证 PDF 可读取性并记录模拟验签结果，不代表外部电子签章真实有效。
+                  </div>
+                )}
+              </div>
+            )}
+
             <Button
-              onClick={() => props.doAction("seal", {
-                sealType: "COMMITTEE_SEAL",
-                sealedFileHash,
-                remark: "业委会盖章完成",
-              })}
-              disabled={props.acting || !sealedFileHash}
+              onClick={() => void submitGovernanceSeal()}
+              disabled={props.acting || sealedDocumentUploading
+                || (sealingMethod === "PLATFORM_ELECTRONIC" ? !electronicSealId : !sealedDocument)}
             >
-              <ShieldCheck className="size-4 mr-1" /> 加盖业委会章
+              <ShieldCheck className="mr-1 size-4" />
+              {sealingMethod === "PLATFORM_ELECTRONIC" ? "生成模拟盖章文件" : "确认并归档盖章文件"}
             </Button>
           </div>
         )}

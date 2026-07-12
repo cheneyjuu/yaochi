@@ -1,3 +1,4 @@
+// 关联业务：根据后端菜单 routeId 将管理端导航到对应业务页面。
 import { useStore } from "../lib/store";
 import { Overview } from "./pages/Overview";
 import { Voting } from "./pages/Voting";
@@ -17,6 +18,7 @@ import { GridManagement } from "./pages/GridManagement";
 import { CommunitySettings } from "./pages/CommunitySettings";
 import { Certification } from "./pages/Certification";
 import { CommitteeRoster } from "./pages/CommitteeRoster";
+import { CommitteeSeals } from "./pages/CommitteeSeals";
 import { TermManagement } from "./pages/TermManagement";
 import { MeetingMinutes } from "./pages/MeetingMinutes";
 import { Duties } from "./pages/Duties";
@@ -54,6 +56,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "community-settings": CommunitySettings,
   certification: Certification,
   "committee-roster": CommitteeRoster,
+  "committee-seals": CommitteeSeals,
   "term-management": TermManagement,
   "meeting-minutes": MeetingMinutes,
   duties: Duties,
