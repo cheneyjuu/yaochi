@@ -1,3 +1,4 @@
+// 关联业务：封装社区组织备案、建筑名册、法定计票基数、自治规则和变更记录接口。
 import { apiGet, apiPatch, apiPost } from "./api";
 
 export interface CommunitySettingsResponse {
@@ -131,8 +132,24 @@ export interface GovernancePolicy {
 export interface CommunityAuditLog {
   auditId: number;
   operationType: string;
+  operationLabel: string;
+  sectionCode: "ORGANIZATION" | "BUILDING" | "DENOMINATOR" | "RULES" | "OTHER";
+  summary: string;
+  changes: CommunityAuditChange[];
+  reason: string | null;
+  operatorAccountId: number | null;
   operatorUserId: number | null;
+  operatorName: string | null;
+  operatorRoleKey: string | null;
+  operatorRoleName: string | null;
   createTime: string;
+}
+
+export interface CommunityAuditChange {
+  fieldCode: string;
+  fieldLabel: string;
+  beforeValue: string | null;
+  afterValue: string | null;
 }
 
 export interface CommunitySettingsPermissions {

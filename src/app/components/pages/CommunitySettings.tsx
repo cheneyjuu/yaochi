@@ -1,3 +1,4 @@
+// 关联业务：维护社区组织备案、建筑名册、计票基数、自治规则及独立变更记录视图。
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,8 +9,10 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronRight,
   Download,
   FileClock,
+  History,
   Landmark,
   Layers,
   Loader2,
@@ -40,12 +43,13 @@ import {
   updateCommunityOrganization,
   updateCommunityRules,
   type CommunityAssetLedger,
+  type CommunityAuditLog,
   type CommunityOrganization,
   type CommunityRules,
   type CommunitySettingsResponse,
 } from "../../lib/community-settings";
 
-type TabKey = "organization" | "building" | "denominator" | "rules";
+type TabKey = "organization" | "building" | "denominator" | "rules" | "changes";
 
 interface BoundaryNode {
   id: string;
@@ -104,6 +108,27 @@ function booleanTone(value: boolean) {
 function displayTime(value: string | null | undefined) {
   if (!value) return "未记录";
   return value.replace("T", " ").slice(0, 16);
+}
+
+function auditSectionMeta(sectionCode: CommunityAuditLog["sectionCode"]) {
+  switch (sectionCode) {
+    case "ORGANIZATION":
+      return { label: "组织备案", tone: "info" as const };
+    case "BUILDING":
+      return { label: "建筑名册", tone: "tech" as const };
+    case "DENOMINATOR":
+      return { label: "计票基数", tone: "warning" as const };
+    case "RULES":
+      return { label: "自治与财务规则", tone: "success" as const };
+    default:
+      return { label: "其他设置", tone: "neutral" as const };
+  }
+}
+
+function auditActor(log: CommunityAuditLog) {
+  const name = log.operatorName || "未知操作人";
+  const role = log.operatorRoleName || log.operatorRoleKey;
+  return role ? `${name} · ${role}` : name;
 }
 
 function formatArea(value: string | number | null | undefined) {
@@ -181,6 +206,7 @@ export function CommunitySettings() {
   const [assetDraft, setAssetDraft] = useState<CommunityAssetLedger | null>(null);
   const [rulesDraft, setRulesDraft] = useState<CommunityRules | null>(null);
   const [reviewReason, setReviewReason] = useState("");
+  const [selectedAuditLog, setSelectedAuditLog] = useState<CommunityAuditLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -208,11 +234,12 @@ export function CommunitySettings() {
   }, []);
 
   const visibleTabs = useMemo(() => {
-    const tabs: { key: TabKey; label: string }[] = [];
-    if (data?.organization) tabs.push({ key: "organization", label: "组织备案" });
-    tabs.push({ key: "building", label: "建筑名册" });
-    tabs.push({ key: "denominator", label: "法定计票基数" });
-    if (data?.rules) tabs.push({ key: "rules", label: "自治与财务规则" });
+    const tabs: { key: TabKey; label: string; mobileLabel: string }[] = [];
+    if (data?.organization) tabs.push({ key: "organization", label: "组织备案", mobileLabel: "备案" });
+    tabs.push({ key: "building", label: "建筑名册", mobileLabel: "名册" });
+    tabs.push({ key: "denominator", label: "法定计票基数", mobileLabel: "计票基数" });
+    if (data?.rules) tabs.push({ key: "rules", label: "自治与财务规则", mobileLabel: "自治规则" });
+    tabs.push({ key: "changes", label: "变更记录", mobileLabel: "变更记录" });
     return tabs;
   }, [data]);
 
@@ -406,13 +433,16 @@ export function CommunitySettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className="gap-4">
-        <TabsList className="rounded-md">
-          {visibleTabs.map((tab) => (
-            <TabsTrigger key={tab.key} value={tab.key} className="rounded-md px-4">
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList className="w-full min-w-max rounded-md sm:w-auto">
+            {visibleTabs.map((tab) => (
+              <TabsTrigger key={tab.key} value={tab.key} className="rounded-md px-2 sm:px-4">
+                <span className="sm:hidden">{tab.mobileLabel}</span>
+                <span className="hidden sm:inline">{tab.label}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <TabsContent value="organization" className="space-y-4">
           {org && (
@@ -757,25 +787,121 @@ export function CommunitySettings() {
             </SectionCard>
           )}
         </TabsContent>
+
+        <TabsContent value="changes" className="space-y-4">
+          <SectionCard
+            title="社区设置变更记录"
+            desc="记录组织备案、建筑名册、计票基数及自治规则的变更，供追溯与监管复核。"
+            extra={<StatusChip tone="neutral">最近 {data.auditLogs.length} 条</StatusChip>}
+          >
+            {data.auditLogs.length === 0 ? (
+              <EmptyState title="暂无变更记录" />
+            ) : (
+              <div className="divide-y overflow-hidden rounded-md border">
+                {data.auditLogs.map((log) => {
+                  const section = auditSectionMeta(log.sectionCode);
+                  return (
+                    <button
+                      key={log.auditId}
+                      type="button"
+                      className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                      onClick={() => setSelectedAuditLog(log)}
+                      aria-label={`查看${log.operationLabel}详情`}
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                        <FileClock className="size-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <StatusChip tone={section.tone}>{section.label}</StatusChip>
+                          <span className="font-medium text-foreground">{log.summary || log.operationLabel}</span>
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          {auditActor(log)}
+                          {log.operatorAccountId ? ` · 账号 ${log.operatorAccountId}` : ""}
+                          {` · ${displayTime(log.createTime)}`}
+                        </span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
       </Tabs>
 
-      <SectionCard title="配置审计日志" desc="最近 20 条社区设置变更记录。">
-        {data.auditLogs.length === 0 ? (
-          <EmptyState title="暂无审计日志" />
-        ) : (
-          <div className="grid gap-2">
-            {data.auditLogs.map((log) => (
-              <div key={log.auditId} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                <span className="flex items-center gap-2 font-medium">
-                  <FileClock className="size-4 text-muted-foreground" />
-                  {log.operationType}
-                </span>
-                <span className="text-muted-foreground">操作人 {log.operatorUserId ?? "-"} · {displayTime(log.createTime)}</span>
+      <Dialog open={selectedAuditLog !== null} onOpenChange={(open) => !open && setSelectedAuditLog(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          {selectedAuditLog && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex flex-wrap items-center gap-2">
+                  <History className="size-5 text-primary" />
+                  {selectedAuditLog.operationLabel}
+                </DialogTitle>
+                <DialogDescription>{selectedAuditLog.summary}</DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm sm:grid-cols-2">
+                <AuditMeta label="配置分区" value={auditSectionMeta(selectedAuditLog.sectionCode).label} />
+                <AuditMeta label="操作时间" value={displayTime(selectedAuditLog.createTime)} />
+                <AuditMeta label="操作人" value={auditActor(selectedAuditLog)} />
+                <AuditMeta
+                  label="操作账号"
+                  value={selectedAuditLog.operatorAccountId ? String(selectedAuditLog.operatorAccountId) : "未记录"}
+                />
               </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+
+              {selectedAuditLog.reason && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
+                  <div className="text-xs font-medium text-amber-800">操作原因 / 复核意见</div>
+                  <div className="mt-1 text-sm leading-6 text-amber-950">{selectedAuditLog.reason}</div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="text-sm font-semibold">变更内容</div>
+                {selectedAuditLog.changes.length === 0 ? (
+                  <div className="rounded-md border px-3 py-4 text-sm text-muted-foreground">
+                    该历史记录仅保存了操作事件，未保存可展示的字段差异。
+                  </div>
+                ) : (
+                  <div className="divide-y overflow-hidden rounded-md border">
+                    {selectedAuditLog.changes.map((change) => (
+                      <div key={`${change.fieldCode}-${change.afterValue}`} className="grid gap-2 px-3 py-3 text-sm sm:grid-cols-[160px_1fr_1fr] sm:gap-3">
+                        <div className="font-medium text-foreground">{change.fieldLabel}</div>
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">变更前</div>
+                          <div className="mt-1 break-words text-foreground">
+                            {change.beforeValue ?? "历史记录未保存"}
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">变更后</div>
+                          <div className="mt-1 break-words font-medium text-primary">
+                            {change.afterValue ?? "未填写"}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AuditMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words font-medium text-foreground">{value}</div>
     </div>
   );
 }
