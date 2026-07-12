@@ -48,6 +48,22 @@ export interface PropertyRosterUnitTopology {
   totalArea: number;
 }
 
+/** 关联业务：管理端核对导入产权基础名册中的登记产权人和房屋，非实名认证业主档案。 */
+export interface RegisteredOwnerRoster {
+  registeredOwnerName: string;
+  registeredOwnerPhone: string;
+  propertyCount: number;
+  totalBuildArea: number;
+  properties: RegisteredOwnerProperty[];
+}
+
+export interface RegisteredOwnerProperty {
+  buildingName: string;
+  unitName: string;
+  roomName: string;
+  buildArea: number;
+}
+
 export interface PropertyClaim {
   claimId: number;
   tenantId: number;
@@ -77,6 +93,10 @@ export function importPropertyRoster(tenantId: number | undefined, rows: RosterI
 
 export function getPropertyRosterTopology() {
   return apiGet<PropertyRosterTopology>("/admin/property-roster/topology");
+}
+
+export function getRegisteredOwnerRosters() {
+  return apiGet<RegisteredOwnerRoster[]>("/admin/property-roster/registered-owners");
 }
 
 export function listPropertyClaims(status = "PENDING_VERIFY", page = 1, size = 20) {
