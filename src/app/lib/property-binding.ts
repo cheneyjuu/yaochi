@@ -1,3 +1,5 @@
+// 关联业务：封装房屋产权基础名册导入、结构展示和业主房产绑定审核接口。
+
 import { apiGet, apiPost } from "./api";
 import { strFromU8, unzipSync } from "fflate";
 
@@ -22,6 +24,28 @@ export interface RosterImportRow {
 export interface RosterImportResult {
   importBatchNo: string;
   importedCount: number;
+}
+
+export interface PropertyRosterTopology {
+  tenantId: number;
+  communityName: string;
+  householdCount: number;
+  totalArea: number;
+  buildings: PropertyRosterBuildingTopology[];
+}
+
+export interface PropertyRosterBuildingTopology {
+  buildingId: number;
+  buildingName: string;
+  householdCount: number;
+  totalArea: number;
+  units: PropertyRosterUnitTopology[];
+}
+
+export interface PropertyRosterUnitTopology {
+  unitName: string;
+  householdCount: number;
+  totalArea: number;
 }
 
 export interface PropertyClaim {
@@ -49,6 +73,10 @@ export interface PropertyClaim {
 
 export function importPropertyRoster(tenantId: number | undefined, rows: RosterImportRow[]) {
   return apiPost<RosterImportResult>("/admin/property-roster/import", { tenantId, rows });
+}
+
+export function getPropertyRosterTopology() {
+  return apiGet<PropertyRosterTopology>("/admin/property-roster/topology");
 }
 
 export function listPropertyClaims(status = "PENDING_VERIFY", page = 1, size = 20) {
