@@ -217,6 +217,12 @@ body {
   color: var(--gov-text);
 }
 
+/* 小区注册是独立的长表单，不能继承管理工作台的全屏滚动锁定。 */
+#root.community-registration-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 /* 等宽数字：金额 / 票数 / 哈希 */
 .font-mono-num {
   font-family: "Roboto Mono", "Inter", ui-monospace, monospace;

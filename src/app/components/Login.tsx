@@ -140,8 +140,8 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
       </div>
 
       {/* 右侧登录区 */}
-      <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto p-6 relative">
-        <div className="w-full max-w-[400px]">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto flex min-h-full w-full max-w-[400px] flex-col justify-center py-6">
           {/* 移动端 logo */}
           <div className="flex lg:hidden items-center gap-2 justify-center mb-6">
             <div className="grid place-items-center size-9 rounded-md gov-primary-gradient text-white" style={{ fontWeight: 700 }}>盘</div>
