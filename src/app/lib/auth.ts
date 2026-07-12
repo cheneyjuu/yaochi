@@ -49,6 +49,7 @@ export interface SysUserShadow {
 // ---- 后端 role_key(13) → 前端 RoleId(9) 映射 ----
 const ROLE_KEY_TO_ROLE_ID: Record<string, RoleId> = {
   GOV_SUPER_ADMIN: "street_admin",
+  PLATFORM_OPERATOR: "street_admin",
   COMMUNITY_ADMIN: "community_admin",
   PARTY_SECRETARY: "party_secretary",
   GOV_OPERATOR: "gov_operator",

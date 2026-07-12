@@ -1,3 +1,4 @@
+// 关联业务：提供 B/G/S 工作身份登录、供应商账号激活和小区注册申请入口。
 import { useState, type FormEvent } from "react";
 import { useStore } from "../lib/store";
 import { Button } from "./ui/button";
@@ -6,6 +7,7 @@ import { Checkbox } from "./ui/checkbox";
 import {
   Smartphone, ShieldCheck, Vote,
   BarChart3, Network, UserPlus, Hash,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { activateSupplierAccount } from "../lib/auth";
@@ -35,7 +37,7 @@ const FIELD_GROUP_CLASS = "space-y-2.5";
 const FIELD_LABEL_CLASS = "block text-sm font-medium leading-5";
 const FIELD_INPUT_CLASS = "h-11 border-border bg-background pl-9 shadow-xs hover:border-primary/40";
 
-export function Login() {
+export function Login({ onCommunityRegistration }: { onCommunityRegistration: () => void }) {
   const { login } = useStore();
   const [phone, setPhone] = useState("13800000011");
   const [smsCode, setSmsCode] = useState("123456");
@@ -223,6 +225,13 @@ export function Login() {
               {loading ? (view === "login" ? "登录中…" : "激活中…") : (view === "login" ? "登录工作台" : "激活账号")}
             </Button>
           </form>
+
+          <div className="mt-5 border-t pt-5">
+            <Button type="button" variant="outline" className="h-11 w-full" onClick={onCommunityRegistration}>
+              <Building2 className="mr-2 size-4" />
+              申请注册小区
+            </Button>
+          </div>
 
           {view === "login" && <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
             <div className="mb-1.5"><span style={{ fontWeight: 600 }}>开发环境提示：</span>短信验证码统一为 <code className="font-mono-num">123456</code>，可点选以下种子账号：</div>

@@ -1,3 +1,4 @@
+// 关联业务：配置瑶池管理端构建、静态资源解析和本地盘古后端代理。
 import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
@@ -38,7 +39,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/pangu': {
-        target: 'http://localhost:8080',
+        target: process.env.PANGU_API_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },

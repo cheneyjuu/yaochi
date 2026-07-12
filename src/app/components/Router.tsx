@@ -35,6 +35,7 @@ import { SubjectProposalEditor } from "./pages/SubjectProposalEditor";
 import { PropertyRosterImport } from "./pages/PropertyRosterImport";
 import { PropertyBindingReview } from "./pages/PropertyBindingReview";
 import { SupplierWorkbench } from "./pages/SupplierWorkbench";
+import { CommunityRegistrationReview } from "./pages/CommunityRegistrationReview";
 
 const PAGES: Record<string, () => JSX.Element> = {
   overview: Overview,
@@ -72,6 +73,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "property-roster-import": PropertyRosterImport,
   "property-binding-review": PropertyBindingReview,
   "supplier-workbench": SupplierWorkbench,
+  "community-registration-review": CommunityRegistrationReview,
 };
 
 export function Router() {
