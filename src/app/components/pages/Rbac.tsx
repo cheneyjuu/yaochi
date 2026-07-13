@@ -1271,7 +1271,7 @@ function UserRoleAssignment({
                     disabled={!roleKey || deptLoading || deptOptions.length === 0 || !canManage}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
+                      <SelectValue placeholder={!roleKey ? "请先选择角色" : deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
                     </SelectTrigger>
                     <SelectContent>
                       {deptOptions.map((dept) => (
@@ -1546,7 +1546,7 @@ function AddUserRoleDialog({
               <Label>组织 / 部门</Label>
               <Select value={deptId} onValueChange={setDeptId} disabled={!roleKey || deptLoading || deptOptions.length === 0}>
                 <SelectTrigger>
-                  <SelectValue placeholder={deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
+                  <SelectValue placeholder={!roleKey ? "请先选择角色" : deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
                 </SelectTrigger>
                 <SelectContent>
                   {deptOptions.map((dept) => (
