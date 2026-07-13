@@ -135,6 +135,59 @@ function scopeLabel(scope: string | null | undefined, role?: Pick<Role, "roleKey
   return scope;
 }
 
+// 工作身份必须落在与角色法定主体一致的组织上，不能为了完成分配而借用其他组织。
+function requiredOrganizationLabel(role: Pick<Role, "roleKey" | "allowedDeptCategory"> | null): string {
+  switch (role?.roleKey) {
+    case "PROPERTY_MANAGER":
+    case "PROPERTY_STAFF":
+      return "物业服务企业或本小区项目部";
+    case "COMMITTEE_DIRECTOR":
+    case "COMMITTEE_MEMBER":
+    case "COMMITTEE_SECRETARY":
+      return "业主委员会";
+    case "OWNER_REPRESENTATIVE":
+      return "业主代表团";
+    case "VOLUNTEER":
+      return "志愿者服务队";
+    case "GRID_MEMBER":
+      return "网格组织";
+    default:
+      return role?.allowedDeptCategory === "S" ? "服务组织" : "对应组织";
+  }
+}
+
+function RoleDepartmentUnavailableNotice({
+  role,
+  onChooseCommitteeMember,
+  disabled,
+}: {
+  role: Pick<Role, "roleKey" | "roleName" | "allowedDeptCategory">;
+  onChooseCommitteeMember?: () => void;
+  disabled?: boolean;
+}) {
+  const requiredOrganization = requiredOrganizationLabel(role);
+  const isPropertyRole = role.roleKey === "PROPERTY_MANAGER" || role.roleKey === "PROPERTY_STAFF";
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+      <div className="flex min-w-0 items-start gap-2">
+        <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
+        <span>
+          当前小区暂无可用于「{role.roleName}」的{requiredOrganization}。
+          {isPropertyRole
+            ? "为避免把物业权限错误挂到业委会或初始化工作区，系统不会创建该工作身份。"
+            : "请先完成对应组织登记后再分配该角色。"}
+        </span>
+      </div>
+      {onChooseCommitteeMember && (
+        <Button type="button" size="sm" variant="outline" onClick={onChooseCommitteeMember} disabled={disabled}>
+          改为业委会委员
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // 端归属位 G/B/S。
 const DEPT_LABEL: Record<string, string> = {
   G: "政府端",
@@ -885,12 +938,15 @@ function UserRoleAssignment({
   const [submitting, setSubmitting] = useState(false);
 
   const selectedRole = roles.find((role) => role.roleKey === roleKey) ?? null;
+  const committeeMemberRole = roles.find((role) => role.roleKey === "COMMITTEE_MEMBER") ?? null;
   const ownerGroupRole = selectedRole?.defaultDataScope === "OWNER_GROUP" || selectedRole?.fixedDataScope === "OWNER_GROUP";
   const gridMember = roleKey === "GRID_MEMBER";
   const needsBuildingScope = ownerGroupRole && !gridMember;
   const canSubmit = selected != null
     && roleKey !== ""
     && deptId !== ""
+    && !deptLoading
+    && deptOptions.length > 0
     && (!needsBuildingScope || buildingIds.length > 0)
     && canManage;
 
@@ -925,9 +981,11 @@ function UserRoleAssignment({
   }, [query, roleFilter]);
 
   useEffect(() => {
+    // 切换角色时先清空旧组织，防止前一角色的部门在异步加载期间被误提交。
+    setDeptId("");
+    setDeptOptions([]);
+    setBuildingIds([]);
     if (roleKey === "") {
-      setDeptOptions([]);
-      setDeptId("");
       return;
     }
     let alive = true;
@@ -936,8 +994,7 @@ function UserRoleAssignment({
       .then((res) => {
         if (!alive) return;
         setDeptOptions(res);
-        setDeptId((current) => current || (res[0] ? String(res[0].deptId) : ""));
-        setBuildingIds([]);
+        setDeptId(res[0] ? String(res[0].deptId) : "");
       })
       .catch((err) => {
         if (!alive) return;
@@ -1208,9 +1265,13 @@ function UserRoleAssignment({
                 </div>
                 <div className="space-y-1.5">
                   <Label>组织 / 部门</Label>
-                  <Select value={deptId} onValueChange={setDeptId} disabled={!roleKey || deptLoading || !canManage}>
+                  <Select
+                    value={deptId}
+                    onValueChange={setDeptId}
+                    disabled={!roleKey || deptLoading || deptOptions.length === 0 || !canManage}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder={deptLoading ? "加载中" : "选择部门"} />
+                      <SelectValue placeholder={deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
                     </SelectTrigger>
                     <SelectContent>
                       {deptOptions.map((dept) => (
@@ -1231,6 +1292,18 @@ function UserRoleAssignment({
                   />
                 </div>
               </div>
+
+              {selectedRole && !deptLoading && deptOptions.length === 0 && (
+                <RoleDepartmentUnavailableNotice
+                  role={selectedRole}
+                  disabled={!canManage}
+                  onChooseCommitteeMember={
+                    selectedRole.roleKey !== "COMMITTEE_MEMBER" && committeeMemberRole
+                      ? () => setRoleKey(committeeMemberRole.roleKey)
+                      : undefined
+                  }
+                />
+              )}
 
               {needsBuildingScope && (
                 <div className="rounded-lg border p-3">
@@ -1351,6 +1424,8 @@ function AddUserRoleDialog({
     && realName.trim().length > 0
     && roleKey !== ""
     && deptId !== ""
+    && !deptLoading
+    && deptOptions.length > 0
     && (!needsBuildingScope || buildingIds.length > 0);
 
   useEffect(() => {
@@ -1469,8 +1544,10 @@ function AddUserRoleDialog({
             </div>
             <div className="space-y-1.5">
               <Label>组织 / 部门</Label>
-              <Select value={deptId} onValueChange={setDeptId} disabled={!roleKey || deptLoading}>
-                <SelectTrigger><SelectValue placeholder={deptLoading ? "加载中" : "选择部门"} /></SelectTrigger>
+              <Select value={deptId} onValueChange={setDeptId} disabled={!roleKey || deptLoading || deptOptions.length === 0}>
+                <SelectTrigger>
+                  <SelectValue placeholder={deptLoading ? "加载中" : deptOptions.length === 0 ? "暂无可用组织" : "选择部门"} />
+                </SelectTrigger>
                 <SelectContent>
                   {deptOptions.map((dept) => (
                     <SelectItem key={dept.deptId} value={String(dept.deptId)}>
@@ -1490,6 +1567,10 @@ function AddUserRoleDialog({
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
               将创建「{selectedRole.roleName}」工作身份，继承数据范围「{scopeLabel(selectedRole.fixedDataScope ?? selectedRole.defaultDataScope, selectedRole)}」。
             </div>
+          )}
+
+          {selectedRole && !deptLoading && deptOptions.length === 0 && (
+            <RoleDepartmentUnavailableNotice role={selectedRole} />
           )}
 
           {needsBuildingScope && (
