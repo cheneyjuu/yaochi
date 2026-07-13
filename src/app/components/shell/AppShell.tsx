@@ -14,6 +14,10 @@ import {
 import { ChevronDown, ChevronRight, Layers } from "lucide-react";
 import type { DataScope } from "../../lib/types";
 
+/**
+ * 后台统一工作区外壳：承载顶部身份信息、可收起导航和角色页面内容。
+ */
+
 const SCOPE_LABEL: Record<DataScope, string> = {
   ALL_DISTRICT: "辖区全部",
   ALL_COMMUNITY: "本小区",
@@ -64,11 +68,17 @@ function ContentHeader() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { lockdown } = useStore();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   return (
     <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
       <Topbar onOpenNavigation={() => setMobileNavigationOpen(true)} />
       <div className="flex flex-1 min-h-0">
-        <Sidebar mobileOpen={mobileNavigationOpen} onMobileClose={() => setMobileNavigationOpen(false)} />
+        <Sidebar
+          mobileOpen={mobileNavigationOpen}
+          onMobileClose={() => setMobileNavigationOpen(false)}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ContentHeader />
           {lockdown && (
