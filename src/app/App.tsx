@@ -10,7 +10,7 @@ import { CommunityRegistrationEntry } from "./components/CommunityRegistrationEn
 const COMMUNITY_REGISTRATION_HASH = "#/community-registration";
 
 function Root() {
-  const { authed } = useStore();
+  const { authed, token } = useStore();
   const [publicPage, setPublicPage] = useState(window.location.hash);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ function Root() {
 
   if (authed) {
     return (
-      <AppShell>
+      <AppShell key={token}>
         <Router />
       </AppShell>
     );

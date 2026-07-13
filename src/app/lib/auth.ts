@@ -1,5 +1,5 @@
-// 盘古会话管理 + 后端身份→前端角色映射。
-// 登录、token/会话持久化（localStorage）、role_key→RoleId、tenant_id→communityId。
+// 关联业务：管理端会话、角色映射与街镇辖区小区上下文切换。
+// 登录、token/会话持久化（localStorage）以及后端 tenant 上下文的唯一前端映射入口。
 
 import type { DataScope, RoleId } from "./types";
 import { apiGet, apiPost } from "./api";
@@ -25,9 +25,20 @@ export interface Session {
   expiresIn: number;
   user: UserInfo;
   menus?: NavModule[];
+  /** 仅 G 端根组织持有，来自后端当前有效辖区授权，不能由前端静态补造。 */
+  managedCommunities?: ManagedCommunity[];
   /** 派生：前端角色 / 小区 / 数据范围。 */
   roleId: RoleId;
   communityId: string;
+}
+
+/** G 端当前工作身份可切换监管的小区摘要。 */
+export interface ManagedCommunity {
+  tenant_id: number;
+  tenant_name: string;
+  planned_household_count: number | null;
+  total_exclusive_area: number | null;
+  governance_status: string | null;
 }
 
 export interface SysUserShadow {
@@ -70,17 +81,11 @@ export function mapRoleId(roleKey: string | null | undefined): RoleId {
   return "committee_member";
 }
 
-// ---- tenant_id → 前端 communityId（当前单租户，临时硬映射）----
-const TENANT_TO_COMMUNITY: Record<number, string> = {
-  10001: "c1",
-  10002: "c2",
-  10003: "c3",
-};
-
-export function mapCommunityId(roleId: RoleId, tenantId: number | null): string {
-  if (roleId === "street_admin" && tenantId == null) return "ALL";
-  if (tenantId == null) return "c1";
-  return TENANT_TO_COMMUNITY[tenantId] ?? "c1";
+/**
+ * 当前小区选择器直接使用受后端 JWT 约束的 tenant_id，杜绝 c1/c2 等静态映射导致的新小区丢失。
+ */
+export function mapCommunityId(tenantId: number | null): string {
+  return tenantId == null ? "" : String(tenantId);
 }
 
 // 各角色默认数据范围（与 store 内 DEFAULT_SCOPE 对齐）。
@@ -123,7 +128,7 @@ function buildSession(token: string, expiresIn: number, user: UserInfo): Session
     expiresIn,
     user,
     roleId,
-    communityId: mapCommunityId(roleId, user.tenant_id),
+    communityId: mapCommunityId(user.tenant_id),
   };
 }
 
@@ -179,6 +184,18 @@ interface SwitchShadowResponse {
   active_shadow: SysUserShadow;
 }
 
+interface ManagedCommunitiesResponse {
+  active_tenant_id: number | null;
+  communities: ManagedCommunity[];
+}
+
+interface SwitchManagedCommunityResponse {
+  new_access_token: string;
+  expires_in: number;
+  active_tenant_id: number;
+  user_info: UserInfo;
+}
+
 export async function listSysUserShadows(): Promise<SysUserShadow[]> {
   const data = await apiGet<ShadowsResponse>("/auth/shadows");
   return data.shadows ?? [];
@@ -186,6 +203,23 @@ export async function listSysUserShadows(): Promise<SysUserShadow[]> {
 
 export async function switchSysUserShadow(targetUserId: number): Promise<Session> {
   const data = await apiPost<SwitchShadowResponse>("/auth/switch-shadow", { targetUserId });
+  const session = buildSession(data.new_access_token, data.expires_in, data.user_info);
+  saveSession(session);
+  return session;
+}
+
+/** 读取当前 G 端根组织已获授权的小区，列表由后端组织树和辖区范围决定。 */
+export function listManagedCommunities(): Promise<ManagedCommunitiesResponse> {
+  return apiGet<ManagedCommunitiesResponse>("/auth/managed-communities");
+}
+
+/**
+ * 以目标小区重新签发 G 端 JWT。后续页面请求均携带新 tenant 上下文，不能只改前端显示状态。
+ */
+export async function switchManagedCommunity(targetTenantId: number): Promise<Session> {
+  const data = await apiPost<SwitchManagedCommunityResponse>("/auth/switch-managed-community", {
+    targetTenantId,
+  });
   const session = buildSession(data.new_access_token, data.expires_in, data.user_info);
   saveSession(session);
   return session;

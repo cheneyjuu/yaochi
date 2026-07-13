@@ -1,4 +1,4 @@
-import { useStore, COMMUNITIES, ROLES } from "../../lib/store";
+import { useStore, ROLES } from "../../lib/store";
 import { ModeChip } from "../gov/common";
 import {
   DropdownMenu,
@@ -10,10 +10,22 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { AlertTriangle, Bell, ChevronDown, LogOut, MapPin, Menu, Search } from "lucide-react";
+import { AlertTriangle, Bell, ChevronDown, LoaderCircle, LogOut, MapPin, Menu, Search } from "lucide-react";
+import { toast } from "sonner";
 
 export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) {
-  const { role, communityId, setCommunityId, community, mode, lockdown, setPage, logout } = useStore();
+  const {
+    role,
+    communityId,
+    setCommunityId,
+    community,
+    managedCommunities,
+    communitySwitching,
+    mode,
+    lockdown,
+    setPage,
+    logout,
+  } = useStore();
   const roleMeta = ROLES.find((r) => r.id === role)!;
   const isG = roleMeta.side === "G";
   const isSupplier = roleMeta.side === "S";
@@ -56,29 +68,48 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
             供应商工作台
           </div>
         ) : <DropdownMenu>
-          <DropdownMenuTrigger className="flex min-w-0 max-w-36 items-center gap-1.5 rounded-md border border-border px-2 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed sm:max-w-none sm:px-3" disabled={!canSwitchCommunity}>
+          <DropdownMenuTrigger
+            className="flex min-w-0 max-w-36 items-center gap-1.5 rounded-md border border-border px-2 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed sm:max-w-none sm:px-3"
+            disabled={!canSwitchCommunity || managedCommunities.length === 0 || communitySwitching}
+          >
             <MapPin className="size-3.5 text-muted-foreground" />
-            <span className="truncate" style={{ fontWeight: 500 }}>{communityId === "ALL" ? "辖区汇总（全部小区）" : community.name}</span>
-            {canSwitchCommunity && <ChevronDown className="size-3.5 text-muted-foreground" />}
+            <span className="truncate" style={{ fontWeight: 500 }}>{community.name}</span>
+            {communitySwitching
+              ? <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+              : canSwitchCommunity && <ChevronDown className="size-3.5 text-muted-foreground" />}
           </DropdownMenuTrigger>
           {canSwitchCommunity && (
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>选择监管范围</DropdownMenuLabel>
+              <DropdownMenuLabel>选择监管小区</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={communityId} onValueChange={(v) => setCommunityId(v)}>
-                <DropdownMenuRadioItem value="ALL">辖区汇总（全部小区）</DropdownMenuRadioItem>
-                {COMMUNITIES.map((c) => (
-                  <DropdownMenuRadioItem key={c.id} value={c.id}>
-                    {c.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              {managedCommunities.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">暂无可切换的小区</p>
+              ) : (
+                <DropdownMenuRadioGroup
+                  value={communityId}
+                  onValueChange={(tenantId) => {
+                    void setCommunityId(tenantId).catch((error) => {
+                      toast.error(error instanceof Error ? error.message : "小区切换失败");
+                    });
+                  }}
+                >
+                  {managedCommunities.map((communityOption) => (
+                    <DropdownMenuRadioItem
+                      key={communityOption.tenant_id}
+                      value={String(communityOption.tenant_id)}
+                      disabled={communitySwitching}
+                    >
+                      {communityOption.tenant_name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              )}
             </DropdownMenuContent>
           )}
         </DropdownMenu>}
 
         {/* 物业模式 Chip */}
-        {!isSupplier && communityId !== "ALL" && <ModeChip mode={mode} className="hidden md:inline-flex" />}
+        {!isSupplier && !isG && <ModeChip mode={mode} className="hidden md:inline-flex" />}
 
         {/* 换届熔断全局提醒 */}
         {lockdown && (

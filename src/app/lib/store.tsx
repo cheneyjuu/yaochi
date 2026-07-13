@@ -1,7 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DataScope, PropertyMode, RoleId } from "./types";
 import { ROLES } from "./types";
-import { loginByPhone, loadSession, saveSession, clearSession, switchSysUserShadow, type Session } from "./auth";
+import {
+  clearSession,
+  listManagedCommunities,
+  loadSession,
+  loginByPhone,
+  saveSession,
+  switchManagedCommunity,
+  switchSysUserShadow,
+  type ManagedCommunity,
+  type Session,
+} from "./auth";
 import { setUnauthorizedHandler } from "./api";
 import {
   firstPageId,
@@ -13,23 +23,34 @@ import {
 export interface Community {
   id: string;
   name: string;
-  mode: PropertyMode;
+  mode?: PropertyMode;
   households: number;
   area: number; // 总专有面积 ㎡
 }
 
-export const COMMUNITIES: Community[] = [
+/** 非 G 端展示用的既有演示小区；G 端一律使用后端授权列表。 */
+const DEMO_COMMUNITIES: Community[] = [
   { id: "c1", name: "盘古·和畅雅苑", mode: "trust", households: 1240, area: 156800 },
   { id: "c2", name: "盘古·锦绣华庭", mode: "reward", households: 860, area: 102400 },
   { id: "c3", name: "盘古·翠湖名邸", mode: "package", households: 540, area: 71200 },
 ];
 
+const EMPTY_GOVERNMENT_COMMUNITY: Community = {
+  id: "",
+  name: "未选择小区",
+  households: 0,
+  area: 0,
+};
+
 interface StoreValue {
   role: RoleId;
   setRole: (r: RoleId) => void;
-  communityId: string | "ALL"; // ALL = 辖区汇总（仅 G 端）
-  setCommunityId: (id: string | "ALL") => void;
+  /** 当前 JWT 实际生效的小区 tenant_id，不能只改显示名称。 */
+  communityId: string;
+  setCommunityId: (id: string) => Promise<void>;
   community: Community;
+  managedCommunities: ManagedCommunity[];
+  communitySwitching: boolean;
   mode: PropertyMode;
   setMode: (m: PropertyMode) => void;
   lockdown: boolean; // 换届熔断 HANDOVER_LOCK
@@ -71,7 +92,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const initial = loadSession();
 
   const [role, setRoleRaw] = useState<RoleId>(initial?.roleId ?? "committee_director");
-  const [communityId, setCommunityId] = useState<string | "ALL">(initial?.communityId ?? "c1");
+  const [communityId, setCommunityIdState] = useState<string>(initial?.communityId ?? "");
+  const [managedCommunities, setManagedCommunities] = useState<ManagedCommunity[]>(
+    initial?.managedCommunities ?? [],
+  );
+  const [communitySwitching, setCommunitySwitching] = useState(false);
   const [mode, setMode] = useState<PropertyMode>("trust");
   const [lockdown, setLockdown] = useState(false);
   const [dataScope, setDataScope] = useState<DataScope>(
@@ -91,6 +116,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setPermissions([]);
       setMenus([]);
       setRoleKey(null);
+      setManagedCommunities([]);
+      setCommunityIdState("");
       setAuthed(false);
       setPage("overview");
     });
@@ -99,15 +126,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setRole = (r: RoleId) => {
     setRoleRaw(r);
     setDataScope(DEFAULT_SCOPE[r]);
-    const sideG = r === "street_admin";
-    if (!sideG && communityId === "ALL") setCommunityId("c1");
     setPage("overview");
   };
 
   const applySession = (session: Session) => {
     setRoleRaw(session.roleId);
     setDataScope(DEFAULT_SCOPE[session.roleId]);
-    setCommunityId(session.communityId);
+    setCommunityIdState(session.communityId);
+    setManagedCommunities(session.managedCommunities ?? []);
     setPermissions(session.user.permissions ?? []);
     setMenus(session.menus ?? []);
     setRoleKey(session.user.role_key ?? null);
@@ -128,12 +154,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     applySession(session);
   };
 
+  /**
+   * G 端切换小区时先由后端校验监管范围并重签 JWT，再整体重挂工作台以重新加载租户数据。
+   */
+  const setCommunityId = async (id: string) => {
+    if (role !== "street_admin" || id === communityId) return;
+    const targetTenantId = Number(id);
+    if (!Number.isSafeInteger(targetTenantId) || targetTenantId <= 0) {
+      throw new Error("目标小区无效");
+    }
+    setCommunitySwitching(true);
+    try {
+      const session = await withMenus(await switchManagedCommunity(targetTenantId));
+      applySession(session);
+    } finally {
+      setCommunitySwitching(false);
+    }
+  };
+
   const logout = () => {
     clearSession();
     setToken(null);
     setPermissions([]);
     setMenus([]);
     setRoleKey(null);
+    setManagedCommunities([]);
+    setCommunityIdState("");
     setAuthed(false);
     setPage("overview");
   };
@@ -141,7 +187,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const hasPermission = (key: string) => permissions.includes(key);
 
   async function withMenus(session: Session): Promise<Session> {
-    const next = { ...session, menus: await listNavigationMenus() };
+    // 后续请求须使用新签发 token，因此先落地会话，再并发拉取菜单和可监管小区。
+    saveSession(session);
+    const [menus, managedContext] = await Promise.all([
+      listNavigationMenus(),
+      session.roleId === "street_admin" ? listManagedCommunities() : Promise.resolve(null),
+    ]);
+    const next: Session = {
+      ...session,
+      menus,
+      managedCommunities: managedContext?.communities ?? [],
+    };
     saveSession(next);
     return next;
   }
@@ -171,13 +227,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
+  // 兼容部署前已存在的登录会话：刷新页面后仍从后端恢复真实的辖区小区列表与当前 tenant。
+  useEffect(() => {
+    if (!token || role !== "street_admin") return;
+    let alive = true;
+    listManagedCommunities()
+      .then((managedContext) => {
+        if (!alive) return;
+        const activeCommunityId = managedContext.active_tenant_id == null
+          ? ""
+          : String(managedContext.active_tenant_id);
+        setManagedCommunities(managedContext.communities);
+        setCommunityIdState(activeCommunityId);
+        const current = loadSession();
+        if (current?.token === token) {
+          saveSession({
+            ...current,
+            communityId: activeCommunityId,
+            managedCommunities: managedContext.communities,
+            user: { ...current.user, tenant_id: managedContext.active_tenant_id },
+          });
+        }
+      })
+      .catch(() => {
+        // 受控切换请求本身会显示错误；初始化失败时不以静态小区伪造辖区范围。
+      });
+    return () => {
+      alive = false;
+    };
+  }, [role, token]);
+
   const community = useMemo(() => {
-    const found = COMMUNITIES.find((c) => c.id === communityId);
-    return found ?? COMMUNITIES[0];
-  }, [communityId]);
+    if (role === "street_admin") {
+      const found = managedCommunities.find((item) => String(item.tenant_id) === communityId);
+      return found
+        ? {
+          id: String(found.tenant_id),
+          name: found.tenant_name,
+          households: found.planned_household_count ?? 0,
+          area: found.total_exclusive_area ?? 0,
+        }
+        : EMPTY_GOVERNMENT_COMMUNITY;
+    }
+    return DEMO_COMMUNITIES.find((item) => item.id === communityId) ?? DEMO_COMMUNITIES[0];
+  }, [communityId, managedCommunities, role]);
 
   // 当前小区模式跟随小区（除非用户手动切换演示）
-  const effectiveMode = communityId === "ALL" ? mode : community.mode;
+  const effectiveMode = community.mode ?? mode;
 
   const value: StoreValue = {
     role,
@@ -185,6 +281,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     communityId,
     setCommunityId,
     community,
+    managedCommunities,
+    communitySwitching,
     mode: effectiveMode,
     setMode,
     lockdown,
