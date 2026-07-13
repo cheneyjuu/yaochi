@@ -929,6 +929,9 @@ function UserRoleAssignment({
   roles: Role[];
   canManage: boolean;
 }) {
+  // 物业角色无可用项目部时，提示可跳转到物业服务组织登记页。
+  // 该跳转依赖全局权限和页面导航，必须在本组件内读取，避免角色切换时渲染异常。
+  const { hasPermission, setPage } = useStore();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [accounts, setAccounts] = useState<WorkIdentityAccount[]>([]);
