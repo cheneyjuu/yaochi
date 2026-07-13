@@ -13,6 +13,8 @@ export interface UserInfo {
   identity_type: string;
   active_identity_id: number;
   tenant_id: number | null;
+  /** 当前 JWT 生效租户的权威名称，由后端会话资料下发。 */
+  tenant_name?: string | null;
   dept_type: number | null;
   auth_level: number;
   role_key: string;

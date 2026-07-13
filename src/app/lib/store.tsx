@@ -28,14 +28,8 @@ export interface Community {
   area: number; // 总专有面积 ㎡
 }
 
-/** 非 G 端展示用的既有演示小区；G 端一律使用后端授权列表。 */
-const DEMO_COMMUNITIES: Community[] = [
-  { id: "c1", name: "盘古·和畅雅苑", mode: "trust", households: 1240, area: 156800 },
-  { id: "c2", name: "盘古·锦绣华庭", mode: "reward", households: 860, area: 102400 },
-  { id: "c3", name: "盘古·翠湖名邸", mode: "package", households: 540, area: 71200 },
-];
-
-const EMPTY_GOVERNMENT_COMMUNITY: Community = {
+/** 没有有效租户上下文时的明确占位，绝不回退为其他小区的演示数据。 */
+const EMPTY_COMMUNITY: Community = {
   id: "",
   name: "未选择小区",
   households: 0,
@@ -93,6 +87,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const [role, setRoleRaw] = useState<RoleId>(initial?.roleId ?? "committee_director");
   const [communityId, setCommunityIdState] = useState<string>(initial?.communityId ?? "");
+  const [communityName, setCommunityName] = useState<string | null>(initial?.user.tenant_name ?? null);
   const [managedCommunities, setManagedCommunities] = useState<ManagedCommunity[]>(
     initial?.managedCommunities ?? [],
   );
@@ -118,6 +113,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRoleKey(null);
       setManagedCommunities([]);
       setCommunityIdState("");
+      setCommunityName(null);
       setAuthed(false);
       setPage("overview");
     });
@@ -133,6 +129,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoleRaw(session.roleId);
     setDataScope(DEFAULT_SCOPE[session.roleId]);
     setCommunityIdState(session.communityId);
+    setCommunityName(session.user.tenant_name ?? null);
     setManagedCommunities(session.managedCommunities ?? []);
     setPermissions(session.user.permissions ?? []);
     setMenus(session.menus ?? []);
@@ -180,6 +177,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoleKey(null);
     setManagedCommunities([]);
     setCommunityIdState("");
+    setCommunityName(null);
     setAuthed(false);
     setPage("overview");
   };
@@ -267,10 +265,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           households: found.planned_household_count ?? 0,
           area: found.total_exclusive_area ?? 0,
         }
-        : EMPTY_GOVERNMENT_COMMUNITY;
+        : EMPTY_COMMUNITY;
     }
-    return DEMO_COMMUNITIES.find((item) => item.id === communityId) ?? DEMO_COMMUNITIES[0];
-  }, [communityId, managedCommunities, role]);
+    return communityId && communityName?.trim()
+      ? { id: communityId, name: communityName.trim(), households: 0, area: 0 }
+      : EMPTY_COMMUNITY;
+  }, [communityId, communityName, managedCommunities, role]);
 
   // 当前小区模式跟随小区（除非用户手动切换演示）
   const effectiveMode = community.mode ?? mode;
