@@ -48,6 +48,7 @@ import {
   Save,
   Search,
   ArrowRight,
+  Building2,
   UserCog,
   Phone,
 } from "lucide-react";
@@ -159,10 +160,12 @@ function requiredOrganizationLabel(role: Pick<Role, "roleKey" | "allowedDeptCate
 function RoleDepartmentUnavailableNotice({
   role,
   onChooseCommitteeMember,
+  onRegisterPropertyServiceOrganization,
   disabled,
 }: {
   role: Pick<Role, "roleKey" | "roleName" | "allowedDeptCategory">;
   onChooseCommitteeMember?: () => void;
+  onRegisterPropertyServiceOrganization?: () => void;
   disabled?: boolean;
 }) {
   const requiredOrganization = requiredOrganizationLabel(role);
@@ -182,6 +185,11 @@ function RoleDepartmentUnavailableNotice({
       {onChooseCommitteeMember && (
         <Button type="button" size="sm" variant="outline" onClick={onChooseCommitteeMember} disabled={disabled}>
           改为业委会委员
+        </Button>
+      )}
+      {isPropertyRole && onRegisterPropertyServiceOrganization && (
+        <Button type="button" size="sm" variant="outline" onClick={onRegisterPropertyServiceOrganization} disabled={disabled}>
+          <Building2 className="mr-1.5 size-3.5" />办理物业服务组织
         </Button>
       )}
     </div>
@@ -218,7 +226,7 @@ function maskPhone(phone: string): string {
 
 /* ─── 主页面 ─── */
 export function Rbac() {
-  const { hasPermission } = useStore();
+  const { hasPermission, setPage } = useStore();
   const canManage = hasPermission("admin:role:manage");
   // 读侧门控：admin:role:read 为 G 端专属（后端 allowed_dept_categories='G'），
   // B/S 端角色无此权限 → 菜单已隐藏；此处兜底防止 page 残留为 rbac 时撞 403。
@@ -1300,6 +1308,12 @@ function UserRoleAssignment({
                   onChooseCommitteeMember={
                     selectedRole.roleKey !== "COMMITTEE_MEMBER" && committeeMemberRole
                       ? () => setRoleKey(committeeMemberRole.roleKey)
+                      : undefined
+                  }
+                  onRegisterPropertyServiceOrganization={
+                    (selectedRole.roleKey === "PROPERTY_MANAGER" || selectedRole.roleKey === "PROPERTY_STAFF")
+                      && hasPermission("property:service-organization:submit")
+                      ? () => setPage("property-service-organization")
                       : undefined
                   }
                 />
