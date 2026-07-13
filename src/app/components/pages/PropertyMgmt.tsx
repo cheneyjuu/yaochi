@@ -1,3 +1,4 @@
+// 关联业务：按后端确认的小区物业管理模式展示公共收益和模式化开支入口。
 import { PageHeader, SectionCard, StatusChip, Money, ModeChip, KpiCard } from "../gov/common";
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
@@ -13,27 +14,39 @@ const income = [
 ];
 
 export function PropertyMgmt() {
-  const { mode, setMode, setPage } = useStore();
+  const { mode, setPage, hasPermission } = useStore();
   const m = MODE_META[mode];
+
+  if (mode === "unconfigured") {
+    const canSubmit = hasPermission("property:management-mode:submit");
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="财务监督 · 收益与开支录入"
+          desc="当前小区尚未完成物业管理模式配置，模式化财务规则暂不启用。"
+          actions={<ModeChip mode={mode} />}
+        />
+        <SectionCard
+          title="物业管理模式待属地配置"
+          desc="小区注册审核应确认唯一模式；既有小区可由业委会主任依据业主大会决议发起配置申请，街道办审核并执行。"
+          extra={canSubmit ? (
+            <Button onClick={() => setPage("community-settings")}>发起配置申请 <ArrowRight className="size-4" /></Button>
+          ) : <StatusChip tone="warning">暂不启用</StatusChip>}
+        >
+          <div className="rounded-md border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
+            尚未确认包干制、酬金制或信托制，系统不会以任何模式默认处理资金和开支。
+          </div>
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="财务监督 · 收益与开支录入"
-        desc="录入公共收益与治理模式相关开支，后续进入公示、开支审批或双签核销流程。下方“模式驱动差异化”随当前小区模式切换。"
-        actions={
-          <div className="flex items-center gap-1.5 rounded-md border border-border p-1">
-            {(["package", "reward", "trust"] as const).map((md) => (
-              <button
-                key={md}
-                onClick={() => setMode(md)}
-                className={`rounded px-3 py-1 text-sm transition-colors ${mode === md ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}
-              >
-                {MODE_META[md].label}
-              </button>
-            ))}
-          </div>
-        }
+        desc="录入公共收益与治理模式相关开支，后续进入公示、开支审批或双签核销流程。当前模式由注册审核或属地执行结果确定。"
+        actions={<ModeChip mode={mode} />}
       />
 
       {/* 模式说明条 */}

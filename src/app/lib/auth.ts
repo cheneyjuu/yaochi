@@ -1,7 +1,7 @@
 // 关联业务：管理端会话、角色映射与街镇辖区小区上下文切换。
 // 登录、token/会话持久化（localStorage）以及后端 tenant 上下文的唯一前端映射入口。
 
-import type { DataScope, RoleId } from "./types";
+import type { BackendPropertyManagementMode, DataScope, RoleId } from "./types";
 import { apiGet, apiPost } from "./api";
 import type { NavModule } from "./nav";
 
@@ -15,6 +15,8 @@ export interface UserInfo {
   tenant_id: number | null;
   /** 当前 JWT 生效租户的权威名称，由后端会话资料下发。 */
   tenant_name?: string | null;
+  /** 当前 JWT 生效租户的物业管理模式；空值只能表示尚未配置。 */
+  property_mode?: BackendPropertyManagementMode | null;
   dept_type: number | null;
   auth_level: number;
   role_key: string;
@@ -41,6 +43,7 @@ export interface ManagedCommunity {
   planned_household_count: number | null;
   total_exclusive_area: number | null;
   governance_status: string | null;
+  property_mode: BackendPropertyManagementMode | null;
 }
 
 export interface SysUserShadow {

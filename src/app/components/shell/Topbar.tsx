@@ -1,3 +1,4 @@
+// 关联业务：展示当前受后端租户上下文约束的小区、物业管理模式和工作身份。
 import { useStore, ROLES } from "../../lib/store";
 import { ModeChip } from "../gov/common";
 import {
@@ -109,7 +110,7 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
         </DropdownMenu>}
 
         {/* 物业模式 Chip */}
-        {!isSupplier && !isG && <ModeChip mode={mode} className="hidden md:inline-flex" />}
+        {!isSupplier && <ModeChip mode={mode} className="hidden md:inline-flex" />}
 
         {/* 换届熔断全局提醒 */}
         {lockdown && (

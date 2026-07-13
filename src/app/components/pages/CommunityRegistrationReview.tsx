@@ -41,6 +41,7 @@ import {
 } from "../ui/table";
 import { Textarea } from "../ui/textarea";
 import { useStore } from "../../lib/store";
+import { mapPropertyMode, MODE_META } from "../../lib/types";
 import {
   listCommunityRegistrationsForReview,
   previewCommunityRegistrationMaterial,
@@ -261,6 +262,7 @@ export function CommunityRegistrationReview() {
                 <Info icon={MapPin} label="行政区" value={`${selected.provinceName} ${selected.cityName} ${selected.districtName}`} />
                 <Info icon={UserRoundCheck} label="注册人" value={`${selected.applicantName} · ${IDENTITY_LABEL[selected.claimedIdentity]}`} />
                 <Info icon={Building2} label="申报户数" value={`${selected.declaredHouseholdCount} 户`} />
+                <Info icon={Building2} label="申报模式" value={propertyModeLabel(selected.declaredPropertyMode)} />
               </div>
 
               <div className="rounded-md bg-muted/50 px-4 py-3 text-sm">
@@ -419,6 +421,10 @@ function housingTagLabel(value: string): string {
     COMMERCIAL_HOUSING: "商品房",
     VILLA: "别墅",
   } as Record<string, string>)[value] ?? value;
+}
+
+function propertyModeLabel(mode: CommunityRegistration["declaredPropertyMode"]): string {
+  return MODE_META[mapPropertyMode(mode)].label;
 }
 
 function decisionLabel(value: string): string {

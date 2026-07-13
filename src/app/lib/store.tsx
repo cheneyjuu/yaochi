@@ -1,6 +1,7 @@
+// 关联业务：统一消费后端租户事实、工作身份和物业管理模式，禁止前端伪造小区治理状态。
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { DataScope, PropertyMode, RoleId } from "./types";
-import { ROLES } from "./types";
+import type { BackendPropertyManagementMode, DataScope, PropertyMode, RoleId } from "./types";
+import { mapPropertyMode, ROLES } from "./types";
 import {
   clearSession,
   listManagedCommunities,
@@ -23,7 +24,7 @@ import {
 export interface Community {
   id: string;
   name: string;
-  mode?: PropertyMode;
+  mode: PropertyMode;
   households: number;
   area: number; // 总专有面积 ㎡
 }
@@ -32,6 +33,7 @@ export interface Community {
 const EMPTY_COMMUNITY: Community = {
   id: "",
   name: "未选择小区",
+  mode: "unconfigured",
   households: 0,
   area: 0,
 };
@@ -46,7 +48,8 @@ interface StoreValue {
   managedCommunities: ManagedCommunity[];
   communitySwitching: boolean;
   mode: PropertyMode;
-  setMode: (m: PropertyMode) => void;
+  /** 仅消费已由后端执行动作返回的模式，不提供前端手工切换入口。 */
+  applyAuthoritativePropertyMode: (mode: BackendPropertyManagementMode | null) => void;
   lockdown: boolean; // 换届熔断 HANDOVER_LOCK
   setLockdown: (v: boolean) => void;
   dataScope: DataScope;
@@ -92,7 +95,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     initial?.managedCommunities ?? [],
   );
   const [communitySwitching, setCommunitySwitching] = useState(false);
-  const [mode, setMode] = useState<PropertyMode>("trust");
+  const [mode, setMode] = useState<PropertyMode>(() => mapPropertyMode(initial?.user.property_mode));
   const [lockdown, setLockdown] = useState(false);
   const [dataScope, setDataScope] = useState<DataScope>(
     initial ? DEFAULT_SCOPE[initial.roleId] : "ALL_COMMUNITY",
@@ -114,6 +117,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setManagedCommunities([]);
       setCommunityIdState("");
       setCommunityName(null);
+      setMode("unconfigured");
       setAuthed(false);
       setPage("overview");
     });
@@ -130,6 +134,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDataScope(DEFAULT_SCOPE[session.roleId]);
     setCommunityIdState(session.communityId);
     setCommunityName(session.user.tenant_name ?? null);
+    setMode(mapPropertyMode(session.user.property_mode));
     setManagedCommunities(session.managedCommunities ?? []);
     setPermissions(session.user.permissions ?? []);
     setMenus(session.menus ?? []);
@@ -169,6 +174,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * 模式只能在注册审核或属地执行成功后由服务端返回。此处同步受信响应与本地会话，
+   * 避免顶栏继续显示旧模式，也不允许页面用按钮伪造模式切换。
+   */
+  const applyAuthoritativePropertyMode = (backendMode: BackendPropertyManagementMode | null) => {
+    setMode(mapPropertyMode(backendMode));
+    const nextManagedCommunities = role === "street_admin"
+      ? managedCommunities.map((item) => (
+        String(item.tenant_id) === communityId ? { ...item, property_mode: backendMode } : item
+      ))
+      : managedCommunities;
+    if (role === "street_admin") setManagedCommunities(nextManagedCommunities);
+
+    const current = loadSession();
+    if (current?.token === token) {
+      saveSession({
+        ...current,
+        user: { ...current.user, property_mode: backendMode },
+        managedCommunities: nextManagedCommunities,
+      });
+    }
+  };
+
   const logout = () => {
     clearSession();
     setToken(null);
@@ -178,6 +206,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setManagedCommunities([]);
     setCommunityIdState("");
     setCommunityName(null);
+    setMode("unconfigured");
     setAuthed(false);
     setPage("overview");
   };
@@ -235,15 +264,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const activeCommunityId = managedContext.active_tenant_id == null
           ? ""
           : String(managedContext.active_tenant_id);
+        const activeCommunity = managedContext.communities.find(
+          (item) => String(item.tenant_id) === activeCommunityId,
+        );
         setManagedCommunities(managedContext.communities);
         setCommunityIdState(activeCommunityId);
+        setCommunityName(activeCommunity?.tenant_name ?? null);
+        setMode(mapPropertyMode(activeCommunity?.property_mode));
         const current = loadSession();
         if (current?.token === token) {
           saveSession({
             ...current,
             communityId: activeCommunityId,
             managedCommunities: managedContext.communities,
-            user: { ...current.user, tenant_id: managedContext.active_tenant_id },
+            user: {
+              ...current.user,
+              tenant_id: managedContext.active_tenant_id,
+              tenant_name: activeCommunity?.tenant_name ?? null,
+              property_mode: activeCommunity?.property_mode ?? null,
+            },
           });
         }
       })
@@ -262,18 +301,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ? {
           id: String(found.tenant_id),
           name: found.tenant_name,
+          mode: mapPropertyMode(found.property_mode),
           households: found.planned_household_count ?? 0,
           area: found.total_exclusive_area ?? 0,
         }
         : EMPTY_COMMUNITY;
     }
     return communityId && communityName?.trim()
-      ? { id: communityId, name: communityName.trim(), households: 0, area: 0 }
+      ? { id: communityId, name: communityName.trim(), mode, households: 0, area: 0 }
       : EMPTY_COMMUNITY;
-  }, [communityId, communityName, managedCommunities, role]);
-
-  // 当前小区模式跟随小区（除非用户手动切换演示）
-  const effectiveMode = community.mode ?? mode;
+  }, [communityId, communityName, managedCommunities, mode, role]);
 
   const value: StoreValue = {
     role,
@@ -283,8 +320,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     community,
     managedCommunities,
     communitySwitching,
-    mode: effectiveMode,
-    setMode,
+    mode: community.mode,
+    applyAuthoritativePropertyMode,
     lockdown,
     setLockdown,
     dataScope,

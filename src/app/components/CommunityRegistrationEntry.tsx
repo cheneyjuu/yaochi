@@ -44,6 +44,7 @@ import {
   type CommunityRegistrationInput,
   type CommunityRegistrationMaterialType,
 } from "../lib/community-registration";
+import { MODE_META, type BackendPropertyManagementMode } from "../lib/types";
 
 const SHANGHAI_DISTRICTS = [
   { code: "310101", name: "黄浦区" },
@@ -79,6 +80,16 @@ const HOUSING_TAGS: Array<{ value: CommunityHousingTag; label: string }> = [
   { value: "VILLA", label: "别墅" },
 ];
 
+const PROPERTY_MODE_OPTIONS: Array<{
+  value: BackendPropertyManagementMode;
+  label: string;
+  description: string;
+}> = [
+  { value: "LUMP_SUM", label: MODE_META.package.label, description: "物业自负盈亏，按规则公示公共收益。" },
+  { value: "FUND_RAISING", label: MODE_META.reward.label, description: "物业酬金与开支按业主大会决议和规则监督。" },
+  { value: "TRUST", label: MODE_META.trust.label, description: "公共资金按信托规则管理并穿透公示。" },
+];
+
 const MATERIAL_TYPES: Array<{ value: CommunityRegistrationMaterialType; label: string }> = [
   { value: "COMMUNITY_EXISTENCE_PROOF", label: "小区存在证明" },
   { value: "COMMITTEE_FILING", label: "业委会备案材料" },
@@ -112,6 +123,7 @@ interface RegistrationFormState {
   communityAddress: string;
   declaredHouseholdCount: string;
   housingTags: CommunityHousingTag[];
+  declaredPropertyMode: BackendPropertyManagementMode | null;
 }
 
 const EMPTY_FORM: RegistrationFormState = {
@@ -122,6 +134,7 @@ const EMPTY_FORM: RegistrationFormState = {
   communityAddress: "",
   declaredHouseholdCount: "",
   housingTags: ["COMMERCIAL_HOUSING"],
+  declaredPropertyMode: null,
 };
 
 export function CommunityRegistrationEntry({ onBack }: { onBack: () => void }) {
@@ -588,6 +601,31 @@ function RegistrationForm({
               此处仅作为小区概况标签，具体房屋属性需在空间底册中逐套核验。
             </p>
           </Field>
+          <Field label="物业管理模式" required>
+            <div className="grid gap-2 md:grid-cols-3" role="radiogroup" aria-label="物业管理模式">
+              {PROPERTY_MODE_OPTIONS.map((option) => {
+                const selected = form.declaredPropertyMode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => onFormChange({ ...form, declaredPropertyMode: option.value })}
+                    className={`min-h-20 rounded-md border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      selected ? "border-primary bg-primary/5" : "bg-white hover:bg-muted/40"
+                    }`}
+                  >
+                    <span className="block text-sm font-semibold">{option.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              每个小区只能申报一种模式；审核通过后写入小区治理事实，后续变更须经业主大会决议和属地执行。
+            </p>
+          </Field>
         </FormSection>
 
         <FormSection icon={ShieldCheck} title="注册人信息">
@@ -748,6 +786,7 @@ function RegistrationStatus({
           <Info label="地址" value={application.communityAddress} />
           <Info label="注册人" value={`${application.applicantName} · ${identityLabel(application.claimedIdentity)}`} />
           <Info label="申报户数" value={`${application.declaredHouseholdCount} 户`} />
+          <Info label="申报模式" value={propertyModeLabel(application.declaredPropertyMode)} />
           <Info label="提交时间" value={formatDate(application.submittedAt ?? application.createdAt)} />
         </div>
 
@@ -850,6 +889,10 @@ function buildInput(
     toast.error("至少选择一种小区房屋类型");
     return null;
   }
+  if (!form.declaredPropertyMode) {
+    toast.error("请选择唯一的物业管理模式");
+    return null;
+  }
   return {
     applicantName: form.applicantName.trim(),
     claimedIdentity: form.claimedIdentity,
@@ -863,6 +906,7 @@ function buildInput(
     communityAddress: form.communityAddress.trim(),
     declaredHouseholdCount: households,
     housingTags: form.housingTags,
+    declaredPropertyMode: form.declaredPropertyMode,
     expectedVersion,
   };
 }
@@ -876,6 +920,7 @@ function toForm(application: CommunityRegistration): RegistrationFormState {
     communityAddress: application.communityAddress,
     declaredHouseholdCount: String(application.declaredHouseholdCount),
     housingTags: application.housingTags,
+    declaredPropertyMode: application.declaredPropertyMode,
   };
 }
 
@@ -887,6 +932,10 @@ function defaultMaterialType(identity: CommunityApplicantIdentity): CommunityReg
 
 function identityLabel(identity: CommunityApplicantIdentity): string {
   return IDENTITIES.find((item) => item.value === identity)?.label ?? identity;
+}
+
+function propertyModeLabel(mode: BackendPropertyManagementMode | null): string {
+  return PROPERTY_MODE_OPTIONS.find((item) => item.value === mode)?.label ?? "待属地配置";
 }
 
 function materialTypeLabel(type: CommunityRegistrationMaterialType): string {

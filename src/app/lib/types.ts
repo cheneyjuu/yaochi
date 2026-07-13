@@ -1,4 +1,4 @@
-// 盘古社区治理后台 · 核心类型定义
+// 关联业务：定义管理端角色、数据范围和后端确认的互斥物业管理模式类型。
 
 export type Side = "B" | "G" | "S";
 
@@ -23,8 +23,27 @@ export interface Role {
   desc: string;
 }
 
-// 物业治理模式
-export type PropertyMode = "package" | "reward" | "trust"; // 包干制 / 酬金制 / 信托制
+// 物业治理模式。unconfigured 仅表示尚未由注册审核或属地执行写入，不能作为业务规则的默认值。
+export type PropertyMode = "unconfigured" | "package" | "reward" | "trust";
+
+/** 后端租户事实中的物业管理模式枚举。 */
+export type BackendPropertyManagementMode = "LUMP_SUM" | "FUND_RAISING" | "TRUST";
+
+/** 仅在后端已明确返回模式时映射；缺失值必须保持为待配置。 */
+export function mapPropertyMode(
+  mode: BackendPropertyManagementMode | null | undefined,
+): PropertyMode {
+  switch (mode) {
+    case "LUMP_SUM":
+      return "package";
+    case "FUND_RAISING":
+      return "reward";
+    case "TRUST":
+      return "trust";
+    default:
+      return "unconfigured";
+  }
+}
 
 // 菜单可见性三态
 export type Visibility = "full" | "readonly" | "hidden";
@@ -52,6 +71,12 @@ export const ROLES: Role[] = [
 ];
 
 export const MODE_META: Record<PropertyMode, { label: string; color: string; bg: string; desc: string }> = {
+  unconfigured: {
+    label: "待配置",
+    color: "#5a6677",
+    bg: "#eef2f8",
+    desc: "该小区尚未由注册审核或属地执行确认物业管理模式，模式化财务规则暂不启用。",
+  },
   package: {
     label: "包干制",
     color: "#2e9e5b",

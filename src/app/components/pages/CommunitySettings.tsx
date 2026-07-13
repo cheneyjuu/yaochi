@@ -27,6 +27,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { useStore } from "../../lib/store";
+import { PropertyManagementModeGovernance } from "./PropertyManagementModeGovernance";
 import {
   Dialog,
   DialogContent,
@@ -49,7 +51,7 @@ import {
   type CommunitySettingsResponse,
 } from "../../lib/community-settings";
 
-type TabKey = "organization" | "building" | "denominator" | "rules" | "changes";
+type TabKey = "organization" | "building" | "denominator" | "rules" | "propertyMode" | "changes";
 
 interface BoundaryNode {
   id: string;
@@ -200,6 +202,7 @@ function buildBoundaryNodes(asset: CommunityAssetLedger): BoundaryNode[] {
 }
 
 export function CommunitySettings() {
+  const { hasPermission } = useStore();
   const [activeTab, setActiveTab] = useState<TabKey>("organization");
   const [data, setData] = useState<CommunitySettingsResponse | null>(null);
   const [organizationDraft, setOrganizationDraft] = useState<CommunityOrganization | null>(null);
@@ -239,9 +242,12 @@ export function CommunitySettings() {
     tabs.push({ key: "building", label: "建筑名册", mobileLabel: "名册" });
     tabs.push({ key: "denominator", label: "法定计票基数", mobileLabel: "计票基数" });
     if (data?.rules) tabs.push({ key: "rules", label: "自治与财务规则", mobileLabel: "自治规则" });
+    if (hasPermission("property:management-mode:read")) {
+      tabs.push({ key: "propertyMode", label: "物业管理模式", mobileLabel: "管理模式" });
+    }
     tabs.push({ key: "changes", label: "变更记录", mobileLabel: "变更记录" });
     return tabs;
-  }, [data]);
+  }, [data, hasPermission]);
 
   async function saveOrganization() {
     if (!organizationDraft) return;
@@ -786,6 +792,10 @@ export function CommunitySettings() {
               </div>
             </SectionCard>
           )}
+        </TabsContent>
+
+        <TabsContent value="propertyMode" className="space-y-4">
+          <PropertyManagementModeGovernance />
         </TabsContent>
 
         <TabsContent value="changes" className="space-y-4">

@@ -1,5 +1,6 @@
 // 关联业务：连接小区注册人短信身份、申请材料维护、属地/平台审核与租户冷启动接口。
 import { apiGet, apiPost, createTokenApi } from "./api";
+import type { BackendPropertyManagementMode } from "./types";
 
 export type CommunityRegistrationStatus =
   | "DRAFT"
@@ -82,6 +83,8 @@ export interface CommunityRegistration {
   communityAddress: string;
   declaredHouseholdCount: number;
   housingTags: CommunityHousingTag[];
+  /** 注册人声明的一项互斥模式，须经属地审核后才写入租户事实。 */
+  declaredPropertyMode: BackendPropertyManagementMode | null;
   status: CommunityRegistrationStatus;
   reviewMode?: "STREET" | "PLATFORM_FALLBACK" | null;
   reviewerUserId?: number | null;
@@ -112,6 +115,7 @@ export interface CommunityRegistrationInput {
   communityAddress: string;
   declaredHouseholdCount: number;
   housingTags: CommunityHousingTag[];
+  declaredPropertyMode: BackendPropertyManagementMode;
   expectedVersion?: number;
 }
 
