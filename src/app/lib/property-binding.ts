@@ -21,6 +21,18 @@ export interface RosterImportRow {
   registeredOwnerPhone: string;
 }
 
+/** 关联业务：描述产权基础名册文本中不能安全导入的行，供管理端在提交前逐行修正。 */
+export interface RosterParseIssue {
+  lineNumber: number;
+  message: string;
+}
+
+/** 关联业务：将名册文本解析结果和逐行校验问题一并返回，避免前端静默跳过产权数据。 */
+export interface RosterParseResult {
+  rows: RosterImportRow[];
+  issues: RosterParseIssue[];
+}
+
 export interface RosterImportResult {
   importBatchNo: string;
   importedCount: number;
@@ -114,11 +126,74 @@ export function rejectPropertyClaim(claimId: number, reason: string, reasonCode 
 }
 
 export function parseRosterText(text: string): RosterImportRow[] {
+  return inspectRosterText(text).rows;
+}
+
+export function inspectRosterText(text: string): RosterParseResult {
   const matrix = text
     .split(/\r?\n/)
-    .map((line) => splitLine(line.trim()))
-    .filter((row) => row.some(Boolean));
-  return parseRosterMatrix(matrix);
+    .map((line, index) => ({ cells: splitLine(line.trim()), lineNumber: index + 1 }))
+    .filter(({ cells }) => cells.some(Boolean));
+
+  if (matrix.length === 0) return { rows: [], issues: [] };
+
+  const hasHeader = matrix[0].cells.some((cell) => /楼栋|房号|姓名|手机|面积/.test(cell));
+  const dataRows = hasHeader ? matrix.slice(1) : matrix;
+  const rows: RosterImportRow[] = [];
+  const issues: RosterParseIssue[] = [];
+
+  dataRows.forEach(({ cells, lineNumber }) => {
+    if (cells.length < 6) {
+      issues.push({
+        lineNumber,
+        message: `第 ${lineNumber} 行仅识别到 ${cells.length} 列，需要 6 列：楼栋、单元、房号、专有面积、登记业主姓名、登记手机号。`,
+      });
+      return;
+    }
+
+    const [buildingName, unitName, roomName, buildAreaText, registeredOwnerName, registeredOwnerPhone] = cells;
+    const missingFields = [
+      !buildingName && "楼栋",
+      !unitName && "单元",
+      !roomName && "房号",
+      !registeredOwnerName && "登记业主姓名",
+      !registeredOwnerPhone && "登记手机号",
+    ].filter(Boolean);
+    if (missingFields.length > 0) {
+      issues.push({
+        lineNumber,
+        message: `第 ${lineNumber} 行缺少${missingFields.join("、")}。`,
+      });
+      return;
+    }
+
+    const buildArea = Number(buildAreaText);
+    if (!buildAreaText || !Number.isFinite(buildArea) || buildArea < 0) {
+      issues.push({
+        lineNumber,
+        message: `第 ${lineNumber} 行的专有面积必须是大于或等于 0 的数字。`,
+      });
+      return;
+    }
+    if (!/^1\d{10}$/.test(registeredOwnerPhone)) {
+      issues.push({
+        lineNumber,
+        message: `第 ${lineNumber} 行的登记手机号须为 11 位中国大陆手机号。`,
+      });
+      return;
+    }
+
+    rows.push({
+      buildingName,
+      unitName,
+      roomName,
+      buildArea,
+      registeredOwnerName,
+      registeredOwnerPhone,
+    });
+  });
+
+  return { rows, issues };
 }
 
 export async function readRosterFile(file: File): Promise<string> {
@@ -133,25 +208,8 @@ export async function readRosterFile(file: File): Promise<string> {
   return file.text();
 }
 
-function parseRosterMatrix(matrix: string[][]): RosterImportRow[] {
-  if (matrix.length === 0) return [];
-  const first = matrix[0];
-  const hasHeader = first.some((cell) => /楼栋|房号|姓名|手机|面积/.test(cell));
-  const body = hasHeader ? matrix.slice(1) : matrix;
-  return body.map((cells) => {
-    return {
-      buildingName: cells[0] ?? "",
-      unitName: cells[1] ?? "默认单元",
-      roomName: cells[2] ?? "",
-      buildArea: Number(cells[3] || 0),
-      registeredOwnerName: cells[4] ?? "",
-      registeredOwnerPhone: cells[5] ?? "",
-    };
-  }).filter((row) => row.buildingName && row.roomName && row.registeredOwnerName && row.registeredOwnerPhone);
-}
-
 function splitLine(line: string) {
-  return line.split(/\t|,/).map((cell) => cell.trim());
+  return line.split(/[\t,，]/).map((cell) => cell.trim());
 }
 
 function readXlsxRows(input: Uint8Array): string[][] {
