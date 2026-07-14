@@ -1,9 +1,9 @@
-import { useStore, COMMUNITIES, ROLES } from "../../lib/store";
+// 关联业务：展示当前受后端租户上下文约束的小区、物业管理模式和工作身份。
+import { useStore, ROLES } from "../../lib/store";
 import { ModeChip } from "../gov/common";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -11,13 +11,25 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Bell, ChevronDown, Search, MapPin, AlertTriangle, LogOut } from "lucide-react";
-import type { RoleId } from "../../lib/types";
+import { AlertTriangle, Bell, ChevronDown, LoaderCircle, LogOut, MapPin, Menu, Search } from "lucide-react";
+import { toast } from "sonner";
 
-export function Topbar() {
-  const { role, setRole, communityId, setCommunityId, community, mode, lockdown, setPage, logout } = useStore();
+export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) {
+  const {
+    role,
+    communityId,
+    setCommunityId,
+    community,
+    managedCommunities,
+    communitySwitching,
+    mode,
+    lockdown,
+    setPage,
+    logout,
+  } = useStore();
   const roleMeta = ROLES.find((r) => r.id === role)!;
   const isG = roleMeta.side === "G";
+  const isSupplier = roleMeta.side === "S";
   const canSwitchCommunity = role === "street_admin";
 
   return (
@@ -27,15 +39,23 @@ export function Topbar() {
         <div className="h-1.5" style={{ backgroundColor: "var(--gov-g-deep)" }} />
       )}
       <div
-        className="h-14 flex items-center gap-4 px-5 border-b border-border bg-card"
+        className="h-14 flex items-center gap-2 px-3 border-b border-border bg-card sm:gap-4 sm:px-5"
         style={isG ? { boxShadow: "inset 0 2px 0 0 var(--gov-g-deep)" } : undefined}
       >
+        <button
+          type="button"
+          onClick={onOpenNavigation}
+          className="grid size-9 shrink-0 place-items-center rounded-md hover:bg-accent lg:hidden"
+          aria-label="打开导航"
+        >
+          <Menu className="size-5" />
+        </button>
         {/* Logo */}
-        <div className="flex items-center gap-2 pr-2">
+        <div className="flex shrink-0 items-center gap-2 sm:pr-2">
           <div className="grid place-items-center size-8 rounded-md gov-primary-gradient text-white" style={{ fontWeight: 700 }}>
             盘
           </div>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>盘古</span>
+          <span className="hidden sm:inline" style={{ fontWeight: 700, fontSize: 16 }}>盘古</span>
           {isG && (
             <span className="ml-1 rounded px-1.5 py-0.5 text-[11px] text-white" style={{ backgroundColor: "var(--gov-g-deep)" }}>
               G端监管
@@ -44,30 +64,53 @@ export function Topbar() {
         </div>
 
         {/* 小区 / 辖区切换器 */}
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border border-border px-3 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed" disabled={!canSwitchCommunity}>
+        {isSupplier ? (
+          <div className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium">
+            供应商工作台
+          </div>
+        ) : <DropdownMenu>
+          <DropdownMenuTrigger
+            className="flex min-w-0 max-w-36 items-center gap-1.5 rounded-md border border-border px-2 h-9 text-sm hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed sm:max-w-none sm:px-3"
+            disabled={!canSwitchCommunity || managedCommunities.length === 0 || communitySwitching}
+          >
             <MapPin className="size-3.5 text-muted-foreground" />
-            <span style={{ fontWeight: 500 }}>{communityId === "ALL" ? "辖区汇总（全部小区）" : community.name}</span>
-            {canSwitchCommunity && <ChevronDown className="size-3.5 text-muted-foreground" />}
+            <span className="truncate" style={{ fontWeight: 500 }}>{community.name}</span>
+            {communitySwitching
+              ? <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+              : canSwitchCommunity && <ChevronDown className="size-3.5 text-muted-foreground" />}
           </DropdownMenuTrigger>
           {canSwitchCommunity && (
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>选择监管范围</DropdownMenuLabel>
+              <DropdownMenuLabel>选择监管小区</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={communityId} onValueChange={(v) => setCommunityId(v)}>
-                <DropdownMenuRadioItem value="ALL">辖区汇总（全部小区）</DropdownMenuRadioItem>
-                {COMMUNITIES.map((c) => (
-                  <DropdownMenuRadioItem key={c.id} value={c.id}>
-                    {c.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              {managedCommunities.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">暂无可切换的小区</p>
+              ) : (
+                <DropdownMenuRadioGroup
+                  value={communityId}
+                  onValueChange={(tenantId) => {
+                    void setCommunityId(tenantId).catch((error) => {
+                      toast.error(error instanceof Error ? error.message : "小区切换失败");
+                    });
+                  }}
+                >
+                  {managedCommunities.map((communityOption) => (
+                    <DropdownMenuRadioItem
+                      key={communityOption.tenant_id}
+                      value={String(communityOption.tenant_id)}
+                      disabled={communitySwitching}
+                    >
+                      {communityOption.tenant_name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              )}
             </DropdownMenuContent>
           )}
-        </DropdownMenu>
+        </DropdownMenu>}
 
         {/* 物业模式 Chip */}
-        {communityId !== "ALL" && <ModeChip mode={mode} />}
+        {!isSupplier && <ModeChip mode={mode} className="hidden md:inline-flex" />}
 
         {/* 换届熔断全局提醒 */}
         {lockdown && (
@@ -91,47 +134,31 @@ export function Topbar() {
             />
           </div>
           {/* 消息 */}
-          <button className="relative grid place-items-center size-9 rounded-md hover:bg-accent">
+          <button className="relative hidden place-items-center size-9 rounded-md hover:bg-accent sm:grid">
             <Bell className="size-4.5 text-muted-foreground" />
             <span className="absolute top-1.5 right-1.5 size-2 rounded-full" style={{ backgroundColor: "var(--gov-danger)" }} />
           </button>
 
-          {/* 头像 + 角色切换 */}
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-md pl-1 pr-2 h-9 hover:bg-accent transition-colors">
-              <Avatar className="size-7">
-                <AvatarFallback className="text-xs gov-primary-gradient text-white">
-                  {roleMeta.name.slice(0, 1)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="text-sm text-left hidden md:block leading-tight">
-                <span className="block" style={{ fontWeight: 500 }}>{roleMeta.name}</span>
-                <span className="block text-[11px] text-muted-foreground">{roleMeta.scope}</span>
-              </span>
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel>切换登录角色（演示）</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={role} onValueChange={(v) => setRole(v as RoleId)}>
-                {ROLES.map((r) => (
-                  <DropdownMenuRadioItem key={r.id} value={r.id} className="flex-col items-start gap-0.5 py-2">
-                    <span className="flex items-center gap-2">
-                      <span style={{ fontWeight: 500 }}>{r.name}</span>
-                      <span className="rounded px-1 text-[10px]" style={{ backgroundColor: r.side === "G" ? "var(--gov-g-deep)" : "#e8f0fb", color: r.side === "G" ? "#fff" : "#143c78" }}>
-                        {r.side}端
-                      </span>
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{r.scope}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive">
-                <LogOut className="size-4" /> 退出登录
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* 当前登录用户 */}
+          <div className="flex items-center gap-2 rounded-md pl-1 pr-2 h-9">
+            <Avatar className="size-7">
+              <AvatarFallback className="text-xs gov-primary-gradient text-white">
+                {roleMeta.name.slice(0, 1)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-sm text-left hidden md:block leading-tight">
+              <span className="block" style={{ fontWeight: 500 }}>{roleMeta.name}</span>
+              <span className="block text-[11px] text-muted-foreground">{roleMeta.scope}</span>
+            </span>
+          </div>
+          <button
+            onClick={logout}
+            className="grid place-items-center size-9 rounded-md text-muted-foreground hover:bg-accent hover:text-destructive transition-colors"
+            title="退出登录"
+            aria-label="退出登录"
+          >
+            <LogOut className="size-4" />
+          </button>
         </div>
       </div>
     </header>

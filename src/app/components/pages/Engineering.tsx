@@ -464,7 +464,7 @@ export function Engineering() {
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <AlertCircle className="size-4" />
                     {selectedEng.phase === "方案评审"
-                      ? "工程尚在方案评审阶段，待表决通过后开工，验收功能届时解锁。"
+                      ? "工程尚在方案评审阶段，待投票通过后开工，验收功能届时解锁。"
                       : "施工进行中，验收功能将在施工完成后解锁。"}
                   </div>
                 )}

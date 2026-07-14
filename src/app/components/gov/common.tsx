@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../ui/utils";
 import { Card } from "../ui/card";
-import { CheckCircle2, FileText, Link2, ShieldCheck, Inbox } from "lucide-react";
+import { CheckCircle2, FileText, Inbox, Link2, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { PropertyMode } from "../../lib/types";
 import { MODE_META } from "../../lib/types";
 
@@ -216,31 +216,33 @@ export function Stepper({
   locked?: number; // 被锁定的步骤 index
 }) {
   return (
-    <div className="flex items-center w-full">
-      {steps.map((s, i) => {
-        const done = i < current;
-        const active = i === current;
-        const isLocked = locked === i;
-        const color = isLocked ? "#d14343" : rejected && i === current ? "#d14343" : done ? "#2e9e5b" : active ? "#1b4f9c" : "#cbd4e1";
-        return (
-          <div key={s.key} className="flex items-center flex-1 last:flex-none">
-            <div className="flex flex-col items-center gap-1.5 shrink-0">
-              <div
-                className="grid place-items-center size-7 rounded-full text-xs text-white"
-                style={{ backgroundColor: color }}
-              >
-                {done ? <CheckCircle2 className="size-4" /> : isLocked ? "🔒" : i + 1}
+    <div className="w-full overflow-x-auto pb-1">
+      <div className="flex items-center" style={{ minWidth: Math.max(steps.length * 72, 320) }}>
+        {steps.map((s, i) => {
+          const done = i < current;
+          const active = i === current;
+          const isLocked = locked === i;
+          const color = isLocked ? "#d14343" : rejected && i === current ? "#d14343" : done ? "#2e9e5b" : active ? "#1b4f9c" : "#cbd4e1";
+          return (
+            <div key={s.key} className="flex items-center flex-1 last:flex-none">
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                <div
+                  className="grid place-items-center size-7 rounded-full text-xs text-white"
+                  style={{ backgroundColor: color }}
+                >
+                  {done ? <CheckCircle2 className="size-4" /> : isLocked ? <LockKeyhole className="size-3.5" /> : i + 1}
+                </div>
+                <span className="text-xs whitespace-nowrap" style={{ color: active || done ? "#1f2733" : "#9aa5b5", fontWeight: active ? 600 : 400 }}>
+                  {s.label}
+                </span>
               </div>
-              <span className="text-xs whitespace-nowrap" style={{ color: active || done ? "#1f2733" : "#9aa5b5", fontWeight: active ? 600 : 400 }}>
-                {s.label}
-              </span>
+              {i < steps.length - 1 && (
+                <div className="flex-1 h-0.5 mx-2 mb-5" style={{ backgroundColor: i < current ? "#2e9e5b" : "#e3e8f0" }} />
+              )}
             </div>
-            {i < steps.length - 1 && (
-              <div className="flex-1 h-0.5 mx-2 mb-5" style={{ backgroundColor: i < current ? "#2e9e5b" : "#e3e8f0" }} />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -336,12 +338,12 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
+    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+      <div className="min-w-0">
         <h1 style={{ fontSize: 24, fontWeight: 600, lineHeight: "32px" }}>{title}</h1>
         {desc && <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{desc}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex max-w-full flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
     </div>
   );
 }

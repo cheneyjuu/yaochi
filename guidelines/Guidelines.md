@@ -59,3 +59,7 @@ or initiating processes. They communicate interactivity and should have clear, a
   * Visual Style : Text-only with no border, using primary color
   * Usage : For actions that should be available but not emphasized
 -->
+
+## Agent Error Log
+
+- 2026-07-02: Multi-file hand-written `git apply` patches failed repeatedly because hunk boundaries and nested template literals were fragile. For cross-repo frontend edits, apply small checked patches or deterministic file transforms, and avoid nested backticks inside script-embedded TSX.

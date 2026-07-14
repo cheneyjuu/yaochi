@@ -5,7 +5,7 @@
 //   DELETE /admin/roles/{id}/permissions/{key} 撤销、DELETE /admin/roles/{id} 删除。
 // 后端无 updateRole：defaultDataScope/fixedDataScope 仅在新建时合法，已有角色只读展示。
 
-import { apiGet, apiPost, apiDelete } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "./api";
 import type { PageResponse } from "./voting";
 
 /** 对齐后端 RoleListItemResponse。Instant → ISO 字符串。 */

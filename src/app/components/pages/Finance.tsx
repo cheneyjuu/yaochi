@@ -1,4 +1,5 @@
-import { PageHeader, SectionCard, StatusChip, Money, KpiCard, type Tone } from "../gov/common";
+// 关联业务：按已生效的物业管理模式展示公共资金公示和财务监督信息。
+import { PageHeader, SectionCard, StatusChip, Money, KpiCard, ModeChip, type Tone } from "../gov/common";
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
@@ -20,8 +21,30 @@ const CHAIN = [
 ];
 
 export function Finance() {
-  const { mode } = useStore();
+  const { mode, hasPermission, setPage } = useStore();
   const m = MODE_META[mode];
+
+  if (mode === "unconfigured") {
+    const canSubmit = hasPermission("property:management-mode:submit");
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="财务监督 / 公共收益公示"
+          desc="当前小区尚未完成物业管理模式配置，暂不展示按模式解释的资金规则。"
+          actions={<ModeChip mode={mode} />}
+        />
+        <SectionCard
+          title="等待物业管理模式生效"
+          desc="模式必须经小区注册审核确认，或由业委会主任提交业主大会决议后经街道办执行。"
+          extra={canSubmit ? <Button onClick={() => setPage("community-settings")}>前往配置申请</Button> : <StatusChip tone="warning">待配置</StatusChip>}
+        >
+          <div className="rounded-md border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
+            未配置时不以包干制、酬金制或信托制的任一规则默认展示资金流和审批入口。
+          </div>
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
