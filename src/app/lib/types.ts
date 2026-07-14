@@ -11,7 +11,7 @@ export type RoleId =
   | "committee_member" // 业委会委员 (B)
   | "building_rep" // 楼栋代表 / 网格员 (B)
   | "property_manager" // 物业经理 (B)
-  | "property_service" // 物业客服 (B)
+  | "property_service" // 物业员工 (B)
   | "supplier_service" // 供应商报价经办人 (S)
   | "auditor"; // 第三方审计师 (B)
 
@@ -65,7 +65,7 @@ export const ROLES: Role[] = [
   { id: "committee_member", name: "业委会委员", side: "B", scope: "本小区全量（部分只读）", desc: "议题、报告、沟通" },
   { id: "building_rep", name: "楼栋代表 / 网格员", side: "B", scope: "仅责任田楼栋", desc: "本楼栋议题催票、线下核销、维修工单" },
   { id: "property_manager", name: "物业经理", side: "B", scope: "仅本物业组织", desc: "公共收益录入、开支单提交（密码A签名）、维修工单" },
-  { id: "property_service", name: "物业客服", side: "B", scope: "仅本物业组织", desc: "报修受理、工单处理" },
+  { id: "property_service", name: "物业员工", side: "B", scope: "仅本物业组织", desc: "报修受理、工单处理" },
   { id: "supplier_service", name: "供应商经办人", side: "S", scope: "仅本企业邀价", desc: "查看本企业邀价并提交报价" },
   { id: "auditor", name: "第三方审计师", side: "B", scope: "本小区财务只读", desc: "财务监督 + 内账导出（按需激活）" },
 ];
