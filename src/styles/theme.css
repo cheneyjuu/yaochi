@@ -1,7 +1,9 @@
+/* 关联业务：定义社区治理管理端的统一排版、颜色和导航视觉密度。 */
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-size: 14px;
+  /* 参考企业管理后台的紧凑阅读密度：正文默认 13px，页面显式层级保持不变。 */
+  --font-size: 13px;
 
   /* 盘古社区治理 · 政务严肃蓝 + 数据看板科技感 */
   /* 主色 */
@@ -54,13 +56,13 @@
   --chart-4: #e0a310;
   --chart-5: #3a6fbf;
   --radius: 0.5rem;
-  --sidebar: #ffffff;
+  --sidebar: #fcfdff;
   --sidebar-foreground: #1f2733;
   --sidebar-primary: #1b4f9c;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #e8f0fb;
   --sidebar-accent-foreground: #143c78;
-  --sidebar-border: #e3e8f0;
+  --sidebar-border: #e6ebf2;
   --sidebar-ring: #3a6fbf;
 }
 

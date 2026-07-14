@@ -23,6 +23,7 @@ import {
 
 /**
  * 后台角色工作台的主导航：按授权菜单组织页面，并提供模块折叠与图标栏收起能力。
+ * 视觉密度参考企业级后台的轻量侧栏，强化一级模块与二级业务页的阅读层级。
  */
 
 const ICONS: Record<string, LucideIcon> = {
@@ -69,7 +70,7 @@ export function Sidebar({
       )}
       <aside
         className={cn(
-          "fixed bottom-0 left-0 top-14 z-40 flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[transform,width] duration-200 lg:static lg:z-auto lg:h-full lg:translate-x-0",
+          "fixed bottom-0 left-0 top-14 z-40 flex w-[248px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-[1px_0_0_rgba(16,42,86,0.02)] transition-[transform,width] duration-200 lg:static lg:z-auto lg:h-full lg:translate-x-0",
           collapsed ? "lg:w-[72px]" : "lg:w-60",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
@@ -79,7 +80,7 @@ export function Sidebar({
             <X className="size-4" />
           </button>
         </div>
-        <nav className={cn("gov-scroll flex-1 overflow-y-auto py-3", iconOnly && "px-1")}>
+        <nav className={cn("gov-scroll flex-1 overflow-y-auto py-2.5", iconOnly && "px-1")}>
         {menus.map((mod) => {
           const Icon = mod.icon ? (ICONS[mod.icon] ?? Circle) : Circle;
           const open = collapsedModules[mod.id] === undefined
@@ -100,14 +101,14 @@ export function Sidebar({
               aria-expanded={iconOnly ? undefined : open}
               aria-label={iconOnly ? `展开${mod.label}导航` : undefined}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+                "flex min-h-9 w-full items-center gap-2.5 rounded-md px-3 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
                 iconOnly && "justify-center px-2",
                 iconOnly && mod.id === activeModule && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
               <Icon className="size-4 shrink-0 text-muted-foreground" />
-              {!iconOnly && <span className="flex-1 text-left" style={{ fontWeight: 500 }}>{mod.label}</span>}
-              {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", !open && "-rotate-90")} />}
+              {!iconOnly && <span className="flex-1 text-left tracking-[0.01em]" style={{ fontWeight: 600 }}>{mod.label}</span>}
+              {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground/80 transition-transform", !open && "-rotate-90")} />}
             </button>
           );
           return (
@@ -119,7 +120,7 @@ export function Sidebar({
                 </Tooltip>
               ) : moduleButton}
               {!iconOnly && open && (
-                <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
+                <div className="mt-0.5 mb-1.5 ml-[21px] border-l border-sidebar-border/80 pl-2.5 flex flex-col gap-0.5">
                   {mod.pages.map((p) => {
                     const active = page === p.id;
                     return (
@@ -130,10 +131,10 @@ export function Sidebar({
                           onMobileClose?.();
                         }}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-left text-sm transition-colors",
+                          "relative min-h-8 rounded-md px-3 py-1.5 text-left text-[12.5px] leading-5 transition-colors",
                           active
-                            ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                            : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_3px_0_0_var(--sidebar-primary)]"
+                            : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
                         )}
                       >
                         {p.label}
@@ -147,7 +148,7 @@ export function Sidebar({
         })}
         </nav>
         <div className={cn("hidden h-12 items-center border-t border-sidebar-border lg:flex", iconOnly ? "justify-center px-2" : "justify-between px-3")}>
-          {!iconOnly && <span className="text-[11px] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
+          {!iconOnly && <span className="text-[10px] tracking-[0.02em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
