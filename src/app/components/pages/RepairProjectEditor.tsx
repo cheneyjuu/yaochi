@@ -50,6 +50,7 @@ interface PercentageInputProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  min?: number;
   max?: number;
   placeholder?: string;
 }
@@ -85,11 +86,21 @@ function percentageToRatio(percentage: number): number {
   return Number((percentage / 100).toFixed(6));
 }
 
+// 管理端录入各期合同占比，领域模型保存截至每个节点的累计付款上限。
+function paymentSharesToCumulativeRatios(paymentShares: number[]): number[] {
+  let cumulativePercentage = 0;
+  return paymentShares.map((paymentShare) => {
+    cumulativePercentage += paymentShare;
+    return percentageToRatio(cumulativePercentage);
+  });
+}
+
 function PercentageInput({
   label,
   value,
   onChange,
   disabled = false,
+  min = 0,
   max = 100,
   placeholder,
 }: PercentageInputProps) {
@@ -99,7 +110,7 @@ function PercentageInput({
       <div className="relative">
         <Input
           type="number"
-          min="0.01"
+          min={min}
           max={max}
           step="0.01"
           value={value}
@@ -136,10 +147,10 @@ export function RepairProjectEditor() {
   const [plannedCompletionDate, setPlannedCompletionDate] = useState(dateAfter(30));
   const [warrantyDays, setWarrantyDays] = useState("365");
   const [priceReviewRequired, setPriceReviewRequired] = useState(true);
-  const [advancePercent, setAdvancePercent] = useState("");
-  const [progressPercent, setProgressPercent] = useState("");
-  const [completionPercent, setCompletionPercent] = useState("");
-  const [warrantyReleasePercent, setWarrantyReleasePercent] = useState("");
+  const [advanceSharePercent, setAdvanceSharePercent] = useState("");
+  const [progressSharePercent, setProgressSharePercent] = useState("");
+  const [completionSharePercent, setCompletionSharePercent] = useState("");
+  const [warrantyReleaseSharePercent, setWarrantyReleaseSharePercent] = useState("");
   const [items, setItems] = useState<DraftItem[]>([emptyItem(0)]);
   const [eligibleCases, setEligibleCases] = useState<RepairWorkOrder[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
@@ -260,18 +271,33 @@ export function RepairProjectEditor() {
       toast.error("请检查实施日期和质保天数");
       return;
     }
-    const paymentPercents = [advancePercent, progressPercent, completionPercent, warrantyReleasePercent].map(Number);
-    if (paymentPercents.some((percentage) => !Number.isFinite(percentage)
-      || percentage <= 0 || percentage > 100)
-      || paymentPercents.some((percentage, index) => index > 0 && percentage < paymentPercents[index - 1])) {
-      toast.error("请填写 4 个按业务顺序递增的累计付款百分比，取值须大于 0% 且不超过 100%");
+    const paymentShareInputs = [
+      advanceSharePercent,
+      progressSharePercent,
+      completionSharePercent,
+      warrantyReleaseSharePercent,
+    ];
+    if (paymentShareInputs.some((percentage) => percentage.trim() === "")) {
+      toast.error("请明确填写 4 个付款节点比例，未发生付款的节点请填写 0%");
       return;
     }
-    if (paymentPercents[0] > 30 || (priceReviewRequired && paymentPercents[1] > 90)) {
+    const paymentShares = paymentShareInputs.map(Number);
+    if (paymentShares.some((percentage) => !Number.isFinite(percentage)
+      || percentage < 0 || percentage > 100) || paymentShares[0] <= 0) {
+      toast.error("付款比例须在 0% 至 100% 之间，首次支取比例须大于 0%");
+      return;
+    }
+    const paymentTotal = paymentShares.reduce((total, percentage) => total + percentage, 0);
+    if (Math.abs(paymentTotal - 100) > 0.000001) {
+      toast.error(`4 个付款节点比例合计须为 100%，当前为 ${paymentTotal.toFixed(2).replace(/\.00$/, "")}%`);
+      return;
+    }
+    const cumulativeProgressPercent = paymentShares[0] + paymentShares[1];
+    if (paymentShares[0] > 30 || (priceReviewRequired && cumulativeProgressPercent > 90)) {
       toast.error("首次支取不得超过 30%；需审价项目在审价完成前的进度款累计比例不得超过 90%");
       return;
     }
-    const paymentRatios = paymentPercents.map(percentageToRatio);
+    const paymentRatios = paymentSharesToCumulativeRatios(paymentShares);
     const normalizedItems = items.map((item) => {
       const quantity = Number(item.quantity);
       const unitPrice = Number(item.estimatedUnitPrice);
@@ -462,7 +488,7 @@ export function RepairProjectEditor() {
                   <div className="md:col-span-2"><Label>受影响业主范围</Label><Input value={affectedOwnerScope} onChange={(event) => setAffectedOwnerScope(event.target.value)} /></div>
                   <div><Label>最低有效业主人数</Label><Input type="number" min="1" value={minimumAcceptors} onChange={(event) => setMinimumAcceptors(event.target.value)} /></div>
                   <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalPercent(next === "ALL" ? "100" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
-                  <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} placeholder="例如 60" onChange={setApprovalPercent} />
+                  <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} min={0.01} placeholder="例如 60" onChange={setApprovalPercent} />
                 </>
               )}
               <div><Label>结算方式</Label><Select value={settlementMethod} onValueChange={(value) => setSettlementMethod(value as typeof settlementMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTUAL_QUANTITY">按实际工程量</SelectItem><SelectItem value="FIXED_TOTAL">固定总价</SelectItem></SelectContent></Select></div>
@@ -476,12 +502,12 @@ export function RepairProjectEditor() {
           </div>
         </SectionCard>
 
-        <SectionCard title="付款节点累计比例">
+        <SectionCard title="分期付款比例（合计 100%）">
             <div className="grid gap-4 md:grid-cols-4">
-              <PercentageInput label="首次支取累计比例" value={advancePercent} max={30} placeholder="不超过 30" onChange={setAdvancePercent} />
-              <PercentageInput label="进度款累计比例" value={progressPercent} placeholder="例如 90" onChange={setProgressPercent} />
-              <PercentageInput label="完工款累计比例" value={completionPercent} placeholder="例如 100" onChange={setCompletionPercent} />
-              <PercentageInput label="质保金释放累计比例" value={warrantyReleasePercent} placeholder="例如 100" onChange={setWarrantyReleasePercent} />
+              <PercentageInput label="首次支取比例" value={advanceSharePercent} min={0.01} max={30} placeholder="不超过 30" onChange={setAdvanceSharePercent} />
+              <PercentageInput label="进度款比例" value={progressSharePercent} placeholder="例如 50" onChange={setProgressSharePercent} />
+              <PercentageInput label="完工款比例" value={completionSharePercent} placeholder="例如 10" onChange={setCompletionSharePercent} />
+              <PercentageInput label="质保金比例" value={warrantyReleaseSharePercent} placeholder="例如 10" onChange={setWarrantyReleaseSharePercent} />
             </div>
         </SectionCard>
       </div>
