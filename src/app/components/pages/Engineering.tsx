@@ -1,15 +1,51 @@
-import { useState } from "react";
+// 关联业务：展示真实维修工程项目台账，并按楼栋或全小区流程办理治理、施工、验收、付款和归档。
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  PageHeader,
-  SectionCard,
-  StatusChip,
-  ScopeChip,
-  Money,
-  KpiCard,
-  FileCard,
-  type Tone,
-} from "../gov/common";
+  Banknote,
+  Building2,
+  CheckCircle2,
+  ClipboardCheck,
+  FileText,
+  HardHat,
+  Inbox,
+  Layers,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useStore } from "../../lib/store";
+import { listRepairSupplierOrganizations, type RepairSupplierOrganization } from "../../lib/repair";
+import {
+  getRepairProject,
+  getRepairProjectAttachmentTicket,
+  getRepairProjectExecution,
+  pageRepairProjects,
+  type RepairProject,
+  type RepairProjectDetails,
+  type RepairProjectExecutionDetails,
+  type RepairProjectStatus,
+  type RepairProjectStage,
+} from "../../lib/repair-project";
+import { PageHeader, KpiCard, Money, SectionCard, StatusChip, type Tone } from "../gov/common";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Table,
   TableBody,
@@ -18,461 +54,300 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "../ui/sheet";
-import {
-  Layers,
-  CheckCircle2,
-  Upload,
-  ClipboardCheck,
-  AlertCircle,
-  Banknote,
-  CalendarDays,
-  HardHat,
-} from "lucide-react";
-import { toast } from "sonner";
+import { RepairProjectCreateDialog } from "./repair/RepairProjectCreateDialog";
+import { RepairProjectOperationPanel } from "./repair/RepairProjectOperationPanel";
 
-type Phase = "方案评审" | "施工中" | "验收中" | "已验收" | "已归档";
-type EScope = "local" | "global";
-
-interface Engineering {
-  id: string;
-  name: string;
-  workOrderId: string;
-  cost: number;
-  duration: string;
-  startDate: string;
-  endDate: string;
-  contractor: string;
-  phase: Phase;
-  scope: EScope;
-  building?: string;
-  fundSource: string;
-  fundAccount: string;
-  superviser: string;
-  acceptResult?: string;
-  acceptDate?: string;
-  acceptBy?: string;
-  desc: string;
-}
-
-const PHASE_TONE: Record<Phase, Tone> = {
-  方案评审: "info",
-  施工中: "warning",
-  验收中: "tech",
-  已验收: "success",
-  已归档: "neutral",
+const STATUS_LABEL: Record<RepairProjectStatus, string> = {
+  DRAFT: "方案草稿",
+  PLAN_LOCKED: "方案已锁定",
+  GOVERNANCE_IN_PROGRESS: "治理决策中",
+  AUTHORIZED: "已授权签约",
+  CONTRACT_EFFECTIVE: "合同已生效",
+  IN_PROGRESS: "施工中",
+  PENDING_ACCEPTANCE: "待验收",
+  COMPLETED: "验收完成",
+  WARRANTY: "质保期",
+  ARCHIVED: "已归档",
+  CANCELLED: "已取消",
 };
 
-const PROJECTS: Engineering[] = [
-  {
-    id: "ENG-2026-011",
-    name: "小区主干道路面翻修工程",
-    workOrderId: "WO-2026-035",
-    cost: 680000,
-    duration: "45 天",
-    startDate: "2026-07-01",
-    endDate: "2026-08-15",
-    contractor: "市政路桥集团有限公司",
-    phase: "方案评审",
-    scope: "global",
-    fundSource: "公共维修资金",
-    fundAccount: "公共维修资金专户·农业银行尾号2297",
-    superviser: "第三方监理·华建工程顾问",
-    desc: "小区东西主干道（680m）路面整体翻修，含地下管网探查、旧路面铣刨、新层摊铺、交通组织，工期 45 天。",
-  },
-  {
-    id: "ENG-2026-009",
-    name: "1号楼屋面防水层翻新工程",
-    workOrderId: "WO-2026-041",
-    cost: 128000,
-    duration: "20 天",
-    startDate: "2026-06-25",
-    endDate: "2026-07-15",
-    contractor: "建筑防水科技公司",
-    phase: "方案评审",
-    scope: "local",
-    building: "1号楼",
-    fundSource: "1号楼专项维修资金",
-    fundAccount: "专维专户-01·建设银行尾号6621",
-    superviser: "业委会委员现场核验",
-    desc: "1号楼屋面防水层整体翻新，采用 SBS 改性沥青防水卷材，保修期 10 年。施工期间做好临时防水，保障住户正常居住。",
-  },
-  {
-    id: "ENG-2026-007",
-    name: "2号楼客梯门机更换工程",
-    workOrderId: "WO-2026-038",
-    cost: 12600,
-    duration: "3 天",
-    startDate: "2026-06-10",
-    endDate: "2026-06-13",
-    contractor: "迅达电梯服务公司",
-    phase: "施工中",
-    scope: "local",
-    building: "2号楼",
-    fundSource: "2号楼专项维修资金",
-    fundAccount: "专维专户-02·工商银行尾号3814",
-    superviser: "物业工程部现场监管",
-    desc: "更换 2 号楼电梯原厂门机模块（型号 SEMATIC SBM），含调试、安全回路测试，完工后经特检所验收。",
-  },
-  {
-    id: "ENG-2026-006",
-    name: "地面停车场地坪修复工程",
-    workOrderId: "WO-2026-028",
-    cost: 45000,
-    duration: "15 天",
-    startDate: "2026-06-01",
-    endDate: "2026-06-16",
-    contractor: "地坪工程队",
-    phase: "施工中",
-    scope: "global",
-    fundSource: "公共收益",
-    fundAccount: "公共收益专户·农业银行尾号2297",
-    superviser: "物业工程部现场监管",
-    desc: "B 区停车场地坪裂缝切割扩缝、灌注修复材料、表面磨平处理，约 2,200㎡，完工后划车位线。",
-  },
-  {
-    id: "ENG-2026-005",
-    name: "3号楼屋面渗漏修复工程",
-    workOrderId: "WO-2026-029",
-    cost: 28000,
-    duration: "10 天",
-    startDate: "2026-05-20",
-    endDate: "2026-05-30",
-    contractor: "建筑防水公司",
-    phase: "验收中",
-    scope: "local",
-    building: "3号楼",
-    fundSource: "3号楼专项维修资金",
-    fundAccount: "专维专户-03·中国银行尾号5509",
-    superviser: "业委会委员现场核验",
-    desc: "3号楼屋面局部渗漏区域防水涂料铲除重涂，涉及 6 处渗漏节点，施工已完成，待业委会核验。",
-  },
-  {
-    id: "ENG-2026-003",
-    name: "公共区域 LED 路灯更换工程",
-    workOrderId: "WO-2026-025",
-    cost: 58000,
-    duration: "7 天",
-    startDate: "2026-05-15",
-    endDate: "2026-05-22",
-    contractor: "照明工程队",
-    phase: "已验收",
-    scope: "global",
-    fundSource: "公共收益",
-    fundAccount: "公共收益专户·建设银行尾号8843",
-    superviser: "第三方监理·华建工程顾问",
-    acceptResult: "合格 · 照度检测达标，节能改造完成",
-    acceptDate: "2026-05-23",
-    acceptBy: "李建华（业委会主任）",
-    desc: "全区 186 盏路灯更换为 LED 节能灯具，含灯头改造、线路整理，经照度仪检测所有点位达标。",
-  },
-  {
-    id: "ENG-2026-002",
-    name: "中央监控系统扩容升级工程",
-    workOrderId: "WO-2026-033",
-    cost: 156000,
-    duration: "5 天",
-    startDate: "2026-05-28",
-    endDate: "2026-06-02",
-    contractor: "海康威视技术公司",
-    phase: "已归档",
-    scope: "global",
-    fundSource: "公共收益",
-    fundAccount: "公共收益专户·建设银行尾号8843",
-    superviser: "第三方监理·华建工程顾问",
-    acceptResult: "优良 · 存储至 90 天，AI 分析功能测试通过",
-    acceptDate: "2026-06-04",
-    acceptBy: "陈静（物业经理）+ 李建华（业委会主任）",
-    desc: "NVR 硬盘由 20TB 扩容至 80TB，部署 AI 行为分析模块（烟火识别、人员聚集预警），录像保留期 90 天。",
-  },
-  {
-    id: "ENG-2026-001",
-    name: "中央绿化带春季大修工程",
-    workOrderId: "WO-2026-012",
-    cost: 32000,
-    duration: "8 天",
-    startDate: "2026-05-05",
-    endDate: "2026-05-13",
-    contractor: "绿化园艺公司",
-    phase: "已归档",
-    scope: "global",
-    fundSource: "公共收益",
-    fundAccount: "公共收益专户·建设银行尾号8843",
-    superviser: "业委会委员现场核验",
-    acceptResult: "合格 · 绿化覆盖率恢复至设计标准",
-    acceptDate: "2026-05-14",
-    acceptBy: "王秀英（业委会委员）",
-    desc: "小区中心花园乔灌木修剪、地被补植、施有机肥，景观覆盖率由 62% 恢复至 88%，达设计标准。",
-  },
-];
+const STATUS_TONE: Record<RepairProjectStatus, Tone> = {
+  DRAFT: "neutral",
+  PLAN_LOCKED: "info",
+  GOVERNANCE_IN_PROGRESS: "warning",
+  AUTHORIZED: "tech",
+  CONTRACT_EFFECTIVE: "success",
+  IN_PROGRESS: "primary",
+  PENDING_ACCEPTANCE: "warning",
+  COMPLETED: "success",
+  WARRANTY: "info",
+  ARCHIVED: "neutral",
+  CANCELLED: "danger",
+};
+
+const STAGE_LABEL: Record<RepairProjectStage, string> = {
+  BEFORE_CONSTRUCTION: "施工前",
+  MATERIAL_ENTRY: "材料进场",
+  DURING_CONSTRUCTION: "施工中",
+  CONCEALED_WORK: "隐蔽工程",
+  COMPLETION: "完工",
+  ACCEPTANCE: "验收",
+};
+
+const FUND_LABEL = {
+  BUILDING_MAINTENANCE_FUND: "楼栋专有维修资金",
+  COMMUNITY_MAINTENANCE_FUND: "小区公共维修资金",
+} as const;
+
+function formatDate(value?: string | null): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
 
 export function Engineering() {
-  const [selectedEng, setSelectedEng] = useState<Engineering | null>(PROJECTS[0]);
+  const { hasPermission } = useStore();
+  const [projects, setProjects] = useState<RepairProject[]>([]);
+  const [total, setTotal] = useState(0);
+  const [keyword, setKeyword] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [details, setDetails] = useState<RepairProjectDetails | null>(null);
+  const [execution, setExecution] = useState<RepairProjectExecutionDetails | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [suppliers, setSuppliers] = useState<RepairSupplierOrganization[]>([]);
 
-  const totalCost = PROJECTS.reduce((s, p) => s + p.cost, 0);
-  const activeCount = PROJECTS.filter((p) => ["方案评审", "施工中", "验收中"].includes(p.phase)).length;
-  const acceptedCount = PROJECTS.filter((p) => p.phase === "已验收" || p.phase === "已归档").length;
+  async function reloadList() {
+    setLoading(true);
+    try {
+      const result = await pageRepairProjects({ status, keyword: keyword.trim(), size: 100 });
+      setProjects(result.items);
+      setTotal(result.total);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "工程项目台账加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  function openDetail(eng: Engineering) {
-    setSelectedEng(eng);
+  async function loadDetail(projectId: number) {
+    setDetailLoading(true);
+    try {
+      const [projectDetails, executionDetails] = await Promise.all([
+        getRepairProject(projectId),
+        getRepairProjectExecution(projectId),
+      ]);
+      setDetails(projectDetails);
+      setExecution(executionDetails);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "工程项目详情加载失败");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function refreshSelected() {
+    if (selectedId == null) return;
+    await Promise.all([loadDetail(selectedId), reloadList()]);
+  }
+
+  useEffect(() => {
+    void reloadList();
+  }, [status]);
+
+  useEffect(() => {
+    if (!hasPermission("repair:workorder:manage")) return;
+    listRepairSupplierOrganizations()
+      .then(setSuppliers)
+      .catch(() => setSuppliers([]));
+  }, []);
+
+  const kpis = useMemo(() => ({
+    active: projects.filter((project) => !["ARCHIVED", "CANCELLED"].includes(project.status)).length,
+    constructing: projects.filter((project) => project.status === "IN_PROGRESS").length,
+    acceptance: projects.filter((project) => project.status === "PENDING_ACCEPTANCE").length,
+  }), [projects]);
+
+  function openProject(project: RepairProject) {
+    setSelectedId(project.projectId);
+    setDetails(null);
+    setExecution(null);
     setSheetOpen(true);
+    void loadDetail(project.projectId);
+  }
+
+  async function openAttachment(attachmentId: number) {
+    if (!details) return;
+    try {
+      const ticket = await getRepairProjectAttachmentTicket(details.project.projectId, attachmentId);
+      window.open(ticket.downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件打开失败");
+    }
   }
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="工程方案与验收"
-        desc="维修工程方案管理、施工跟踪、验收记录与合同附件归档。关联维修工单，资金核销前须通过验收。"
+        title="维修工程项目"
+        desc="楼栋维修与全小区公共维修项目台账"
+        actions={(
+          <>
+            <Button variant="outline" onClick={() => void reloadList()} disabled={loading}><RefreshCw className={`mr-1 size-4 ${loading ? "animate-spin" : ""}`} />刷新</Button>
+            {hasPermission("repair:workorder:manage") && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1 size-4" />新建项目</Button>}
+          </>
+        )}
       />
 
-      {/* KPI 行 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard
-          label="工程总造价"
-          value={(totalCost / 10000).toFixed(1)}
-          unit="万元"
-          tone="primary"
-          icon={<Layers className="size-4" />}
-        />
-        <KpiCard
-          label="进行中"
-          value={activeCount}
-          unit="个"
-          tone="warning"
-          icon={<HardHat className="size-4" />}
-        />
-        <KpiCard
-          label="已验收/归档"
-          value={acceptedCount}
-          unit="个"
-          tone="success"
-          icon={<CheckCircle2 className="size-4" />}
-        />
-        <KpiCard
-          label="工程总数"
-          value={PROJECTS.length}
-          unit="个"
-          tone="neutral"
-          icon={<ClipboardCheck className="size-4" />}
-        />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiCard label="当前项目" value={total} unit="个" tone="primary" icon={<Layers className="size-4" />} />
+        <KpiCard label="处理中" value={kpis.active} unit="个" tone="warning" icon={<HardHat className="size-4" />} />
+        <KpiCard label="施工中" value={kpis.constructing} unit="个" tone="tech" icon={<Building2 className="size-4" />} />
+        <KpiCard label="待验收" value={kpis.acceptance} unit="个" tone="success" icon={<ClipboardCheck className="size-4" />} />
       </div>
 
-      {/* 工程列表 */}
-      <SectionCard title="工程列表" bodyClassName="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>工程名称</TableHead>
-              <TableHead>关联工单</TableHead>
-              <TableHead>范围</TableHead>
-              <TableHead className="text-right">造价</TableHead>
-              <TableHead>工期</TableHead>
-              <TableHead>施工方</TableHead>
-              <TableHead>阶段</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {PROJECTS.map((p) => (
-              <TableRow key={p.id} className="hover:bg-muted/40">
-                <TableCell style={{ fontWeight: 500 }}>{p.name}</TableCell>
-                <TableCell className="font-mono-num text-sm text-muted-foreground">{p.workOrderId}</TableCell>
-                <TableCell>
-                  <ScopeChip scope={p.scope} building={p.building} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <Money value={p.cost} className="text-sm" />
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{p.duration}</TableCell>
-                <TableCell className="text-sm">{p.contractor}</TableCell>
-                <TableCell>
-                  <StatusChip tone={PHASE_TONE[p.phase]} dot>{p.phase}</StatusChip>
-                </TableCell>
-                <TableCell>
-                  <Button variant="ghost" size="sm" onClick={() => openDetail(p)}>
-                    详情
-                  </Button>
-                </TableCell>
+      <SectionCard
+        title="项目台账"
+        bodyClassName="p-0"
+        extra={(
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input className="w-64 pl-8" placeholder="工程名称或项目编号" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void reloadList(); }} /></div>
+            <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ALL">全部状态</SelectItem>{Object.entries(STATUS_LABEL).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+          </div>
+        )}
+      >
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取项目台账</div>
+        ) : projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center"><Inbox className="mb-3 size-9 text-muted-foreground/50" /><div className="text-sm font-medium">没有符合条件的维修工程项目</div></div>
+        ) : (
+          <Table>
+            <TableHeader><TableRow><TableHead>项目</TableHead><TableHead>治理流程</TableHead><TableHead>资金范围</TableHead><TableHead>工程范围</TableHead><TableHead>状态</TableHead><TableHead>更新时间</TableHead><TableHead /></TableRow></TableHeader>
+            <TableBody>{projects.map((project) => (
+              <TableRow key={project.projectId} className="hover:bg-muted/40">
+                <TableCell><div className="font-medium">{project.projectName}</div><div className="mt-1 font-mono-num text-xs text-muted-foreground">{project.projectNo}</div></TableCell>
+                <TableCell><StatusChip tone={project.workflowType === "BUILDING_REPAIR" ? "warning" : "tech"}>{project.workflowType === "BUILDING_REPAIR" ? "楼栋/单元决定" : "全小区业主大会"}</StatusChip></TableCell>
+                <TableCell className="text-sm">{FUND_LABEL[project.fundSource]}</TableCell>
+                <TableCell className="text-sm">{project.scopeType === "COMMUNITY" ? "全小区公共区域" : `${project.buildingId ?? "-"} 号楼${project.unitName ? ` · ${project.unitName}` : ""}`}</TableCell>
+                <TableCell><StatusChip tone={STATUS_TONE[project.status]} dot>{STATUS_LABEL[project.status]}</StatusChip></TableCell>
+                <TableCell className="text-xs text-muted-foreground">{formatDate(project.updateTime)}</TableCell>
+                <TableCell><Button size="sm" variant="ghost" onClick={() => openProject(project)}>详情</Button></TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            ))}</TableBody>
+          </Table>
+        )}
       </SectionCard>
 
-      {/* 详情 Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-[520px] overflow-y-auto">
-          {selectedEng && (
+        <SheetContent className="w-[min(96vw,1080px)] overflow-y-auto sm:max-w-[1080px]">
+          {detailLoading || !details || !execution ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取工程档案</div>
+          ) : (
             <>
-              <SheetHeader className="mb-5">
-                <SheetTitle>{selectedEng.name}</SheetTitle>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <StatusChip tone={PHASE_TONE[selectedEng.phase]} dot>{selectedEng.phase}</StatusChip>
-                  <ScopeChip scope={selectedEng.scope} building={selectedEng.building} />
-                  <span className="font-mono-num text-xs text-muted-foreground">{selectedEng.id}</span>
-                </div>
+              <SheetHeader className="border-b pb-4">
+                <SheetTitle className="pr-8 text-xl">{details.project.projectName}</SheetTitle>
+                <SheetDescription className="flex flex-wrap items-center gap-2"><span className="font-mono-num">{details.project.projectNo}</span><StatusChip tone={STATUS_TONE[details.project.status]} dot>{STATUS_LABEL[details.project.status]}</StatusChip><StatusChip tone={details.project.workflowType === "BUILDING_REPAIR" ? "warning" : "tech"}>{details.project.workflowType === "BUILDING_REPAIR" ? "楼栋维修" : "全小区公共维修"}</StatusChip></SheetDescription>
               </SheetHeader>
 
-              {/* 方案信息 */}
-              <div className="rounded-lg border border-border p-4 mb-4 space-y-3 text-sm">
-                <h4 className="font-semibold text-base mb-1">方案信息</h4>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">预算造价</span>
-                  <Money value={selectedEng.cost} className="text-base font-semibold" />
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">工期</span>
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="size-3.5 text-muted-foreground" />
-                    {selectedEng.duration}（{selectedEng.startDate} ~ {selectedEng.endDate}）
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">施工方</span>
-                  <span style={{ fontWeight: 500 }}>{selectedEng.contractor}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">监理方</span>
-                  <span>{selectedEng.superviser}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">关联工单</span>
-                  <span className="font-mono-num">{selectedEng.workOrderId}</span>
-                </div>
-                <div className="border-t border-border pt-3">
-                  <div className="flex items-start gap-1.5 mb-1.5" style={{ color: "#1b4f9c", fontWeight: 600 }}>
-                    <Banknote className="size-4 mt-0.5" />
-                    资金来源专户
-                  </div>
-                  <div style={{ fontWeight: 500 }}>{selectedEng.fundSource}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{selectedEng.fundAccount}</div>
-                  <div
-                    className="mt-2 rounded-md px-3 py-2 text-xs leading-relaxed"
-                    style={{
-                      backgroundColor: selectedEng.scope === "local" ? "#fcf3da" : "#e6f6fa",
-                      color: selectedEng.scope === "local" ? "#8a6406" : "#0e6e88",
-                    }}
-                  >
-                    {selectedEng.scope === "local"
-                      ? `本工程资金仅从「${selectedEng.building}专项维修资金专户」划付，不波及其他楼栋，资金严格隔离。`
-                      : "本工程资金从公共资金专户划付，用于全小区公共区域，受全体业主监督。"}
-                  </div>
-                </div>
-                <div className="text-muted-foreground text-xs leading-relaxed border-t border-border pt-3">{selectedEng.desc}</div>
-              </div>
+              <Tabs defaultValue="overview" className="mt-5">
+                <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">项目方案</TabsTrigger><TabsTrigger value="execution">工程档案</TabsTrigger><TabsTrigger value="acceptance">验收付款</TabsTrigger><TabsTrigger value="actions">办理操作</TabsTrigger></TabsList>
 
-              {/* 合同/预算附件 */}
-              <div className="mb-4">
-                <h4 className="font-semibold text-base mb-3">合同 & 预算附件</h4>
-                <div className="space-y-2">
-                  <FileCard
-                    name={`${selectedEng.name}_施工合同.pdf`}
-                    meta={`${selectedEng.contractor} · 签订于 ${selectedEng.startDate}`}
-                  />
-                  <FileCard
-                    name={`${selectedEng.name}_工程预算书.xlsx`}
-                    meta={`预算总额 ¥${selectedEng.cost.toLocaleString()} · 已经业委会审核`}
-                  />
-                  {selectedEng.phase !== "方案评审" && (
-                    <FileCard
-                      name={`${selectedEng.name}_施工方案技术说明.pdf`}
-                      meta="施工工艺、材料规格、安全措施"
-                    />
-                  )}
-                </div>
-              </div>
+                <TabsContent value="overview" className="mt-5 space-y-5">
+                  <ProjectOverview details={details} openAttachment={openAttachment} />
+                </TabsContent>
 
-              {/* 验收区 */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <h4 className="font-semibold text-base">验收记录</h4>
+                <TabsContent value="execution" className="mt-5">
+                  <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
+                </TabsContent>
 
-                {selectedEng.acceptResult ? (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="size-4 text-green-600" />
-                      <span style={{ fontWeight: 600, color: "#1f7a45" }}>验收通过</span>
-                      <span className="text-xs text-muted-foreground font-mono-num">{selectedEng.acceptDate}</span>
-                    </div>
-                    <div
-                      className="rounded-md bg-[#e8f6ee] p-3 text-sm"
-                      style={{ color: "#1f7a45" }}
-                    >
-                      {selectedEng.acceptResult}
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">验收签字：</span>
-                      <span style={{ fontWeight: 500 }}>{selectedEng.acceptBy}</span>
-                    </div>
+                <TabsContent value="acceptance" className="mt-5">
+                  <AcceptanceAndPayments execution={execution} />
+                </TabsContent>
 
-                    {/* 验收报告附件 */}
-                    <FileCard
-                      name={`${selectedEng.name}_验收报告.pdf`}
-                      meta={`验收日期 ${selectedEng.acceptDate} · 已归档`}
-                    />
-                  </>
-                ) : selectedEng.phase === "验收中" ? (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="size-4 text-cyan-600" />
-                      <span style={{ fontWeight: 600, color: "#0e6e88" }}>验收进行中</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">施工已完成，待业委会现场核验并签署验收报告。</p>
-                    {/* 验收报告上传占位 */}
-                    <button
-                      className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border bg-muted/50 p-3 text-left hover:bg-muted/80 transition-colors"
-                      onClick={() => toast.info("请通过文件管理上传验收报告")}
-                    >
-                      <span className="grid place-items-center size-9 rounded-md bg-[#e6f6fa] text-cyan-600 shrink-0">
-                        <Upload className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm" style={{ fontWeight: 500 }}>上传验收报告</span>
-                        <span className="block text-xs text-muted-foreground">支持 PDF / Word，不超过 50MB</span>
-                      </span>
-                    </button>
-                    <div className="pt-1">
-                      <div className="text-sm mb-1.5 font-semibold">验收结论</div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => toast.success("已记录验收结论：合格")}
-                          style={{ borderColor: "#2e9e5b", color: "#1f7a45" }}
-                        >
-                          合格 ✓
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => toast.error("已记录验收结论：不合格，退回施工方整改")}
-                          style={{ borderColor: "#d14343", color: "#a32f2f" }}
-                        >
-                          不合格 ✗
-                        </Button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <AlertCircle className="size-4" />
-                    {selectedEng.phase === "方案评审"
-                      ? "工程尚在方案评审阶段，待投票通过后开工，验收功能届时解锁。"
-                      : "施工进行中，验收功能将在施工完成后解锁。"}
-                  </div>
-                )}
-              </div>
+                <TabsContent value="actions" className="mt-5">
+                  <RepairProjectOperationPanel details={details} execution={execution} suppliers={suppliers} hasPermission={hasPermission} onChanged={refreshSelected} />
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </SheetContent>
       </Sheet>
+
+      <RepairProjectCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(created) => {
+          setDetails(created);
+          setSelectedId(created.project.projectId);
+          setSheetOpen(true);
+          void Promise.all([reloadList(), loadDetail(created.project.projectId)]);
+        }}
+      />
     </div>
   );
+}
+
+function ProjectOverview({ details, openAttachment }: { details: RepairProjectDetails; openAttachment: (attachmentId: number) => Promise<void> }) {
+  const project = details.project;
+  const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
+  return (
+    <>
+      <div className="grid gap-x-8 gap-y-4 border-b pb-5 text-sm md:grid-cols-3">
+        <Info label="资金范围" value={FUND_LABEL[project.fundSource]} icon={<Banknote className="size-4" />} />
+        <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
+        <Info label="实施计划" value={`${plan?.plannedStartDate ?? "-"} 至 ${plan?.plannedCompletionDate ?? "-"}`} />
+        <Info label="问题原因" value={plan?.problemCause ?? "-"} />
+        <Info label="实施范围" value={plan?.implementationScope ?? "-"} />
+        <Info label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
+        <Info label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
+        <Info label="施工管理" value={plan?.constructionManagementRequirements ?? "-"} />
+        <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
+      </div>
+
+      <div><h4 className="mb-3 text-sm font-semibold">工程项（{details.currentPlanItems.length}）</h4><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>编号</TableHead><TableHead>位置</TableHead><TableHead>工作内容</TableHead><TableHead className="text-right">数量</TableHead><TableHead className="text-right">估算金额</TableHead><TableHead>关联工单</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanItems.map((item) => <TableRow key={item.itemId}><TableCell className="font-mono-num text-xs">{item.itemNo}</TableCell><TableCell>{item.locationText}</TableCell><TableCell>{item.workContent}</TableCell><TableCell className="text-right">{item.quantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.estimatedAmount)} /></TableCell><TableCell className="text-xs text-muted-foreground">{item.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>
+
+      <div><h4 className="mb-3 text-sm font-semibold">项目附件（{details.attachments.length}）</h4>{details.attachments.length === 0 ? <div className="text-sm text-muted-foreground">尚未归档附件</div> : <div className="grid gap-2 md:grid-cols-2">{details.attachments.map((attachment) => <button key={attachment.attachmentId} className="flex items-center gap-3 rounded-md border p-3 text-left hover:bg-muted/40" onClick={() => void openAttachment(attachment.attachmentId)}><FileText className="size-4 text-primary" /><span className="min-w-0 flex-1 truncate text-sm">{attachment.originalFileName}</span><span className="text-xs text-muted-foreground">#{attachment.attachmentId}</span></button>)}</div>}</div>
+    </>
+  );
+}
+
+function Info({ label, value, icon }: { label: string; value: ReactNode; icon?: ReactNode }) {
+  return <div><div className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">{icon}{label}</div><div className="leading-relaxed text-foreground">{value}</div></div>;
+}
+
+function ExecutionArchive({ details, execution, openAttachment }: { details: RepairProjectDetails; execution: RepairProjectExecutionDetails; openAttachment: (attachmentId: number) => Promise<void> }) {
+  const itemById = new Map(details.currentPlanItems.map((item) => [item.itemId, item]));
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 border-b pb-5 md:grid-cols-3">
+        <Info label="施工单位" value={execution.contract?.supplierName ?? "尚未签约"} />
+        <Info label="合同金额" value={execution.contract ? <Money value={Number(execution.contract.contractAmount)} /> : "-"} />
+        <Info label="签署方式" value={execution.contract?.signingMethod ?? "-"} />
+      </div>
+
+      <div><h4 className="mb-3 text-sm font-semibold">施工过程记录</h4>{execution.executionRecords.length === 0 ? <Empty text="尚无施工记录" /> : <div className="space-y-2">{execution.executionRecords.map((record) => <div key={record.recordId} className="grid gap-3 rounded-md border p-3 md:grid-cols-[140px_1fr_auto]"><div><StatusChip tone={record.verificationStatus === "VERIFIED" ? "success" : record.verificationStatus === "REJECTED" ? "danger" : "warning"}>{STAGE_LABEL[record.stage]}</StatusChip><div className="mt-2 text-xs text-muted-foreground">{formatDate(record.occurredAt)}</div></div><div className="text-sm"><div className="font-medium">{itemById.get(record.itemId)?.itemNo ?? record.itemId}</div><div className="mt-1 text-muted-foreground">{record.description}</div>{record.verificationOpinion && <div className="mt-1 text-xs text-muted-foreground">核验：{record.verificationOpinion}</div>}</div><div className="flex flex-wrap gap-1">{record.attachmentIds.map((attachmentId) => <Button key={attachmentId} size="sm" variant="ghost" onClick={() => void openAttachment(attachmentId)}>附件 {attachmentId}</Button>)}</div></div>)}</div>}</div>
+
+      <div><h4 className="mb-3 text-sm font-semibold">材料进场</h4>{execution.materialInspections.length === 0 ? <Empty text="尚无材料进场记录" /> : <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>材料</TableHead><TableHead>品牌/型号</TableHead><TableHead>规格数量</TableHead><TableHead>生产厂家</TableHead><TableHead>核验状态</TableHead></TableRow></TableHeader><TableBody>{execution.materialInspections.map((material) => <TableRow key={material.inspectionId}><TableCell className="font-medium">{material.materialName}</TableCell><TableCell>{material.brand} · {material.model}</TableCell><TableCell>{material.specification} · {material.quantity} {material.unit}</TableCell><TableCell>{material.manufacturer}</TableCell><TableCell><StatusChip tone={material.status === "VERIFIED" ? "success" : material.status === "REJECTED" ? "danger" : "warning"}>{material.status}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>}</div>
+
+      {execution.settlement && <div><h4 className="mb-3 text-sm font-semibold">结构化竣工结算</h4><div className="mb-3 flex items-center justify-between rounded-md border p-3"><div className="text-sm">第 {execution.settlement.versionNo} 版 · {execution.settlement.status}</div><Money value={Number(execution.settlement.totalAmount)} className="font-semibold" /></div><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>工程项</TableHead><TableHead className="text-right">实际数量</TableHead><TableHead className="text-right">实际单价</TableHead><TableHead className="text-right">税额</TableHead><TableHead className="text-right">含税金额</TableHead><TableHead>差异原因</TableHead></TableRow></TableHeader><TableBody>{execution.settlement.items.map((item) => <TableRow key={item.projectItemId}><TableCell>{itemById.get(item.projectItemId)?.itemNo ?? item.projectItemId}</TableCell><TableCell className="text-right">{item.actualQuantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.actualUnitPrice)} /></TableCell><TableCell className="text-right"><Money value={Number(item.taxAmount)} /></TableCell><TableCell className="text-right"><Money value={Number(item.amountIncludingTax)} /></TableCell><TableCell>{item.varianceReason ?? "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
+    </div>
+  );
+}
+
+function AcceptanceAndPayments({ execution }: { execution: RepairProjectExecutionDetails }) {
+  return (
+    <div className="space-y-6">
+      <div><h4 className="mb-3 text-sm font-semibold">验收轮次</h4>{!execution.acceptance ? <Empty text="尚未进入项目验收" /> : <div className="rounded-md border p-4"><div className="flex items-center justify-between"><div className="font-medium">第 {execution.acceptance.roundNo} 轮</div><StatusChip tone={execution.acceptance.status === "PASSED" ? "success" : execution.acceptance.status === "RECTIFICATION_REQUIRED" ? "danger" : "warning"}>{execution.acceptance.status}</StatusChip></div><div className="mt-4 space-y-3">{execution.acceptanceParties.map((party) => <div key={party.partyId} className="flex items-start justify-between gap-4 border-t pt-3 first:border-t-0 first:pt-0"><div><div className="text-sm font-medium">{party.participantName}</div><div className="mt-1 text-xs text-muted-foreground">{party.partyRole}{party.participantOrganization ? ` · ${party.participantOrganization}` : ""}</div>{party.opinion && <div className="mt-1 text-xs text-muted-foreground">{party.opinion}</div>}</div><StatusChip tone={party.conclusion === "PASSED" ? "success" : "danger"}>{party.conclusion === "PASSED" ? "通过" : "整改"}</StatusChip></div>)}</div></div>}</div>
+
+      <div><h4 className="mb-3 text-sm font-semibold">付款申请</h4>{execution.paymentRequests.length === 0 ? <Empty text="尚无付款申请" /> : <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>节点</TableHead><TableHead className="text-right">本次金额</TableHead><TableHead className="text-right">累计申请</TableHead><TableHead className="text-right">当期上限</TableHead><TableHead>状态</TableHead><TableHead>申请时间</TableHead></TableRow></TableHeader><TableBody>{execution.paymentRequests.map((payment) => <TableRow key={payment.paymentRequestId}><TableCell>{payment.milestoneType}</TableCell><TableCell className="text-right"><Money value={Number(payment.requestedAmount)} /></TableCell><TableCell className="text-right"><Money value={Number(payment.cumulativeRequestedAmount)} /></TableCell><TableCell className="text-right"><Money value={Number(payment.eligibleUpperLimit)} /></TableCell><TableCell><StatusChip tone={payment.status === "PAID" ? "success" : payment.status === "FAILED" || payment.status === "RETURNED" ? "danger" : "warning"}>{payment.status}</StatusChip></TableCell><TableCell className="text-xs text-muted-foreground">{formatDate(payment.createTime)}</TableCell></TableRow>)}</TableBody></Table></div>}</div>
+
+      {execution.completionDisclosure && <div><h4 className="mb-3 text-sm font-semibold">完工披露与质保</h4><div className="grid gap-4 rounded-md border p-4 text-sm md:grid-cols-3"><Info label="张贴范围" value={execution.completionDisclosure.postingScope} /><Info label="告示期间" value={`${execution.completionDisclosure.noticeStartDate} 至 ${execution.completionDisclosure.noticeEndDate}`} /><Info label="质保期间" value={`${execution.completionDisclosure.warrantyStartDate} 至 ${execution.completionDisclosure.warrantyEndDate}`} /></div></div>}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="flex items-center justify-center rounded-md border border-dashed py-10 text-sm text-muted-foreground"><CheckCircle2 className="mr-2 size-4 opacity-50" />{text}</div>;
 }
