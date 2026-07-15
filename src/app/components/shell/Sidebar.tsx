@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "../ui/utils";
 import { useStore } from "../../lib/store";
+import type { NavModule } from "../../lib/nav";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
   Building2,
@@ -39,6 +40,39 @@ const ICONS: Record<string, LucideIcon> = {
   Wrench,
 };
 
+/**
+ * 关联业务：管理端不同角色会取得不同的后端授权模块；这里仅做视觉归类，
+ * 不改变菜单顺序来源、页面权限或数据范围。
+ */
+const NAVIGATION_GROUPS = [
+  { id: "work", label: "工作空间", modules: ["dashboard", "supplier-service"] },
+  { id: "operation", label: "社区运营", modules: ["property", "assets", "community-space"] },
+  { id: "governance", label: "业主治理", modules: ["governance", "committee", "election", "comms"] },
+  { id: "control", label: "监督与配置", modules: ["finance", "users"] },
+] as const;
+
+interface NavigationGroup {
+  id: string;
+  label: string;
+  modules: NavModule[];
+}
+
+function groupNavigationModules(menus: NavModule[]): NavigationGroup[] {
+  const ungrouped = new Set(menus.map((module) => module.id));
+  const groups = NAVIGATION_GROUPS.map((group) => {
+    const modules = group.modules
+      .map((moduleId) => menus.find((module) => module.id === moduleId))
+      .filter((module): module is NavModule => Boolean(module));
+    modules.forEach((module) => ungrouped.delete(module.id));
+    return { id: group.id, label: group.label, modules };
+  }).filter((group) => group.modules.length > 0);
+
+  const remaining = menus.filter((module) => ungrouped.has(module.id));
+  return remaining.length > 0
+    ? [...groups, { id: "other", label: "其他功能", modules: remaining }]
+    : groups;
+}
+
 export function Sidebar({
   mobileOpen = false,
   onMobileClose,
@@ -52,6 +86,7 @@ export function Sidebar({
 }) {
   const { page, setPage, menus } = useStore();
   const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>({});
+  const navigationGroups = groupNavigationModules(menus);
 
   // 当前角色工作台所属模块默认展开，其余模块在首次进入时保持收起。
   const activeModule = menus.find((m) => m.pages.some((p) => p.id === page))?.id;
@@ -80,12 +115,29 @@ export function Sidebar({
             <X className="size-4" />
           </button>
         </div>
-        <nav className={cn("gov-scroll flex-1 overflow-y-auto py-2.5", iconOnly && "px-1")}>
-        {menus.map((mod) => {
+        <nav className={cn("gov-scroll flex-1 overflow-y-auto py-3", iconOnly && "px-1")}>
+        {navigationGroups.map((group, groupIndex) => (
+          <section
+            key={group.id}
+            aria-label={group.label}
+            className={cn(
+              "px-2",
+              groupIndex > 0 && "mt-3 border-t border-sidebar-border/75 pt-3",
+              iconOnly && "px-1",
+            )}
+          >
+            {!iconOnly && (
+              <div className="mb-1.5 px-3 text-[10px] font-semibold leading-4 tracking-[0.12em] text-[#8b96a8]">
+                {group.label}
+              </div>
+            )}
+            <div className="flex flex-col gap-0.5">
+            {group.modules.map((mod) => {
           const Icon = mod.icon ? (ICONS[mod.icon] ?? Circle) : Circle;
           const open = collapsedModules[mod.id] === undefined
             ? mod.id === activeModule
             : !collapsedModules[mod.id];
+          const containsActivePage = mod.id === activeModule;
           const collapseModule = () => {
             if (iconOnly) {
               onCollapsedChange?.(false);
@@ -101,18 +153,19 @@ export function Sidebar({
               aria-expanded={iconOnly ? undefined : open}
               aria-label={iconOnly ? `展开${mod.label}导航` : undefined}
               className={cn(
-                "flex min-h-9 w-full items-center gap-2.5 rounded-md px-3 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+                "flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-[12px] font-semibold tracking-[0.01em] text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 iconOnly && "justify-center px-2",
-                iconOnly && mod.id === activeModule && "bg-sidebar-accent text-sidebar-accent-foreground",
+                containsActivePage && "text-sidebar-accent-foreground",
+                iconOnly && containsActivePage && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
-              <Icon className="size-4 shrink-0 text-muted-foreground" />
-              {!iconOnly && <span className="flex-1 text-left tracking-[0.01em]" style={{ fontWeight: 600 }}>{mod.label}</span>}
-              {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground/80 transition-transform", !open && "-rotate-90")} />}
+              <Icon className={cn("size-[15px] shrink-0 text-muted-foreground", containsActivePage && "text-sidebar-primary")} />
+              {!iconOnly && <span className="flex-1 text-left">{mod.label}</span>}
+              {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground/75 transition-transform", !open && "-rotate-90")} />}
             </button>
           );
           return (
-            <div key={mod.id} className={cn("px-2", iconOnly && "px-1")}>
+            <div key={mod.id}>
               {iconOnly ? (
                 <Tooltip>
                   <TooltipTrigger asChild>{moduleButton}</TooltipTrigger>
@@ -120,7 +173,7 @@ export function Sidebar({
                 </Tooltip>
               ) : moduleButton}
               {!iconOnly && open && (
-                <div className="mt-0.5 mb-1.5 ml-[21px] border-l border-sidebar-border/80 pl-2.5 flex flex-col gap-0.5">
+                <div className="mt-0.5 mb-1 ml-[21px] flex flex-col gap-0.5 border-l border-sidebar-border/80 pl-2.5">
                   {mod.pages.map((p) => {
                     const active = page === p.id;
                     return (
@@ -131,10 +184,10 @@ export function Sidebar({
                           onMobileClose?.();
                         }}
                         className={cn(
-                          "relative min-h-8 rounded-md px-3 py-1.5 text-left text-[12.5px] leading-5 transition-colors",
+                          "relative min-h-8 rounded-md px-3 py-1.5 text-left text-[12px] font-medium leading-5 transition-colors",
                           active
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_3px_0_0_var(--sidebar-primary)]"
-                            : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-[inset_3px_0_0_var(--sidebar-primary)]"
+                            : "text-[#677487] hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
                         )}
                       >
                         {p.label}
@@ -145,10 +198,13 @@ export function Sidebar({
               )}
             </div>
           );
-        })}
+            })}
+            </div>
+          </section>
+        ))}
         </nav>
         <div className={cn("hidden h-12 items-center border-t border-sidebar-border lg:flex", iconOnly ? "justify-center px-2" : "justify-between px-3")}>
-          {!iconOnly && <span className="text-[10px] tracking-[0.02em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
+          {!iconOnly && <span className="text-[9px] font-medium tracking-[0.04em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
