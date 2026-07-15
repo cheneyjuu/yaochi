@@ -115,6 +115,20 @@ export interface RepairProjectDetails {
   currentPlanAttachments: Array<{ attachmentId: number; purpose: string; sortOrder: number }>;
 }
 
+export interface RepairSupplierProjectSummary {
+  project: RepairProject;
+  contract: RepairProjectContract;
+}
+
+export interface RepairSupplierProjectDetails {
+  project: RepairProject;
+  activePlan: RepairProjectPlan;
+  items: RepairProjectItem[];
+  attachments: RepairProjectAttachment[];
+  contract: RepairProjectContract;
+  execution: RepairProjectExecutionDetails;
+}
+
 export interface RepairProjectContract {
   contractId: number;
   supplierDeptId: number;
@@ -382,6 +396,14 @@ export function getRepairProject(projectId: number): Promise<RepairProjectDetail
 
 export function getRepairProjectExecution(projectId: number): Promise<RepairProjectExecutionDetails> {
   return apiGet<RepairProjectExecutionDetails>(`/admin/repair-projects/${projectId}/execution`);
+}
+
+export function listSupplierRepairProjects(): Promise<RepairSupplierProjectSummary[]> {
+  return apiGet<RepairSupplierProjectSummary[]>("/supplier/repair-projects");
+}
+
+export function getSupplierRepairProject(projectId: number): Promise<RepairSupplierProjectDetails> {
+  return apiGet<RepairSupplierProjectDetails>(`/supplier/repair-projects/${projectId}`);
 }
 
 export function uploadRepairProjectAttachment(

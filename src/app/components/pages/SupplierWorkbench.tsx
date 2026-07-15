@@ -1,3 +1,4 @@
+// 关联业务：施工单位统一处理维修邀价，以及已签约维修工程的施工、材料和结算任务。
 import { useEffect, useState } from "react";
 import { BriefcaseBusiness, FileText, Inbox, Loader2, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +7,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { SupplierProjectWorkbench } from "./repair/SupplierProjectWorkbench";
 import {
   listSupplierRepairWorkOrders,
   deleteSupplierQuoteAttachment,
@@ -16,6 +19,22 @@ import {
 } from "../../lib/repair";
 
 export function SupplierWorkbench() {
+  return (
+    <div className="space-y-5">
+      <PageHeader title="供应商工作台" />
+      <Tabs defaultValue="projects" className="gap-4">
+        <TabsList className="rounded-md">
+          <TabsTrigger value="projects" className="rounded-sm">施工项目</TabsTrigger>
+          <TabsTrigger value="quotes" className="rounded-sm">待报价</TabsTrigger>
+        </TabsList>
+        <TabsContent value="projects"><SupplierProjectWorkbench /></TabsContent>
+        <TabsContent value="quotes"><SupplierQuoteWorkbench /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SupplierQuoteWorkbench() {
   const [orders, setOrders] = useState<RepairSupplierWorkOrder[]>([]);
   const [selected, setSelected] = useState<RepairSupplierWorkOrder | null>(null);
   const [amount, setAmount] = useState("");
@@ -81,15 +100,11 @@ export function SupplierWorkbench() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="供应商工作台"
-        desc="本企业收到的维修邀价与报价提交"
-        actions={(
-          <Button variant="outline" onClick={() => void reload()} disabled={loading}>
-            <RefreshCw className="mr-1 size-4" />刷新
-          </Button>
-        )}
-      />
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={() => void reload()} disabled={loading}>
+          <RefreshCw className="mr-1 size-4" />刷新
+        </Button>
+      </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
         <SectionCard title="待报价工单" bodyClassName="p-0">
           {loading ? (
