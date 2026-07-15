@@ -45,6 +45,15 @@ interface DraftItem {
 
 type DraftItemTextField = Exclude<keyof DraftItem, "linkedWorkOrderIds">;
 
+interface PercentageInputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  max?: number;
+  placeholder?: string;
+}
+
 const EVIDENCE_STAGES: RepairProjectStage[] = [
   "BEFORE_CONSTRUCTION",
   "MATERIAL_ENTRY",
@@ -72,6 +81,39 @@ function emptyItem(index: number): DraftItem {
   };
 }
 
+function percentageToRatio(percentage: number): number {
+  return Number((percentage / 100).toFixed(6));
+}
+
+function PercentageInput({
+  label,
+  value,
+  onChange,
+  disabled = false,
+  max = 100,
+  placeholder,
+}: PercentageInputProps) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="relative">
+        <Input
+          type="number"
+          min="0.01"
+          max={max}
+          step="0.01"
+          value={value}
+          disabled={disabled}
+          placeholder={placeholder}
+          className="pr-9"
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span>
+      </div>
+    </div>
+  );
+}
+
 export function RepairProjectEditor() {
   const { hasPermission, setPage } = useStore();
   const [workflow, setWorkflow] = useState<Workflow>("BUILDING_REPAIR");
@@ -88,16 +130,16 @@ export function RepairProjectEditor() {
   const [affectedOwnerScope, setAffectedOwnerScope] = useState("");
   const [minimumAcceptors, setMinimumAcceptors] = useState("");
   const [passRule, setPassRule] = useState<"" | "ALL" | "AT_LEAST_RATIO">("");
-  const [approvalRatio, setApprovalRatio] = useState("");
+  const [approvalPercent, setApprovalPercent] = useState("");
   const [settlementMethod, setSettlementMethod] = useState<"ACTUAL_QUANTITY" | "FIXED_TOTAL">("ACTUAL_QUANTITY");
   const [plannedStartDate, setPlannedStartDate] = useState(dateAfter(1));
   const [plannedCompletionDate, setPlannedCompletionDate] = useState(dateAfter(30));
   const [warrantyDays, setWarrantyDays] = useState("365");
   const [priceReviewRequired, setPriceReviewRequired] = useState(true);
-  const [advanceRatio, setAdvanceRatio] = useState("");
-  const [progressRatio, setProgressRatio] = useState("");
-  const [completionRatio, setCompletionRatio] = useState("");
-  const [warrantyReleaseRatio, setWarrantyReleaseRatio] = useState("");
+  const [advancePercent, setAdvancePercent] = useState("");
+  const [progressPercent, setProgressPercent] = useState("");
+  const [completionPercent, setCompletionPercent] = useState("");
+  const [warrantyReleasePercent, setWarrantyReleasePercent] = useState("");
   const [items, setItems] = useState<DraftItem[]>([emptyItem(0)]);
   const [eligibleCases, setEligibleCases] = useState<RepairWorkOrder[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
@@ -203,9 +245,14 @@ export function RepairProjectEditor() {
       return;
     }
     const building = workflow === "BUILDING_REPAIR";
-    if (building && (!affectedOwnerScope.trim() || Number(minimumAcceptors) < 1 || !passRule
-      || Number(approvalRatio) <= 0 || Number(approvalRatio) > 1)) {
+    if (building && (!affectedOwnerScope.trim() || Number(minimumAcceptors) < 1 || !passRule)) {
       toast.error("请明确填写受影响业主范围、最低有效人数和通过规则，不使用平台默认值");
+      return;
+    }
+    const approvalPercentValue = Number(approvalPercent);
+    if (building && (!Number.isFinite(approvalPercentValue)
+      || approvalPercentValue <= 0 || approvalPercentValue > 100)) {
+      toast.error("最低同意比例须大于 0% 且不超过 100%");
       return;
     }
     if (!plannedStartDate || !plannedCompletionDate || plannedCompletionDate < plannedStartDate
@@ -213,16 +260,18 @@ export function RepairProjectEditor() {
       toast.error("请检查实施日期和质保天数");
       return;
     }
-    const paymentRatios = [advanceRatio, progressRatio, completionRatio, warrantyReleaseRatio].map(Number);
-    if (paymentRatios.some((ratio) => ratio <= 0 || ratio > 1)
-      || paymentRatios.some((ratio, index) => index > 0 && ratio < paymentRatios[index - 1])) {
-      toast.error("请明确填写 4 个按业务顺序递增的累计付款比例，取值须大于 0 且不超过 1");
+    const paymentPercents = [advancePercent, progressPercent, completionPercent, warrantyReleasePercent].map(Number);
+    if (paymentPercents.some((percentage) => !Number.isFinite(percentage)
+      || percentage <= 0 || percentage > 100)
+      || paymentPercents.some((percentage, index) => index > 0 && percentage < paymentPercents[index - 1])) {
+      toast.error("请填写 4 个按业务顺序递增的累计付款百分比，取值须大于 0% 且不超过 100%");
       return;
     }
-    if (paymentRatios[0] > 0.3 || (priceReviewRequired && paymentRatios[1] > 0.9)) {
+    if (paymentPercents[0] > 30 || (priceReviewRequired && paymentPercents[1] > 90)) {
       toast.error("首次支取不得超过 30%；需审价项目在审价完成前的进度款累计比例不得超过 90%");
       return;
     }
+    const paymentRatios = paymentPercents.map(percentageToRatio);
     const normalizedItems = items.map((item) => {
       const quantity = Number(item.quantity);
       const unitPrice = Number(item.estimatedUnitPrice);
@@ -268,7 +317,7 @@ export function RepairProjectEditor() {
       affectedOwnerScopeDescription: building ? affectedOwnerScope.trim() : undefined,
       minimumAffectedOwnerAcceptors: building ? Number(minimumAcceptors) : undefined,
       affectedOwnerPassRule: building ? passRule || undefined : undefined,
-      affectedOwnerApprovalRatio: building ? Number(approvalRatio) : undefined,
+      affectedOwnerApprovalRatio: building ? percentageToRatio(approvalPercentValue) : undefined,
       settlementMethod,
       plannedStartDate,
       plannedCompletionDate,
@@ -412,8 +461,8 @@ export function RepairProjectEditor() {
                 <>
                   <div className="md:col-span-2"><Label>受影响业主范围</Label><Input value={affectedOwnerScope} onChange={(event) => setAffectedOwnerScope(event.target.value)} /></div>
                   <div><Label>最低有效业主人数</Label><Input type="number" min="1" value={minimumAcceptors} onChange={(event) => setMinimumAcceptors(event.target.value)} /></div>
-                  <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalRatio(next === "ALL" ? "1" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
-                  <div><Label>最低同意比例</Label><Input type="number" min="0.0001" max="1" step="0.0001" value={approvalRatio} disabled={!passRule || passRule === "ALL"} onChange={(event) => setApprovalRatio(event.target.value)} /></div>
+                  <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalPercent(next === "ALL" ? "100" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
+                  <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} placeholder="例如 60" onChange={setApprovalPercent} />
                 </>
               )}
               <div><Label>结算方式</Label><Select value={settlementMethod} onValueChange={(value) => setSettlementMethod(value as typeof settlementMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTUAL_QUANTITY">按实际工程量</SelectItem><SelectItem value="FIXED_TOTAL">固定总价</SelectItem></SelectContent></Select></div>
@@ -427,12 +476,12 @@ export function RepairProjectEditor() {
           </div>
         </SectionCard>
 
-        <SectionCard title="累计付款比例">
+        <SectionCard title="付款节点累计比例">
             <div className="grid gap-4 md:grid-cols-4">
-              <div><Label>首次支取（不超过 0.30）</Label><Input type="number" min="0.0001" max="0.3" step="0.01" value={advanceRatio} onChange={(event) => setAdvanceRatio(event.target.value)} /></div>
-              <div><Label>进度款</Label><Input type="number" min="0.0001" max="1" step="0.01" value={progressRatio} onChange={(event) => setProgressRatio(event.target.value)} /></div>
-              <div><Label>完工款</Label><Input type="number" min="0.0001" max="1" step="0.01" value={completionRatio} onChange={(event) => setCompletionRatio(event.target.value)} /></div>
-              <div><Label>质保金释放</Label><Input type="number" min="0.0001" max="1" step="0.01" value={warrantyReleaseRatio} onChange={(event) => setWarrantyReleaseRatio(event.target.value)} /></div>
+              <PercentageInput label="首次支取累计比例" value={advancePercent} max={30} placeholder="不超过 30" onChange={setAdvancePercent} />
+              <PercentageInput label="进度款累计比例" value={progressPercent} placeholder="例如 90" onChange={setProgressPercent} />
+              <PercentageInput label="完工款累计比例" value={completionPercent} placeholder="例如 100" onChange={setCompletionPercent} />
+              <PercentageInput label="质保金释放累计比例" value={warrantyReleasePercent} placeholder="例如 100" onChange={setWarrantyReleasePercent} />
             </div>
         </SectionCard>
       </div>
