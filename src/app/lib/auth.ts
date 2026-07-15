@@ -27,6 +27,12 @@ export interface UserInfo {
 export interface Session {
   token: string;
   expiresIn: number;
+  /** 刷新凭证仅用于换取新的访问 JWT；服务端仅保存其不可逆摘要。 */
+  refreshToken?: string;
+  /** 访问 JWT 的本地到期时间，用于在请求前主动续期。 */
+  accessTokenExpiresAt?: number;
+  /** 刷新凭证的本地到期时间，到期后必须重新登录。 */
+  refreshTokenExpiresAt?: number;
   user: UserInfo;
   menus?: NavModule[];
   /** 仅 G 端根组织持有，来自后端当前有效辖区授权，不能由前端静态补造。 */
@@ -113,6 +119,17 @@ export function getToken(): string | null {
   return loadSession()?.token ?? null;
 }
 
+/** 当前浏览器保存的刷新凭证；从不拼入 URL 或 Authorization 请求头。 */
+export function getRefreshToken(): string | null {
+  return loadSession()?.refreshToken ?? null;
+}
+
+/** 留出网络往返余量，避免已过期 JWT 先发出业务请求。 */
+export function isAccessTokenExpiringSoon(bufferMs = 30_000): boolean {
+  const expiresAt = loadSession()?.accessTokenExpiresAt;
+  return typeof expiresAt === "number" && expiresAt <= Date.now() + bufferMs;
+}
+
 export function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -126,35 +143,78 @@ export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
 }
 
-function buildSession(token: string, expiresIn: number, user: UserInfo): Session {
+function buildSession(
+  token: string,
+  expiresIn: number,
+  user: UserInfo,
+  refreshToken?: string,
+  refreshExpiresIn?: number,
+): Session {
   const roleId = mapRoleId(user.role_key);
+  const now = Date.now();
   return {
     token,
     expiresIn,
+    refreshToken,
+    accessTokenExpiresAt: toExpiresAt(now, expiresIn),
+    refreshTokenExpiresAt: toExpiresAt(now, refreshExpiresIn),
     user,
     roleId,
     communityId: mapCommunityId(user.tenant_id),
   };
 }
 
+function toExpiresAt(now: number, expiresIn?: number): number | undefined {
+  return typeof expiresIn === "number" && Number.isFinite(expiresIn) && expiresIn > 0
+    ? now + expiresIn * 1_000
+    : undefined;
+}
+
 export function saveSession(session: Session): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
-interface LoginResponse {
+export interface SessionTokenResponse {
   access_token: string;
   expires_in: number;
+  refresh_token?: string;
+  refresh_expires_in?: number;
   user_info: UserInfo;
+}
+
+/** 用刷新接口的权威会话资料替换当前浏览器会话，同时保留前端缓存的导航与辖区列表。 */
+export function renewStoredSession(data: SessionTokenResponse): Session | null {
+  const current = loadSession();
+  if (!current || !data.access_token || !data.refresh_token) return null;
+  const next: Session = {
+    ...buildSession(
+      data.access_token,
+      data.expires_in,
+      data.user_info,
+      data.refresh_token,
+      data.refresh_expires_in,
+    ),
+    menus: current.menus,
+    managedCommunities: current.managedCommunities,
+  };
+  saveSession(next);
+  return next;
 }
 
 /** 手机号 + 短信验证码登录，成功后落地 session 并返回。 */
 export async function loginByPhone(phone: string, smsCode: string): Promise<Session> {
-  const data = await apiPost<LoginResponse>(
+  const data = await apiPost<SessionTokenResponse>(
     "/auth/login",
     { username: phone, smsCode, loginType: 1, clientPortal: "B" },
     { auth: false },
   );
-  const session = buildSession(data.access_token, data.expires_in, data.user_info);
+  const session = buildSession(
+    data.access_token,
+    data.expires_in,
+    data.user_info,
+    data.refresh_token,
+    data.refresh_expires_in,
+  );
   saveSession(session);
   return session;
 }
@@ -182,10 +242,8 @@ interface ShadowsResponse {
   shadows: SysUserShadow[];
 }
 
-interface SwitchShadowResponse {
+interface SwitchShadowResponse extends Omit<SessionTokenResponse, "access_token"> {
   new_access_token: string;
-  expires_in: number;
-  user_info: UserInfo;
   active_shadow: SysUserShadow;
 }
 
@@ -194,11 +252,9 @@ interface ManagedCommunitiesResponse {
   communities: ManagedCommunity[];
 }
 
-interface SwitchManagedCommunityResponse {
+interface SwitchManagedCommunityResponse extends Omit<SessionTokenResponse, "access_token"> {
   new_access_token: string;
-  expires_in: number;
   active_tenant_id: number;
-  user_info: UserInfo;
 }
 
 export async function listSysUserShadows(): Promise<SysUserShadow[]> {
@@ -208,7 +264,13 @@ export async function listSysUserShadows(): Promise<SysUserShadow[]> {
 
 export async function switchSysUserShadow(targetUserId: number): Promise<Session> {
   const data = await apiPost<SwitchShadowResponse>("/auth/switch-shadow", { targetUserId });
-  const session = buildSession(data.new_access_token, data.expires_in, data.user_info);
+  const session = buildSession(
+    data.new_access_token,
+    data.expires_in,
+    data.user_info,
+    data.refresh_token,
+    data.refresh_expires_in,
+  );
   saveSession(session);
   return session;
 }
@@ -225,7 +287,13 @@ export async function switchManagedCommunity(targetTenantId: number): Promise<Se
   const data = await apiPost<SwitchManagedCommunityResponse>("/auth/switch-managed-community", {
     targetTenantId,
   });
-  const session = buildSession(data.new_access_token, data.expires_in, data.user_info);
+  const session = buildSession(
+    data.new_access_token,
+    data.expires_in,
+    data.user_info,
+    data.refresh_token,
+    data.refresh_expires_in,
+  );
   saveSession(session);
   return session;
 }

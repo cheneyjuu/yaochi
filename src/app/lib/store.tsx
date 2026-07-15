@@ -13,7 +13,7 @@ import {
   type ManagedCommunity,
   type Session,
 } from "./auth";
-import { setUnauthorizedHandler } from "./api";
+import { setSessionRefreshedHandler, setUnauthorizedHandler } from "./api";
 import {
   firstPageId,
   hasPage,
@@ -121,6 +121,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAuthed(false);
       setPage("overview");
     });
+    setSessionRefreshedHandler((session) => {
+      setRoleRaw(session.roleId);
+      setDataScope(DEFAULT_SCOPE[session.roleId]);
+      setCommunityIdState(session.communityId);
+      setCommunityName(session.user.tenant_name ?? null);
+      setMode(mapPropertyMode(session.user.property_mode));
+      setManagedCommunities(session.managedCommunities ?? []);
+      setPermissions(session.user.permissions ?? []);
+      setMenus(session.menus ?? []);
+      setRoleKey(session.user.role_key ?? null);
+      setToken(session.token);
+      setAuthed(true);
+    });
+    return () => {
+      setUnauthorizedHandler(null);
+      setSessionRefreshedHandler(null);
+    };
   }, []);
 
   const setRole = (r: RoleId) => {

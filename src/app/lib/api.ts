@@ -3,7 +3,15 @@
 // 仅 401（未认证 / token 失效）触发登出；403（已认证但当前角色/状态无权）退回业务错误流，
 // 由调用处 toast 提示，避免「业务级权限失败 → 误踢下线」（如撤回非本人草稿）。
 
-import { getToken, clearSession } from "./auth";
+import {
+  clearSession,
+  getRefreshToken,
+  getToken,
+  isAccessTokenExpiringSoon,
+  renewStoredSession,
+  type Session,
+  type SessionTokenResponse,
+} from "./auth";
 
 const BASE = "/pangu/api/v1";
 
@@ -23,8 +31,48 @@ export class ApiError extends Error {
 
 // 401 时由 store 注册的登出回调（清会话 + 回登录页），避免本层直接依赖 React。
 let onUnauthorized: (() => void) | null = null;
-export function setUnauthorizedHandler(fn: () => void) {
+export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
+}
+
+/** 刷新成功后由 React store 同步新 token，避免界面仍持有旧会话状态。 */
+let onSessionRefreshed: ((session: Session) => void) | null = null;
+export function setSessionRefreshedHandler(fn: ((session: Session) => void) | null) {
+  onSessionRefreshed = fn;
+}
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+type ApiEnvelope<T> = { code: number; msg?: string; data?: T };
+
+/**
+ * 通过不透明刷新凭证轮换短期 JWT。并发业务请求共享同一个续期任务，防止同一刷新凭证被并发消费。
+ */
+function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return null;
+    try {
+      const response = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as ApiEnvelope<SessionTokenResponse>;
+      if (payload.code !== 200 || !payload.data) return null;
+      const session = renewStoredSession(payload.data);
+      if (!session) return null;
+      onSessionRefreshed?.(session);
+      return session.token;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 interface RequestOptions {
@@ -40,26 +88,43 @@ interface RequestOptions {
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, auth = true, token, isolatedAuth = false } = opts;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (auth) {
-    const authToken = token ?? getToken();
-    if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+  const managedSession = auth && !token && !isolatedAuth;
+  let authToken = token ?? getToken();
+  if (managedSession && isAccessTokenExpiringSoon()) {
+    authToken = (await refreshAccessToken()) ?? authToken;
   }
 
-  let resp: Response;
-  try {
-    resp = await fetch(`${BASE}${path}`, {
+  const send = async (currentToken: string | null): Promise<Response> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (auth && currentToken) headers.Authorization = `Bearer ${currentToken}`;
+    return fetch(`${BASE}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  };
+
+  let resp: Response;
+  try {
+    resp = await send(authToken);
   } catch (e) {
     throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
   }
 
-  // 仅 401 视为鉴权失效：清会话并跳登录。403 落入下方业务错误流（弹后端 msg）。
+  // 访问 JWT 到期时先轮换一次并重试原请求；刷新失败或重试仍 401 才退出登录。
+  if (resp.status === 401 && managedSession) {
+    const renewedToken = await refreshAccessToken();
+    if (renewedToken) {
+      try {
+        resp = await send(renewedToken);
+      } catch {
+        throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
+      }
+    }
+  }
+
   if (resp.status === 401) {
-    if (!isolatedAuth) {
+    if (managedSession) {
       clearSession();
       onUnauthorized?.();
     }
@@ -122,18 +187,35 @@ async function upload<T>(
   explicitToken?: string,
   isolatedAuth = false,
 ): Promise<T> {
-  const headers: Record<string, string> = {};
-  const token = explicitToken ?? getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const managedSession = !explicitToken && !isolatedAuth;
+  let token = explicitToken ?? getToken();
+  if (managedSession && isAccessTokenExpiringSoon()) {
+    token = (await refreshAccessToken()) ?? token;
+  }
+  const send = (currentToken: string | null) => {
+    const headers: Record<string, string> = {};
+    if (currentToken) headers.Authorization = `Bearer ${currentToken}`;
+    return fetch(`${BASE}${path}`, { method: "POST", headers, body: formData });
+  };
 
   let resp: Response;
   try {
-    resp = await fetch(`${BASE}${path}`, { method: "POST", headers, body: formData });
+    resp = await send(token);
   } catch {
     throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
   }
+  if (resp.status === 401 && managedSession) {
+    const renewedToken = await refreshAccessToken();
+    if (renewedToken) {
+      try {
+        resp = await send(renewedToken);
+      } catch {
+        throw new ApiError(-1, "网络异常，请检查后端服务是否启动", "NETWORK", true);
+      }
+    }
+  }
   if (resp.status === 401) {
-    if (!isolatedAuth) {
+    if (managedSession) {
       clearSession();
       onUnauthorized?.();
     }
