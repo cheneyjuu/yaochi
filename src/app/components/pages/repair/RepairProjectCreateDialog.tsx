@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
+import { Checkbox } from "../../ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +25,9 @@ import { Switch } from "../../ui/switch";
 import { Textarea } from "../../ui/textarea";
 import {
   listRepairLocationOptions,
+  pageRepairWorkOrders,
   type RepairLocationBuildingOption,
+  type RepairWorkOrder,
 } from "../../../lib/repair";
 import {
   createRepairProject,
@@ -43,8 +46,10 @@ interface DraftItem {
   quantity: string;
   unit: string;
   estimatedUnitPrice: string;
-  linkedWorkOrderIds: string;
+  linkedWorkOrderIds: number[];
 }
+
+type DraftItemTextField = Exclude<keyof DraftItem, "linkedWorkOrderIds">;
 
 const EVIDENCE_STAGES: RepairProjectStage[] = [
   "BEFORE_CONSTRUCTION",
@@ -69,7 +74,7 @@ function emptyItem(index: number): DraftItem {
     quantity: "1",
     unit: "项",
     estimatedUnitPrice: "0",
-    linkedWorkOrderIds: "",
+    linkedWorkOrderIds: [],
   };
 }
 
@@ -107,6 +112,8 @@ export function RepairProjectCreateDialog({
   const [completionRatio, setCompletionRatio] = useState("");
   const [warrantyReleaseRatio, setWarrantyReleaseRatio] = useState("");
   const [items, setItems] = useState<DraftItem[]>([emptyItem(0)]);
+  const [eligibleCases, setEligibleCases] = useState<RepairWorkOrder[]>([]);
+  const [casesLoading, setCasesLoading] = useState(false);
   const [locationBuildings, setLocationBuildings] = useState<Array<RepairLocationBuildingOption & { communityName: string }>>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -115,6 +122,10 @@ export function RepairProjectCreateDialog({
     () => locationBuildings.find((item) => String(item.buildingId) === buildingId),
     [buildingId, locationBuildings],
   );
+  const visibleEligibleCases = useMemo(() => eligibleCases.filter((item) => {
+    if (workflow === "COMMUNITY_PUBLIC_REPAIR") return item.publicAreaScope === "COMMUNITY";
+    return item.publicAreaScope === "BUILDING" && String(item.buildingId ?? "") === buildingId;
+  }), [buildingId, eligibleCases, workflow]);
 
   useEffect(() => {
     if (!open) return;
@@ -124,6 +135,18 @@ export function RepairProjectCreateDialog({
       setAffectedOwnerScope("");
     }
   }, [open, workflow]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCasesLoading(true);
+    pageRepairWorkOrders({ status: "SURVEY_COMPLETED", scope: "PUBLIC", page: 1, size: 100 })
+      .then((result) => setEligibleCases(result.items.filter((item) => item.spaceScope === "PUBLIC")))
+      .catch((error) => {
+        setEligibleCases([]);
+        toast.error(error instanceof Error ? error.message : "待交接报修事项加载失败");
+      })
+      .finally(() => setCasesLoading(false));
+  }, [open]);
 
   useEffect(() => {
     if (!open || workflow !== "BUILDING_REPAIR") return;
@@ -147,10 +170,24 @@ export function RepairProjectCreateDialog({
       .finally(() => setLocationLoading(false));
   }, [open, workflow]);
 
-  function updateItem(index: number, field: keyof DraftItem, value: string) {
+  function updateItem(index: number, field: DraftItemTextField, value: string) {
     setItems((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [field]: value } : item
     )));
+  }
+
+  function toggleLinkedWorkOrder(index: number, workOrderId: number, checked: boolean) {
+    setItems((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const linkedWorkOrderIds = checked
+        ? Array.from(new Set([...item.linkedWorkOrderIds, workOrderId]))
+        : item.linkedWorkOrderIds.filter((id) => id !== workOrderId);
+      return { ...item, linkedWorkOrderIds };
+    }));
+  }
+
+  function resetLinkedWorkOrders() {
+    setItems((current) => current.map((item) => ({ ...item, linkedWorkOrderIds: [] })));
   }
 
   async function submit() {
@@ -207,10 +244,7 @@ export function RepairProjectCreateDialog({
         unit: item.unit.trim(),
         estimatedUnitPrice: unitPrice,
         estimatedAmount: Number((quantity * unitPrice).toFixed(2)),
-        linkedWorkOrderIds: item.linkedWorkOrderIds
-          .split(/[,，\s]+/)
-          .map(Number)
-          .filter((value) => Number.isSafeInteger(value) && value > 0),
+        linkedWorkOrderIds: item.linkedWorkOrderIds,
       };
     });
     const budgetTotal = normalizedItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
@@ -290,13 +324,13 @@ export function RepairProjectCreateDialog({
           <section className="space-y-4">
             <div className="text-sm font-semibold">项目范围与资金</div>
             <div className="inline-flex rounded-md border bg-muted/30 p-1">
-              <Button type="button" size="sm" variant={workflow === "BUILDING_REPAIR" ? "default" : "ghost"} onClick={() => setWorkflow("BUILDING_REPAIR")}>楼栋/单元维修</Button>
-              <Button type="button" size="sm" variant={workflow === "COMMUNITY_PUBLIC_REPAIR" ? "default" : "ghost"} onClick={() => setWorkflow("COMMUNITY_PUBLIC_REPAIR")}>全小区公共维修</Button>
+              <Button type="button" size="sm" variant={workflow === "BUILDING_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("BUILDING_REPAIR"); resetLinkedWorkOrders(); }}>楼栋/单元维修</Button>
+              <Button type="button" size="sm" variant={workflow === "COMMUNITY_PUBLIC_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("COMMUNITY_PUBLIC_REPAIR"); resetLinkedWorkOrders(); }}>全小区公共维修</Button>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="md:col-span-2"><Label>工程名称</Label><Input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></div>
               {workflow === "BUILDING_REPAIR" ? (
-                <div><Label>楼栋范围</Label><Select value={buildingId} onValueChange={(value) => { setBuildingId(value); setUnitName(""); }} disabled={locationLoading}><SelectTrigger><SelectValue placeholder={locationLoading ? "正在加载楼栋" : "选择楼栋"} /></SelectTrigger><SelectContent>{locationBuildings.map((building) => <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
+                <div><Label>楼栋范围</Label><Select value={buildingId} onValueChange={(value) => { setBuildingId(value); setUnitName(""); resetLinkedWorkOrders(); }} disabled={locationLoading}><SelectTrigger><SelectValue placeholder={locationLoading ? "正在加载楼栋" : "选择楼栋"} /></SelectTrigger><SelectContent>{locationBuildings.map((building) => <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
               ) : (
                 <div><Label>资金范围</Label><Input value="小区公共维修资金" disabled /></div>
               )}
@@ -320,7 +354,28 @@ export function RepairProjectCreateDialog({
                     <div><Label>数量</Label><Input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} /></div>
                     <div><Label>单位</Label><Input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} /></div>
                     <div><Label>含税估算单价</Label><Input type="number" min="0" step="0.01" value={item.estimatedUnitPrice} onChange={(event) => updateItem(index, "estimatedUnitPrice", event.target.value)} /></div>
-                    <div className="md:col-span-3"><Label>关联工单 ID</Label><Input placeholder="多个 ID 用逗号分隔" value={item.linkedWorkOrderIds} onChange={(event) => updateItem(index, "linkedWorkOrderIds", event.target.value)} /></div>
+                    <div className="md:col-span-6">
+                      <Label>关联已勘验报修事项</Label>
+                      <div className="mt-1 max-h-36 overflow-y-auto rounded-md border">
+                        {casesLoading ? (
+                          <div className="flex items-center justify-center px-3 py-5 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />加载待交接事项</div>
+                        ) : visibleEligibleCases.length === 0 ? (
+                          <div className="px-3 py-5 text-center text-sm text-muted-foreground">当前工程范围没有待交接的已勘验共有部分报修事项</div>
+                        ) : visibleEligibleCases.map((workOrder) => (
+                          <label key={workOrder.workOrderId} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/30">
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={item.linkedWorkOrderIds.includes(workOrder.workOrderId)}
+                              onCheckedChange={(checked) => toggleLinkedWorkOrder(index, workOrder.workOrderId, checked === true)}
+                            />
+                            <span className="min-w-0 text-sm">
+                              <span className="block truncate font-medium">{workOrder.title}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{workOrder.orderNo} · {workOrder.locationText || "未填写位置"}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}

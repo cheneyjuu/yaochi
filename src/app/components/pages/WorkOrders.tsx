@@ -144,6 +144,7 @@ const STATUS_LABEL: Record<RepairStatus, string> = {
   ASSIGNED: "已派单",
   SURVEYING: "勘验中",
   SURVEY_COMPLETED: "勘验已完成",
+  PROJECT_LINKED: "已交接工程项目",
   QUOTE_COLLECTING: "询价中",
   QUOTE_SUBMITTED: "已报价",
   SUPPLIER_RECOMMENDED: "物业已推荐供应商",
@@ -238,6 +239,7 @@ const EVENT_ACTION_LABEL: Record<string, string> = {
   ASSIGN: "派单",
   START_SURVEY: "开始初勘",
   SUBMIT_SURVEY: "提交初勘记录",
+  LINK_PROJECT: "交接维修工程项目",
   SUBMIT_PLAN: "确认维修范围与询价口径",
   INVITE_REPAIR_SUPPLIERS: "发出维修邀价",
   APPEND_REPAIR_SUPPLIERS: "追加维修邀价",
@@ -266,8 +268,14 @@ const EVENT_ACTION_LABEL: Record<string, string> = {
   ARCHIVE: "工单归档",
 };
 
-function fundingProcessDescription(fundSource?: string | null) {
-  switch (fundSource) {
+function fundingProcessDescription(order: RepairWorkOrder) {
+  if (order.spaceScope === "PUBLIC") {
+    if (order.publicAreaScope === "BUILDING") {
+      return "共有部分报修在现场勘验后交接楼栋维修工程项目。项目使用对应楼栋维修资金，并在项目台账完成方案、楼栋决定、合同、施工、楼组长与受影响业主验收、付款和归档。";
+    }
+    return "全小区共有部分报修在现场勘验后交接全小区公共维修工程项目。项目使用小区公共维修资金，并在项目台账完成业主大会、合同、施工、业委会验收、付款和归档。";
+  }
+  switch (order.fundSource) {
     case "PROPERTY_INTERNAL":
       return "本工单由物业包干成本承担，不动用楼栋维修资金或小区公共维修资金；确认维修范围后由物业按内部流程执行。";
     case "BUILDING_MAINTENANCE_FUND":
@@ -289,6 +297,7 @@ const STATUS_TONE: Record<RepairStatus, Tone> = {
   ASSIGNED: "primary",
   SURVEYING: "info",
   SURVEY_COMPLETED: "tech",
+  PROJECT_LINKED: "success",
   QUOTE_COLLECTING: "warning",
   QUOTE_SUBMITTED: "tech",
   SUPPLIER_RECOMMENDED: "primary",
@@ -341,7 +350,33 @@ const BASE_STEPS = [
   { key: "acceptance", label: "验收" },
 ];
 
+const PUBLIC_CASE_STEPS = [
+  { key: "intake", label: "登记定位" },
+  { key: "survey", label: "现场勘验" },
+  { key: "project", label: "工程项目交接" },
+];
+
+const PUBLIC_CASE_ACTIVE_STATUSES = new Set<RepairStatus>([
+  "SUBMITTED",
+  "PENDING_VERIFY",
+  "NEED_MANUAL_LOCATION",
+  "VERIFIED",
+  "ASSIGNED",
+  "SURVEYING",
+]);
+
+function isPublicProjectCutover(order: RepairWorkOrder) {
+  return order.spaceScope === "PUBLIC" && !PUBLIC_CASE_ACTIVE_STATUSES.has(order.status);
+}
+
+function workOrderStep(order: RepairWorkOrder) {
+  if (order.spaceScope !== "PUBLIC") return STATUS_STEP[order.status];
+  if (order.status === "PROJECT_LINKED" || !PUBLIC_CASE_ACTIVE_STATUSES.has(order.status)) return 2;
+  return ["ASSIGNED", "SURVEYING"].includes(order.status) ? 1 : 0;
+}
+
 function workOrderSteps(order: RepairWorkOrder) {
+  if (order.spaceScope === "PUBLIC") return PUBLIC_CASE_STEPS;
   const decisionLabel = order.fundSource === "BUILDING_MAINTENANCE_FUND"
     ? "楼栋表决"
     : ["COMMUNITY_MAINTENANCE_FUND", "PUBLIC_REVENUE"].includes(order.fundSource || "")
@@ -360,6 +395,7 @@ const STATUS_STEP: Record<RepairStatus, number> = {
   ASSIGNED: 0,
   SURVEYING: 0,
   SURVEY_COMPLETED: 1,
+  PROJECT_LINKED: 2,
   PLAN_SUBMITTED: 2,
   QUOTE_COLLECTING: 2,
   QUOTE_SUBMITTED: 3,
@@ -635,7 +671,11 @@ export function WorkOrders() {
   }
 
   if (selected) {
-    const showSupplierTab = STATUS_STEP[selected.status] >= STATUS_STEP.PLAN_SUBMITTED;
+    const publicProjectCutover = isPublicProjectCutover(selected);
+    const publicLegacyProjectRecord = publicProjectCutover && selected.status !== "PROJECT_LINKED"
+      && selected.status !== "SURVEY_COMPLETED";
+    const showSupplierTab = selected.status !== "PROJECT_LINKED"
+      && STATUS_STEP[selected.status] >= STATUS_STEP.PLAN_SUBMITTED;
     return (
       <>
         {renderWorkOrderList()}
@@ -705,7 +745,11 @@ export function WorkOrders() {
         )}
 
         <SectionCard title="工单进度">
-          <Stepper steps={workOrderSteps(selected)} current={STATUS_STEP[selected.status]} locked={selected.fundGateBlocked ? 2 : undefined} />
+          <Stepper
+            steps={workOrderSteps(selected)}
+            current={workOrderStep(selected)}
+            locked={selected.spaceScope === "PRIVATE" && selected.fundGateBlocked ? 2 : undefined}
+          />
         </SectionCard>
 
         <Tabs defaultValue="handling" className="gap-4">
@@ -719,7 +763,24 @@ export function WorkOrders() {
           </TabsList>
 
           <TabsContent value="handling" className="mt-0 space-y-4">
-            <ActionPanel
+            {publicProjectCutover ? (
+              <SectionCard
+                title={selected.status === "PROJECT_LINKED" ? "已交接维修工程项目" : "转入维修工程项目"}
+                desc={selected.status === "SURVEY_COMPLETED"
+                  ? "现场勘验已完成，后续方案、治理、合同、施工、验收和付款统一在维修工程项目台账办理。"
+                  : selected.status === "PROJECT_LINKED"
+                    ? "本报修事项已关联维修工程项目，工单保留登记、定位和勘验记录。"
+                    : "这是切换前形成的历史项目级工单，旧流程仅供查阅；后续业务请在维修工程项目台账继续。"}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">工单 {selected.orderNo} · {scopeLabel(selected)}</span>
+                  <Button type="button" onClick={() => setPage("engineering")}>
+                    <Route className="mr-1 size-4" />前往工程项目台账
+                  </Button>
+                </div>
+              </SectionCard>
+            ) : (
+              <ActionPanel
               selected={selected}
               acting={acting}
               canManage={canManage}
@@ -757,13 +818,15 @@ export function WorkOrders() {
               fundSource={fundSource}
               setFundSource={setFundSource}
               doAction={doAction}
-            />
+              />
+            )}
             {showSupplierTab && (
               <SupplierQuoteArchive
                 workOrder={selected}
                 canManage={canManage}
                 acting={acting}
                 doAction={doAction}
+                readOnly={publicLegacyProjectRecord}
               />
             )}
           </TabsContent>
@@ -784,7 +847,7 @@ export function WorkOrders() {
                 </div>
               </div>
               <div className="mt-5 border-t pt-4 text-sm text-muted-foreground">
-                <Banknote className="mr-1 inline size-4" />{fundingProcessDescription(selected.fundSource)}
+                <Banknote className="mr-1 inline size-4" />{fundingProcessDescription(selected)}
               </div>
             </SectionCard>
             <AuditTimeline events={events} />
@@ -803,7 +866,7 @@ export function WorkOrders() {
     <div className="space-y-5">
       <PageHeader
         title="维修工单"
-        desc="业主报修、物业受理、网格/工程现场核验、方案预算、治理审批、验收评价的真实闭环"
+        desc="报修事项负责登记、位置核验和现场勘验；共有部分后续统一转入维修工程项目台账"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => reload()} disabled={loading}>
@@ -847,6 +910,7 @@ export function WorkOrders() {
                 <SelectItem value="NEED_MANUAL_LOCATION">待补充位置</SelectItem>
                 <SelectItem value="PENDING_VERIFY">待核验</SelectItem>
                 <SelectItem value="SURVEY_COMPLETED">初勘已完成</SelectItem>
+                <SelectItem value="PROJECT_LINKED">已交接工程项目</SelectItem>
                 <SelectItem value="PLAN_SUBMITTED">方案已提交</SelectItem>
                 <SelectItem value="QUOTE_COLLECTING">询价中</SelectItem>
                 <SelectItem value="QUOTE_SUBMITTED">已报价</SelectItem>
@@ -962,12 +1026,13 @@ function SupplierQuoteArchive({
   canManage,
   acting,
   doAction,
+  readOnly,
 }: {
   workOrder: RepairWorkOrder;
   canManage: boolean;
-  canVerifySuppliers: boolean;
   acting: boolean;
   doAction: (action: string, body?: unknown, success?: string) => Promise<boolean>;
+  readOnly: boolean;
 }) {
   const [quotes, setQuotes] = useState<RepairSupplierQuote[]>([]);
   const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
@@ -1095,7 +1160,11 @@ function SupplierQuoteArchive({
 
   return (
     <>
-      <SectionCard title="供应商与报价" desc="查看报价资料，并直接从报价记录中推荐供应商" bodyClassName="p-0">
+      <SectionCard
+        title="供应商与报价"
+        desc={readOnly ? "切换前形成的报价记录仅供追溯" : "查看报价资料，并直接从报价记录中推荐供应商"}
+        bodyClassName="p-0"
+      >
         {!canManage ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">当前身份无权查看供应商报价</div>
         ) : loading ? (
@@ -1152,7 +1221,7 @@ function SupplierQuoteArchive({
                       <ClipboardList className="size-4" />
                     </Button>
                   )}
-                  {workOrder.status === "QUOTE_SUBMITTED" && (
+                  {!readOnly && workOrder.status === "QUOTE_SUBMITTED" && (
                     <Button type="button" className="shrink-0" onClick={() => openRecommendation(quote.quoteId)}>
                       <CheckCircle2 className="mr-1 size-4" />推荐此供应商
                     </Button>
