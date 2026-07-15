@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
+import { RichTextView } from "../common/RichTextEditor";
 import { listRepairSupplierOrganizations, type RepairSupplierOrganization } from "../../lib/repair";
 import {
   getRepairProject,
@@ -54,7 +55,6 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { RepairProjectCreateDialog } from "./repair/RepairProjectCreateDialog";
 import { RepairProjectOperationPanel } from "./repair/RepairProjectOperationPanel";
 
 const STATUS_LABEL: Record<RepairProjectStatus, string> = {
@@ -105,14 +105,13 @@ function formatDate(value?: string | null): string {
 }
 
 export function Engineering() {
-  const { hasPermission } = useStore();
+  const { hasPermission, setPage } = useStore();
   const [projects, setProjects] = useState<RepairProject[]>([]);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [details, setDetails] = useState<RepairProjectDetails | null>(null);
   const [execution, setExecution] = useState<RepairProjectExecutionDetails | null>(null);
@@ -196,7 +195,7 @@ export function Engineering() {
         actions={(
           <>
             <Button variant="outline" onClick={() => void reloadList()} disabled={loading}><RefreshCw className={`mr-1 size-4 ${loading ? "animate-spin" : ""}`} />刷新</Button>
-            {hasPermission("repair:workorder:manage") && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1 size-4" />新建项目</Button>}
+            {hasPermission("repair:workorder:manage") && <Button onClick={() => setPage("repair-project-editor")}><Plus className="mr-1 size-4" />新建项目</Button>}
           </>
         )}
       />
@@ -275,16 +274,6 @@ export function Engineering() {
         </SheetContent>
       </Sheet>
 
-      <RepairProjectCreateDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={(created) => {
-          setDetails(created);
-          setSelectedId(created.project.projectId);
-          setSheetOpen(true);
-          void Promise.all([reloadList(), loadDetail(created.project.projectId)]);
-        }}
-      />
     </div>
   );
 }
@@ -298,18 +287,31 @@ function ProjectOverview({ details, openAttachment }: { details: RepairProjectDe
         <Info label="资金范围" value={FUND_LABEL[project.fundSource]} icon={<Banknote className="size-4" />} />
         <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
         <Info label="实施计划" value={`${plan?.plannedStartDate ?? "-"} 至 ${plan?.plannedCompletionDate ?? "-"}`} />
-        <Info label="问题原因" value={plan?.problemCause ?? "-"} />
-        <Info label="实施范围" value={plan?.implementationScope ?? "-"} />
         <Info label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
         <Info label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
-        <Info label="施工管理" value={plan?.constructionManagementRequirements ?? "-"} />
         <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
+      </div>
+
+      <div className="grid gap-x-8 gap-y-5 border-b pb-5 lg:grid-cols-2">
+        <PlanNarrative label="问题原因" html={plan?.problemCause} />
+        <PlanNarrative label="实施范围" html={plan?.implementationScope} />
+        <PlanNarrative label="施工管理要求" html={plan?.constructionManagementRequirements} />
+        <PlanNarrative label="安全要求" html={plan?.safetyRequirements} />
       </div>
 
       <div><h4 className="mb-3 text-sm font-semibold">工程项（{details.currentPlanItems.length}）</h4><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>编号</TableHead><TableHead>位置</TableHead><TableHead>工作内容</TableHead><TableHead className="text-right">数量</TableHead><TableHead className="text-right">估算金额</TableHead><TableHead>关联工单</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanItems.map((item) => <TableRow key={item.itemId}><TableCell className="font-mono-num text-xs">{item.itemNo}</TableCell><TableCell>{item.locationText}</TableCell><TableCell>{item.workContent}</TableCell><TableCell className="text-right">{item.quantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.estimatedAmount)} /></TableCell><TableCell className="text-xs text-muted-foreground">{item.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>
 
       <div><h4 className="mb-3 text-sm font-semibold">项目附件（{details.attachments.length}）</h4>{details.attachments.length === 0 ? <div className="text-sm text-muted-foreground">尚未归档附件</div> : <div className="grid gap-2 md:grid-cols-2">{details.attachments.map((attachment) => <button key={attachment.attachmentId} className="flex items-center gap-3 rounded-md border p-3 text-left hover:bg-muted/40" onClick={() => void openAttachment(attachment.attachmentId)}><FileText className="size-4 text-primary" /><span className="min-w-0 flex-1 truncate text-sm">{attachment.originalFileName}</span><span className="text-xs text-muted-foreground">#{attachment.attachmentId}</span></button>)}</div>}</div>
     </>
+  );
+}
+
+function PlanNarrative({ label, html }: { label: string; html?: string | null }) {
+  return (
+    <div className="min-w-0">
+      <h4 className="mb-2 text-sm font-semibold">{label}</h4>
+      <RichTextView html={html} />
+    </div>
   );
 }
 

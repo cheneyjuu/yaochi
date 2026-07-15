@@ -27,6 +27,7 @@ import { WorkOrders } from "./pages/WorkOrders";
 import { WorkOrderEditor } from "./pages/WorkOrderEditor";
 import { OwnersAssembly } from "./pages/OwnersAssembly";
 import { Engineering } from "./pages/Engineering";
+import { RepairProjectEditor } from "./pages/RepairProjectEditor";
 import { Announcements } from "./pages/Announcements";
 import { AnnouncementEditor } from "./pages/AnnouncementEditor";
 import { PushRecords } from "./pages/PushRecords";
@@ -67,6 +68,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "work-order-editor": WorkOrderEditor,
   "owners-assembly": OwnersAssembly,
   engineering: Engineering,
+  "repair-project-editor": RepairProjectEditor,
   announcements: Announcements,
   "announcement-editor": AnnouncementEditor,
   "push-records": PushRecords,

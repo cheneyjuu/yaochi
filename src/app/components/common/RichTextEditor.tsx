@@ -1,4 +1,5 @@
-import { type ReactNode, useMemo } from "react";
+// 关联业务：为公告、议题、报修和维修方案提供可预览、可限制工具集的富文本录入。
+import { type ComponentType, type ReactNode, useMemo } from "react";
 import {
   Bold,
   CheckSquare2,
@@ -28,7 +29,37 @@ interface RichTextEditorProps {
   placeholder?: string;
   rows?: number;
   attachmentArea?: ReactNode;
+  toolbar?: "full" | "basic";
 }
+
+interface ToolbarAction {
+  label: string;
+  template: string;
+  icon: ComponentType<{ className?: string }>;
+  basic?: boolean;
+}
+
+const TOOLBAR_ACTIONS: ToolbarAction[] = [
+  { label: "一级标题", template: "# 一级标题", icon: Heading1 },
+  { label: "二级标题", template: "## 小标题", icon: Heading2 },
+  { label: "三级标题", template: "### 小标题", icon: Heading3, basic: true },
+  { label: "四级标题", template: "#### 四级标题", icon: Heading4, basic: true },
+  { label: "加粗", template: "**重点文字**", icon: Bold, basic: true },
+  { label: "斜体", template: "*强调文字*", icon: Italic, basic: true },
+  { label: "删除线", template: "~~删除线~~", icon: Strikethrough },
+  { label: "行内代码", template: "`行内代码`", icon: Code2 },
+  { label: "链接", template: "[链接文字](https://example.com)", icon: Link2 },
+  { label: "无序列表", template: "- 要点", icon: List, basic: true },
+  { label: "有序列表", template: "1. 要点", icon: ListOrdered, basic: true },
+  { label: "待办事项", template: "- [ ] 待办事项", icon: CheckSquare2 },
+  { label: "引用", template: "> 引用说明", icon: Quote, basic: true },
+  { label: "分隔线", template: "---", icon: Minus },
+  {
+    label: "表格",
+    template: "| 项目 | 内容 |\n| --- | --- |\n| 示例 | 说明 |",
+    icon: Table2,
+  },
+];
 
 export function RichTextEditor({
   label,
@@ -37,8 +68,12 @@ export function RichTextEditor({
   placeholder,
   rows = 7,
   attachmentArea,
+  toolbar = "full",
 }: RichTextEditorProps) {
   const preview = useMemo(() => toMiniappRichText(value), [value]);
+  const actions = toolbar === "basic"
+    ? TOOLBAR_ACTIONS.filter((action) => action.basic)
+    : TOOLBAR_ACTIONS;
 
   function append(template: string) {
     onChange(value.trim() ? `${value}\n${template}` : template);
@@ -46,71 +81,32 @@ export function RichTextEditor({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <Label>{label}</Label>
-        <span className="text-xs text-muted-foreground">支持 Markdown 语法</span>
-      </div>
+      <Label>{label}</Label>
       <div className="overflow-hidden rounded-md border bg-background shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-100 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1 border-b bg-slate-100 px-3 py-2">
           <div className="flex flex-wrap items-center gap-1">
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("# 一级标题")}>
-              <Heading1 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("## 小标题")}>
-              <Heading2 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("### 小标题")}>
-              <Heading3 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("#### 四级标题")}>
-              <Heading4 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("**重点文字**")}>
-              <Bold className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("*强调文字*")}>
-              <Italic className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("~~删除线~~")}>
-              <Strikethrough className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("`行内代码`")}>
-              <Code2 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("[链接文字](https://example.com)")}>
-              <Link2 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("- 要点")}>
-              <List className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("1. 要点")}>
-              <ListOrdered className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("- [ ] 待办事项")}>
-              <CheckSquare2 className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("> 引用说明")}>
-              <Quote className="size-3.5" />
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => append("---")}>
-              <Minus className="size-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => append("| 项目 | 内容 |\n| --- | --- |\n| 示例 | 说明 |")}
-            >
-              <Table2 className="size-3.5" />
-            </Button>
+            {actions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <Button
+                  key={action.label}
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title={action.label}
+                  aria-label={action.label}
+                  onClick={() => append(action.template)}
+                >
+                  <Icon className="size-3.5" />
+                </Button>
+              );
+            })}
           </div>
-          <span className="text-xs text-muted-foreground">左侧编辑，右侧实时预览</span>
         </div>
         <div className="grid grid-cols-1 bg-slate-200/70 md:grid-cols-2 md:gap-px">
           <div className="border-b bg-amber-50/70 md:border-b-0">
             <div className="flex items-center justify-between border-b border-amber-200 bg-amber-100/80 px-4 py-2 text-xs font-semibold text-amber-900">
               <span>编辑区</span>
-              <span className="font-normal text-amber-700">Markdown 原文</span>
             </div>
             <Textarea
               value={value}
@@ -123,7 +119,6 @@ export function RichTextEditor({
           <div className="min-h-[300px] bg-white">
             <div className="flex items-center justify-between border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-900">
               <span>实时预览</span>
-              <span className="font-normal text-sky-700">小程序展示效果</span>
             </div>
             <div className="min-h-[300px] bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4">
               {preview ? (

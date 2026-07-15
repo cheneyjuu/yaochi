@@ -1,41 +1,35 @@
-// 关联业务：从真实维修范围创建楼栋或全小区维修工程项目，并固化首版结构化实施方案。
+// 关联业务：在独立工作页创建楼栋或全小区维修工程项目，并固化首版结构化实施方案。
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "../../ui/button";
-import { Checkbox } from "../../ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../ui/dialog";
-import { Input } from "../../ui/input";
-import { Label } from "../../ui/label";
+import { RichTextEditor } from "../common/RichTextEditor";
+import { PageHeader, SectionCard } from "../gov/common";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../ui/select";
-import { Switch } from "../../ui/switch";
-import { Textarea } from "../../ui/textarea";
+} from "../ui/select";
+import { Switch } from "../ui/switch";
 import {
   listRepairLocationOptions,
   pageRepairWorkOrders,
   type RepairLocationBuildingOption,
   type RepairWorkOrder,
-} from "../../../lib/repair";
+} from "../../lib/repair";
 import {
   createRepairProject,
   type RepairPlanDraftInput,
   type RepairProjectCreateInput,
-  type RepairProjectDetails,
   type RepairProjectStage,
-} from "../../../lib/repair-project";
+} from "../../lib/repair-project";
+import { richTextToPlain, toMiniappRichText } from "../../lib/richText";
+import { useStore } from "../../lib/store";
 
 type Workflow = "BUILDING_REPAIR" | "COMMUNITY_PUBLIC_REPAIR";
 
@@ -78,15 +72,8 @@ function emptyItem(index: number): DraftItem {
   };
 }
 
-export function RepairProjectCreateDialog({
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreated: (details: RepairProjectDetails) => void;
-}) {
+export function RepairProjectEditor() {
+  const { hasPermission, setPage } = useStore();
   const [workflow, setWorkflow] = useState<Workflow>("BUILDING_REPAIR");
   const [projectName, setProjectName] = useState("");
   const [buildingId, setBuildingId] = useState("");
@@ -117,6 +104,7 @@ export function RepairProjectCreateDialog({
   const [locationBuildings, setLocationBuildings] = useState<Array<RepairLocationBuildingOption & { communityName: string }>>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const canCreate = hasPermission("repair:workorder:manage");
 
   const selectedBuilding = useMemo(
     () => locationBuildings.find((item) => String(item.buildingId) === buildingId),
@@ -128,16 +116,15 @@ export function RepairProjectCreateDialog({
   }), [buildingId, eligibleCases, workflow]);
 
   useEffect(() => {
-    if (!open) return;
     if (workflow === "COMMUNITY_PUBLIC_REPAIR") {
       setBuildingId("");
       setUnitName("");
       setAffectedOwnerScope("");
     }
-  }, [open, workflow]);
+  }, [workflow]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!canCreate) return;
     setCasesLoading(true);
     pageRepairWorkOrders({ status: "SURVEY_COMPLETED", scope: "PUBLIC", page: 1, size: 100 })
       .then((result) => setEligibleCases(result.items.filter((item) => item.spaceScope === "PUBLIC")))
@@ -146,10 +133,10 @@ export function RepairProjectCreateDialog({
         toast.error(error instanceof Error ? error.message : "待交接报修事项加载失败");
       })
       .finally(() => setCasesLoading(false));
-  }, [open]);
+  }, [canCreate]);
 
   useEffect(() => {
-    if (!open || workflow !== "BUILDING_REPAIR") return;
+    if (!canCreate || workflow !== "BUILDING_REPAIR") return;
     setLocationLoading(true);
     listRepairLocationOptions()
       .then((options) => {
@@ -168,7 +155,7 @@ export function RepairProjectCreateDialog({
         toast.error(error instanceof Error ? error.message : "楼栋范围加载失败");
       })
       .finally(() => setLocationLoading(false));
-  }, [open, workflow]);
+  }, [canCreate, workflow]);
 
   function updateItem(index: number, field: DraftItemTextField, value: string) {
     setItems((current) => current.map((item, itemIndex) => (
@@ -192,11 +179,17 @@ export function RepairProjectCreateDialog({
 
   async function submit() {
     const numericBuildingId = buildingId ? Number(buildingId) : undefined;
-    if (!projectName.trim() || !problemCause.trim() || !implementationScope.trim()) {
+    const problemCauseHtml = toMiniappRichText(problemCause);
+    const implementationScopeHtml = toMiniappRichText(implementationScope);
+    const constructionRequirementsHtml = toMiniappRichText(constructionRequirements);
+    const safetyRequirementsHtml = toMiniappRichText(safetyRequirements);
+    if (!projectName.trim() || !richTextToPlain(problemCauseHtml)
+      || !richTextToPlain(implementationScopeHtml)) {
       toast.error("请填写工程名称、问题原因和实施范围");
       return;
     }
-    if (!supplierSelectionReason.trim() || !constructionRequirements.trim() || !safetyRequirements.trim()) {
+    if (!supplierSelectionReason.trim() || !richTextToPlain(constructionRequirementsHtml)
+      || !richTextToPlain(safetyRequirementsHtml)) {
       toast.error("请填写施工单位选择理由、施工管理要求和安全要求");
       return;
     }
@@ -253,8 +246,8 @@ export function RepairProjectCreateDialog({
       return;
     }
     const plan: RepairPlanDraftInput = {
-      problemCause: problemCause.trim(),
-      implementationScope: implementationScope.trim(),
+      problemCause: problemCauseHtml,
+      implementationScope: implementationScopeHtml,
       budgetTotal,
       allocationRuleType: "BY_BUILDING_AREA",
       allocationRuleDescription: allocationDescription.trim() || (building
@@ -262,13 +255,13 @@ export function RepairProjectCreateDialog({
         : "按全小区锁定房屋建筑面积分摊"),
       supplierSelectionMethod,
       supplierSelectionReason: supplierSelectionReason.trim(),
-      constructionManagementRequirements: constructionRequirements.trim(),
+      constructionManagementRequirements: constructionRequirementsHtml,
       evidenceRequirements: EVIDENCE_STAGES.map((stage) => ({
         stage,
         description: `${stage} 原始现场证据`,
         required: true,
       })),
-      safetyRequirements: safetyRequirements.trim(),
+      safetyRequirements: safetyRequirementsHtml,
       acceptanceMethod: building
         ? "楼组长与锁定受影响业主按最低人数及通过规则共同验收"
         : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署",
@@ -301,10 +294,9 @@ export function RepairProjectCreateDialog({
     };
     setSubmitting(true);
     try {
-      const created = await createRepairProject(payload);
+      await createRepairProject(payload);
       toast.success("维修工程项目已创建");
-      onCreated(created);
-      onOpenChange(false);
+      setPage("engineering");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "维修工程项目创建失败");
     } finally {
@@ -312,17 +304,43 @@ export function RepairProjectCreateDialog({
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>新建维修工程项目</DialogTitle>
-          <DialogDescription>项目承载锁定方案、治理依据、合同、施工、验收、结算和付款；一项可关联多个报修工单。</DialogDescription>
-        </DialogHeader>
+  if (!canCreate) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="新建维修工程项目"
+          desc="当前角色没有维修工程项目创建权限"
+          actions={(
+            <Button variant="ghost" onClick={() => setPage("engineering")}>
+              <ArrowLeft className="size-4" />返回项目台账
+            </Button>
+          )}
+        />
+      </div>
+    );
+  }
 
-        <div className="space-y-6 py-2">
-          <section className="space-y-4">
-            <div className="text-sm font-semibold">项目范围与资金</div>
+  return (
+    <div className="space-y-5 pb-4">
+      <PageHeader
+        title="新建维修工程项目"
+        desc="创建工程范围、首版实施方案和后续治理依据"
+        actions={(
+          <>
+            <Button variant="ghost" onClick={() => setPage("engineering")}>
+              <ArrowLeft className="size-4" />返回项目台账
+            </Button>
+            <Button onClick={() => void submit()} disabled={submitting}>
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              创建项目
+            </Button>
+          </>
+        )}
+      />
+
+      <div className="space-y-5">
+        <SectionCard title="项目范围与资金">
+          <div className="space-y-5">
             <div className="inline-flex rounded-md border bg-muted/30 p-1">
               <Button type="button" size="sm" variant={workflow === "BUILDING_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("BUILDING_REPAIR"); resetLinkedWorkOrders(); }}>楼栋/单元维修</Button>
               <Button type="button" size="sm" variant={workflow === "COMMUNITY_PUBLIC_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("COMMUNITY_PUBLIC_REPAIR"); resetLinkedWorkOrders(); }}>全小区公共维修</Button>
@@ -335,14 +353,17 @@ export function RepairProjectCreateDialog({
                 <div><Label>资金范围</Label><Input value="小区公共维修资金" disabled /></div>
               )}
               {workflow === "BUILDING_REPAIR" && <div><Label>单元范围</Label><Select value={unitName || "__BUILDING__"} onValueChange={(value) => setUnitName(value === "__BUILDING__" ? "" : value)} disabled={!selectedBuilding}><SelectTrigger><SelectValue placeholder="整栋" /></SelectTrigger><SelectContent><SelectItem value="__BUILDING__">整栋</SelectItem>{selectedBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>}
-              <div className={workflow === "BUILDING_REPAIR" ? "md:col-span-2" : "md:col-span-3"}><Label>问题原因</Label><Textarea rows={3} value={problemCause} onChange={(event) => setProblemCause(event.target.value)} /></div>
-              <div className="md:col-span-3"><Label>实施范围</Label><Textarea rows={3} value={implementationScope} onChange={(event) => setImplementationScope(event.target.value)} /></div>
               <div className="md:col-span-3"><Label>分摊范围说明</Label><Input value={allocationDescription} onChange={(event) => setAllocationDescription(event.target.value)} /></div>
             </div>
-          </section>
+            <RichTextEditor label="问题原因" value={problemCause} onChange={setProblemCause} rows={7} toolbar="basic" placeholder="填写现场问题、成因和勘验结论" />
+            <RichTextEditor label="实施范围" value={implementationScope} onChange={setImplementationScope} rows={7} toolbar="basic" placeholder="填写施工位置、边界和主要工作内容" />
+          </div>
+        </SectionCard>
 
-          <section className="space-y-4 border-t pt-5">
-            <div className="flex items-center justify-between"><div className="text-sm font-semibold">工程项</div><Button type="button" size="sm" variant="outline" onClick={() => setItems((current) => [...current, emptyItem(current.length)])}><Plus className="mr-1 size-4" />增加工程项</Button></div>
+        <SectionCard
+          title="工程项"
+          extra={<Button type="button" size="sm" variant="outline" onClick={() => setItems((current) => [...current, emptyItem(current.length)])}><Plus className="mr-1 size-4" />增加工程项</Button>}
+        >
             <div className="space-y-4">
               {items.map((item, index) => (
                 <div key={`${item.itemNo}-${index}`} className="rounded-md border p-4">
@@ -380,15 +401,13 @@ export function RepairProjectCreateDialog({
                 </div>
               ))}
             </div>
-          </section>
+        </SectionCard>
 
-          <section className="space-y-4 border-t pt-5">
-            <div className="text-sm font-semibold">实施与验收规则</div>
+        <SectionCard title="实施与验收规则">
+          <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-3">
               <div><Label>施工单位选择方式</Label><Select value={supplierSelectionMethod} onValueChange={(value) => setSupplierSelectionMethod(value as RepairPlanDraftInput["supplierSelectionMethod"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COMPETITIVE_QUOTATION">竞争性询价</SelectItem><SelectItem value="FRAMEWORK_SUPPLIER">框架供应商</SelectItem><SelectItem value="DIRECT_AWARD">依法直接委托</SelectItem><SelectItem value="EMERGENCY_APPOINTMENT">紧急指定</SelectItem></SelectContent></Select></div>
               <div className="md:col-span-2"><Label>选择理由</Label><Input value={supplierSelectionReason} onChange={(event) => setSupplierSelectionReason(event.target.value)} /></div>
-              <div className="md:col-span-2"><Label>施工管理要求</Label><Textarea rows={3} value={constructionRequirements} onChange={(event) => setConstructionRequirements(event.target.value)} /></div>
-              <div><Label>安全要求</Label><Textarea rows={3} value={safetyRequirements} onChange={(event) => setSafetyRequirements(event.target.value)} /></div>
               {workflow === "BUILDING_REPAIR" && (
                 <>
                   <div className="md:col-span-2"><Label>受影响业主范围</Label><Input value={affectedOwnerScope} onChange={(event) => setAffectedOwnerScope(event.target.value)} /></div>
@@ -403,24 +422,25 @@ export function RepairProjectCreateDialog({
               <div><Label>质保天数</Label><Input type="number" min="0" value={warrantyDays} onChange={(event) => setWarrantyDays(event.target.value)} /></div>
               <div className="flex items-end gap-3 pb-2"><Switch checked={priceReviewRequired} onCheckedChange={setPriceReviewRequired} /><span className="text-sm">签约/完工需审价</span></div>
             </div>
-          </section>
+            <RichTextEditor label="施工管理要求" value={constructionRequirements} onChange={setConstructionRequirements} rows={7} toolbar="basic" placeholder="填写现场管理、过程核验和资料归档要求" />
+            <RichTextEditor label="安全要求" value={safetyRequirements} onChange={setSafetyRequirements} rows={7} toolbar="basic" placeholder="填写施工安全、人员防护和现场隔离要求" />
+          </div>
+        </SectionCard>
 
-          <section className="space-y-4 border-t pt-5">
-            <div className="text-sm font-semibold">累计付款比例</div>
+        <SectionCard title="累计付款比例">
             <div className="grid gap-4 md:grid-cols-4">
               <div><Label>首次支取（不超过 0.30）</Label><Input type="number" min="0.0001" max="0.3" step="0.01" value={advanceRatio} onChange={(event) => setAdvanceRatio(event.target.value)} /></div>
               <div><Label>进度款</Label><Input type="number" min="0.0001" max="1" step="0.01" value={progressRatio} onChange={(event) => setProgressRatio(event.target.value)} /></div>
               <div><Label>完工款</Label><Input type="number" min="0.0001" max="1" step="0.01" value={completionRatio} onChange={(event) => setCompletionRatio(event.target.value)} /></div>
               <div><Label>质保金释放</Label><Input type="number" min="0.0001" max="1" step="0.01" value={warrantyReleaseRatio} onChange={(event) => setWarrantyReleaseRatio(event.target.value)} /></div>
             </div>
-          </section>
-        </div>
+        </SectionCard>
+      </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+      <div className="flex items-center justify-end gap-3 border-t bg-background px-4 py-3">
+          <Button variant="outline" onClick={() => setPage("engineering")}>取消</Button>
           <Button onClick={() => void submit()} disabled={submitting}>{submitting && <Loader2 className="mr-1 size-4 animate-spin" />}创建项目</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }
