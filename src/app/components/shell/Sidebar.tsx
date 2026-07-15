@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "../ui/utils";
 import { useStore } from "../../lib/store";
-import type { NavModule } from "../../lib/nav";
+import type { NavModule, NavPage } from "../../lib/nav";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
   Building2,
@@ -57,6 +57,34 @@ interface NavigationGroup {
   modules: NavModule[];
 }
 
+interface NavigationPageGroup {
+  id: string;
+  label?: string;
+  pages: NavPage[];
+}
+
+/**
+ * 关联业务：系统管理承载基础名册、组织权限及服务审核等冷启动事项。
+ * 仅按后端已授权的页面标识归类，未识别页面仍保留在“其他设置”，避免前端遗漏权限菜单。
+ */
+const SYSTEM_MANAGEMENT_PAGE_GROUPS = [
+  {
+    id: "foundation",
+    label: "基础资料",
+    pages: ["owners", "topology", "community-settings", "property-roster-import"],
+  },
+  {
+    id: "organization",
+    label: "组织与权限",
+    pages: ["grid-management", "rbac", "certification"],
+  },
+  {
+    id: "service",
+    label: "服务组织与审核",
+    pages: ["property-service-organization", "property-binding-review", "community-registration-review"],
+  },
+] as const;
+
 function groupNavigationModules(menus: NavModule[]): NavigationGroup[] {
   const ungrouped = new Set(menus.map((module) => module.id));
   const groups = NAVIGATION_GROUPS.map((group) => {
@@ -73,6 +101,26 @@ function groupNavigationModules(menus: NavModule[]): NavigationGroup[] {
     : groups;
 }
 
+function groupModulePages(module: NavModule): NavigationPageGroup[] {
+  if (module.id !== "users") {
+    return [{ id: module.id, pages: module.pages }];
+  }
+
+  const ungrouped = new Set(module.pages.map((page) => page.id));
+  const groups = SYSTEM_MANAGEMENT_PAGE_GROUPS.map((group) => {
+    const pages = group.pages
+      .map((pageId) => module.pages.find((page) => page.id === pageId))
+      .filter((page): page is NavPage => Boolean(page));
+    pages.forEach((page) => ungrouped.delete(page.id));
+    return { id: group.id, label: group.label, pages };
+  }).filter((group) => group.pages.length > 0);
+
+  const remainingPages = module.pages.filter((page) => ungrouped.has(page.id));
+  return remainingPages.length > 0
+    ? [...groups, { id: "other", label: "其他设置", pages: remainingPages }]
+    : groups;
+}
+
 export function Sidebar({
   mobileOpen = false,
   onMobileClose,
@@ -86,6 +134,7 @@ export function Sidebar({
 }) {
   const { page, setPage, menus } = useStore();
   const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>({});
+  const [collapsedPageGroups, setCollapsedPageGroups] = useState<Record<string, boolean>>({});
   const navigationGroups = groupNavigationModules(menus);
 
   // 当前角色工作台所属模块默认展开，其余模块在首次进入时保持收起。
@@ -127,7 +176,7 @@ export function Sidebar({
             )}
           >
             {!iconOnly && (
-              <div className="mb-1.5 px-3 text-[10px] font-semibold leading-4 tracking-[0.12em] text-[#8b96a8]">
+              <div className="mb-1.5 px-3 text-[11px] font-semibold leading-4 tracking-[0.1em] text-[#7b8799]">
                 {group.label}
               </div>
             )}
@@ -138,6 +187,7 @@ export function Sidebar({
             ? mod.id === activeModule
             : !collapsedModules[mod.id];
           const containsActivePage = mod.id === activeModule;
+          const pageGroups = groupModulePages(mod);
           const collapseModule = () => {
             if (iconOnly) {
               onCollapsedChange?.(false);
@@ -153,13 +203,13 @@ export function Sidebar({
               aria-expanded={iconOnly ? undefined : open}
               aria-label={iconOnly ? `展开${mod.label}导航` : undefined}
               className={cn(
-                "flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-[12px] font-semibold tracking-[0.01em] text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                "flex h-10 w-full items-center gap-2.5 rounded-md px-3 text-[14px] font-semibold tracking-[0.01em] text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 iconOnly && "justify-center px-2",
                 containsActivePage && "text-sidebar-accent-foreground",
                 iconOnly && containsActivePage && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
-              <Icon className={cn("size-[15px] shrink-0 text-muted-foreground", containsActivePage && "text-sidebar-primary")} />
+              <Icon className={cn("size-4 shrink-0 text-muted-foreground", containsActivePage && "text-sidebar-primary")} />
               {!iconOnly && <span className="flex-1 text-left">{mod.label}</span>}
               {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground/75 transition-transform", !open && "-rotate-90")} />}
             </button>
@@ -173,25 +223,57 @@ export function Sidebar({
                 </Tooltip>
               ) : moduleButton}
               {!iconOnly && open && (
-                <div className="mt-0.5 mb-1 ml-[21px] flex flex-col gap-0.5 border-l border-sidebar-border/80 pl-2.5">
-                  {mod.pages.map((p) => {
-                    const active = page === p.id;
+                <div className="mt-0.5 mb-1 ml-[22px] flex flex-col gap-1 border-l border-sidebar-border/80 pl-2.5">
+                  {pageGroups.map((pageGroup) => {
+                    const pageGroupKey = `${mod.id}:${pageGroup.id}`;
+                    const hasActivePage = pageGroup.pages.some((candidate) => candidate.id === page);
+                    const pageGroupOpen = collapsedPageGroups[pageGroupKey] === undefined
+                      ? hasActivePage || !pageGroup.label
+                      : !collapsedPageGroups[pageGroupKey];
+
                     return (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          setPage(p.id);
-                          onMobileClose?.();
-                        }}
-                        className={cn(
-                          "relative min-h-8 rounded-md px-3 py-1.5 text-left text-[12px] font-medium leading-5 transition-colors",
-                          active
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-[inset_3px_0_0_var(--sidebar-primary)]"
-                            : "text-[#677487] hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+                      <div key={pageGroupKey}>
+                        {pageGroup.label && (
+                          <button
+                            type="button"
+                            aria-expanded={pageGroupOpen}
+                            onClick={() => setCollapsedPageGroups((current) => ({
+                              ...current,
+                              [pageGroupKey]: pageGroupOpen,
+                            }))}
+                            className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] font-semibold leading-5 text-[#657389] transition-colors hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground"
+                          >
+                            <span className="flex-1">{pageGroup.label}</span>
+                            <span className="text-[11px] font-medium text-muted-foreground">{pageGroup.pages.length}</span>
+                            <ChevronDown className={cn("size-3.5 text-muted-foreground/80 transition-transform", !pageGroupOpen && "-rotate-90")} />
+                          </button>
                         )}
-                      >
-                        {p.label}
-                      </button>
+                        {pageGroupOpen && (
+                          <div className={cn("flex flex-col gap-0.5", pageGroup.label && "mt-0.5")}>
+                            {pageGroup.pages.map((p) => {
+                              const active = page === p.id;
+                              return (
+                                <button
+                                  key={p.id}
+                                  onClick={() => {
+                                    setPage(p.id);
+                                    onMobileClose?.();
+                                  }}
+                                  className={cn(
+                                    "relative min-h-9 rounded-md px-3 py-1.5 text-left text-[13px] font-medium leading-5 transition-colors",
+                                    pageGroup.label && "ml-1",
+                                    active
+                                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-[inset_3px_0_0_var(--sidebar-primary)]"
+                                      : "text-[#5f6d80] hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+                                  )}
+                                >
+                                  {p.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -204,7 +286,7 @@ export function Sidebar({
         ))}
         </nav>
         <div className={cn("hidden h-12 items-center border-t border-sidebar-border lg:flex", iconOnly ? "justify-center px-2" : "justify-between px-3")}>
-          {!iconOnly && <span className="text-[9px] font-medium tracking-[0.04em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
+          {!iconOnly && <span className="text-[10px] font-medium tracking-[0.04em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
