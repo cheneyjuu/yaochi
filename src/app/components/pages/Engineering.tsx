@@ -293,8 +293,9 @@ function ProjectOverview({ details, openAttachment }: { details: RepairProjectDe
       </div>
 
       <div className="grid gap-x-8 gap-y-5 border-b pb-5 lg:grid-cols-2">
-        <PlanNarrative label="问题原因" html={plan?.problemCause} />
-        <PlanNarrative label="实施范围" html={plan?.implementationScope} />
+        <div className="lg:col-span-2">
+          <PlanNarrative label="问题与维修方案" html={plan?.planDescription} />
+        </div>
         <PlanNarrative label="施工管理要求" html={plan?.constructionManagementRequirements} />
         <PlanNarrative label="安全要求" html={plan?.safetyRequirements} />
       </div>

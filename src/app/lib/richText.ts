@@ -1,3 +1,4 @@
+// 关联业务：将管理端 Markdown/HTML 规范化为后台可校验、业主端可展示的安全富文本。
 const ALLOWED_TAGS = new Set([
   "p",
   "br",
@@ -25,6 +26,7 @@ const ALLOWED_TAGS = new Set([
   "tr",
   "th",
   "td",
+  "img",
 ]);
 
 function escapeHtml(value: string) {
@@ -41,6 +43,7 @@ function escapeAttribute(value: string) {
 
 function formatInline(value: string) {
   return escapeHtml(value)
+    .replace(/!\[([^\]]*)\]\(repair-image:\/\/(\d+)\)/g, '<img data-repair-image-id="$2" alt="$1">')
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/`([^`]+)`/g, "<code>$1</code>")
@@ -216,6 +219,19 @@ function sanitizeTaggedHtml(value: string) {
       if (safeTag === "th" || safeTag === "td") {
         const alignMatch = match.match(/\sdata-align="(left|center|right)"/i);
         return alignMatch ? `<${safeTag} data-align="${alignMatch[1].toLowerCase()}">` : `<${safeTag}>`;
+      }
+      if (safeTag === "img") {
+        const imageIdMatch = match.match(/\sdata-repair-image-id\s*=\s*["']?(\d+)["']?/i);
+        const altMatch = match.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+        const alt = String(altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? "现场图片");
+        if (imageIdMatch && Number(imageIdMatch[1]) > 0) {
+          return `<img data-repair-image-id="${imageIdMatch[1]}" alt="${escapeAttribute(alt)}">`;
+        }
+        const srcMatch = match.match(/\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+        const src = String(srcMatch?.[1] ?? srcMatch?.[2] ?? srcMatch?.[3] ?? "");
+        return /^https:\/\//i.test(src)
+          ? `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}">`
+          : "";
       }
       return `<${safeTag}>`;
     });

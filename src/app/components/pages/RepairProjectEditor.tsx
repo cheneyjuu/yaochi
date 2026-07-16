@@ -1,5 +1,5 @@
 // 关联业务：在独立工作页创建楼栋或全小区维修工程项目，并固化首版结构化实施方案。
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -35,7 +35,9 @@ import {
 } from "../../lib/repair";
 import {
   createRepairProject,
+  getRepairNarrativeImagePreview,
   getRepairAllocationPreview,
+  uploadRepairNarrativeImage,
   type RepairAllocationPreview,
   type RepairPlanDraftInput,
   type RepairProjectCreateInput,
@@ -76,7 +78,7 @@ interface PercentageInputProps {
 
 const EDITOR_STEPS: EditorStep[] = [
   { key: "scope", label: "项目范围", title: "确定维修范围与资金来源" },
-  { key: "plan", label: "实施方案", title: "填写问题原因与实施边界" },
+  { key: "plan", label: "实施方案", title: "编制现场问题与维修方案" },
   { key: "items", label: "工程清单", title: "拆分工程项并关联报修事项" },
   { key: "construction", label: "施工安排", title: "锁定供应商选择、工期与现场要求" },
   { key: "acceptance", label: "验收付款", title: "设置验收门槛与分期付款比例" },
@@ -201,8 +203,7 @@ export function RepairProjectEditor() {
   const [projectName, setProjectName] = useState("");
   const [buildingId, setBuildingId] = useState("");
   const [unitName, setUnitName] = useState("");
-  const [problemCause, setProblemCause] = useState("");
-  const [implementationScope, setImplementationScope] = useState("");
+  const [planDescription, setPlanDescription] = useState("");
   const [allocationPreview, setAllocationPreview] = useState<RepairAllocationPreview | null>(null);
   const [allocationLoading, setAllocationLoading] = useState(false);
   const [allocationError, setAllocationError] = useState("");
@@ -230,7 +231,24 @@ export function RepairProjectEditor() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const stepContentRef = useRef<HTMLDivElement>(null);
+  const narrativeImagePreviewUrls = useRef(new Map<string, string>());
   const canCreate = hasPermission("repair:workorder:manage");
+
+  const uploadPlanImage = useCallback(async (file: File) => {
+    const uploaded = await uploadRepairNarrativeImage(file);
+    narrativeImagePreviewUrls.current.set(uploaded.source, uploaded.previewUrl);
+    return uploaded.source;
+  }, []);
+
+  const previewPlanImage = useCallback(async (source: string) => {
+    const cached = narrativeImagePreviewUrls.current.get(source);
+    if (cached) return cached;
+    const match = /^repair-image:\/\/(\d+)$/.exec(source);
+    if (!match) throw new Error("维修方案仅支持上传本地图片");
+    const preview = await getRepairNarrativeImagePreview(Number(match[1]));
+    narrativeImagePreviewUrls.current.set(source, preview.previewUrl);
+    return preview.previewUrl;
+  }, []);
 
   const selectedBuilding = useMemo(
     () => locationBuildings.find((item) => String(item.buildingId) === buildingId),
@@ -376,10 +394,9 @@ export function RepairProjectEditor() {
       return true;
     }
     if (stepIndex === 1) {
-      const problemCauseHtml = toMiniappRichText(problemCause);
-      const implementationScopeHtml = toMiniappRichText(implementationScope);
-      if (!richTextToPlain(problemCauseHtml) || !richTextToPlain(implementationScopeHtml)) {
-        toast.error("请填写问题原因和实施范围");
+      const planDescriptionHtml = toMiniappRichText(planDescription);
+      if (!richTextToPlain(planDescriptionHtml)) {
+        toast.error("请填写问题与维修方案");
         return false;
       }
       return true;
@@ -473,8 +490,7 @@ export function RepairProjectEditor() {
     }
 
     const numericBuildingId = buildingId ? Number(buildingId) : undefined;
-    const problemCauseHtml = toMiniappRichText(problemCause);
-    const implementationScopeHtml = toMiniappRichText(implementationScope);
+    const planDescriptionHtml = toMiniappRichText(planDescription);
     const constructionRequirementsHtml = toMiniappRichText(constructionRequirements);
     const safetyRequirementsHtml = toMiniappRichText(safetyRequirements);
     const building = workflow === "BUILDING_REPAIR";
@@ -505,8 +521,7 @@ export function RepairProjectEditor() {
     });
     const budgetTotal = normalizedItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
     const plan: RepairPlanDraftInput = {
-      problemCause: problemCauseHtml,
-      implementationScope: implementationScopeHtml,
+      planDescription: planDescriptionHtml,
       budgetTotal,
       supplierSelectionMethod,
       supplierSelectionReason: supplierSelectionReason.trim(),
@@ -653,10 +668,15 @@ export function RepairProjectEditor() {
 
         {currentStep === 1 && (
           <SectionCard title="问题与实施方案">
-            <div className="space-y-5">
-              <RichTextEditor label="问题原因" value={problemCause} onChange={setProblemCause} rows={8} toolbar="basic" placeholder="填写现场问题、成因和勘验结论" />
-              <RichTextEditor label="实施范围" value={implementationScope} onChange={setImplementationScope} rows={8} toolbar="basic" placeholder="填写施工位置、边界和主要工作内容" />
-            </div>
+            <RichTextEditor
+              label="问题与维修方案"
+              value={planDescription}
+              onChange={setPlanDescription}
+              rows={14}
+              placeholder="填写现场问题、成因、维修位置与边界、主要工作内容，可在正文中插入现场图片"
+              imageUploadHandler={uploadPlanImage}
+              imagePreviewHandler={previewPlanImage}
+            />
           </SectionCard>
         )}
 
@@ -773,9 +793,8 @@ export function RepairProjectEditor() {
               </ReviewBlock>
 
               <ReviewBlock title="实施方案" onEdit={() => moveToStep(1)}>
-                <dl className="grid gap-4 md:grid-cols-2">
-                  <ReviewField label="问题原因"><span className="line-clamp-3">{richTextToPlain(toMiniappRichText(problemCause))}</span></ReviewField>
-                  <ReviewField label="实施范围"><span className="line-clamp-3">{richTextToPlain(toMiniappRichText(implementationScope))}</span></ReviewField>
+                <dl>
+                  <ReviewField label="问题与维修方案"><span className="line-clamp-4">{richTextToPlain(toMiniappRichText(planDescription))}</span></ReviewField>
                 </dl>
               </ReviewBlock>
 

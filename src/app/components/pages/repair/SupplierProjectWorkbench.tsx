@@ -10,6 +10,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
+import { RichTextView } from "../../common/RichTextEditor";
 import { Money, SectionCard, StatusChip, type Tone } from "../../gov/common";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -318,7 +319,10 @@ function SupplierProjectOperations({
       <div className="grid gap-3 text-sm sm:grid-cols-2">
         <div><span className="text-muted-foreground">锁定方案：</span>第 {details.activePlan.versionNo} 版</div>
         <div><span className="text-muted-foreground">计划工期：</span>{details.activePlan.plannedStartDate} 至 {details.activePlan.plannedCompletionDate}</div>
-        <div className="sm:col-span-2"><span className="text-muted-foreground">施工范围：</span>{details.activePlan.implementationScope}</div>
+        <div className="sm:col-span-2">
+          <div className="mb-1 text-muted-foreground">问题与维修方案</div>
+          <RichTextView html={details.activePlan.planDescription} />
+        </div>
       </div>
 
       {canSubmit ? (

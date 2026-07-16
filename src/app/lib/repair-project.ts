@@ -52,8 +52,7 @@ export interface RepairProjectPaymentMilestone {
 export interface RepairProjectPlan {
   planId: number;
   versionNo: number;
-  problemCause: string;
-  implementationScope: string;
+  planDescription: string;
   budgetTotal: number;
   allocationRuleDescription: string;
   supplierSelectionMethod: string;
@@ -98,6 +97,16 @@ export interface RepairProjectAttachment {
   fileSize: number;
   sha256: string;
   createTime: string;
+}
+
+export interface RepairNarrativeImage {
+  imageId: number;
+  source: string;
+  previewUrl: string;
+  expiresAt: string;
+  originalFileName?: string;
+  contentType?: string;
+  fileSize?: number;
 }
 
 export interface RepairProjectDetails {
@@ -289,8 +298,7 @@ export interface RepairProjectPage {
 }
 
 export interface RepairPlanDraftInput {
-  problemCause: string;
-  implementationScope: string;
+  planDescription: string;
   budgetTotal: number;
   supplierSelectionMethod: "COMPETITIVE_QUOTATION" | "FRAMEWORK_SUPPLIER" | "DIRECT_AWARD" | "EMERGENCY_APPOINTMENT";
   supplierSelectionReason: string;
@@ -431,6 +439,16 @@ export function uploadRepairProjectAttachment(
   const form = new FormData();
   form.append("file", file);
   return apiUpload<RepairProjectAttachment>(`/admin/repair-projects/${projectId}/attachments`, form);
+}
+
+export function uploadRepairNarrativeImage(file: File): Promise<RepairNarrativeImage> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<RepairNarrativeImage>("/admin/repair-projects/narrative-images", form);
+}
+
+export function getRepairNarrativeImagePreview(imageId: number): Promise<RepairNarrativeImage> {
+  return apiGet<RepairNarrativeImage>(`/admin/repair-projects/narrative-images/${imageId}/preview-ticket`);
 }
 
 export function getRepairProjectAttachmentTicket(
