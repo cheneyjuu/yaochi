@@ -22,10 +22,12 @@ import {
   getRepairProject,
   getRepairProjectAttachmentTicket,
   getRepairProjectExecution,
+  getRepairProjectSourcing,
   pageRepairProjects,
   type RepairProject,
   type RepairProjectDetails,
   type RepairProjectExecutionDetails,
+  type RepairProjectSourcingDetails,
   type RepairProjectStatus,
   type RepairProjectStage,
 } from "../../lib/repair-project";
@@ -115,6 +117,7 @@ export function Engineering() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [details, setDetails] = useState<RepairProjectDetails | null>(null);
   const [execution, setExecution] = useState<RepairProjectExecutionDetails | null>(null);
+  const [sourcing, setSourcing] = useState<RepairProjectSourcingDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<RepairSupplierOrganization[]>([]);
 
@@ -134,12 +137,14 @@ export function Engineering() {
   async function loadDetail(projectId: number) {
     setDetailLoading(true);
     try {
-      const [projectDetails, executionDetails] = await Promise.all([
+      const [projectDetails, executionDetails, sourcingDetails] = await Promise.all([
         getRepairProject(projectId),
         getRepairProjectExecution(projectId),
+        getRepairProjectSourcing(projectId),
       ]);
       setDetails(projectDetails);
       setExecution(executionDetails);
+      setSourcing(sourcingDetails);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "工程项目详情加载失败");
     } finally {
@@ -173,6 +178,7 @@ export function Engineering() {
     setSelectedId(project.projectId);
     setDetails(null);
     setExecution(null);
+    setSourcing(null);
     setSheetOpen(true);
     void loadDetail(project.projectId);
   }
@@ -254,7 +260,7 @@ export function Engineering() {
                 <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">项目方案</TabsTrigger><TabsTrigger value="execution">工程档案</TabsTrigger><TabsTrigger value="acceptance">验收付款</TabsTrigger><TabsTrigger value="actions">办理操作</TabsTrigger></TabsList>
 
                 <TabsContent value="overview" className="mt-5 space-y-5">
-                  <ProjectOverview details={details} openAttachment={openAttachment} />
+                  <ProjectOverview details={details} sourcing={sourcing} openAttachment={openAttachment} />
                 </TabsContent>
 
                 <TabsContent value="execution" className="mt-5">
@@ -278,7 +284,7 @@ export function Engineering() {
   );
 }
 
-function ProjectOverview({ details, openAttachment }: { details: RepairProjectDetails; openAttachment: (attachmentId: number) => Promise<void> }) {
+function ProjectOverview({ details, sourcing, openAttachment }: { details: RepairProjectDetails; sourcing: RepairProjectSourcingDetails | null; openAttachment: (attachmentId: number) => Promise<void> }) {
   const project = details.project;
   const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
   return (
@@ -290,7 +296,11 @@ function ProjectOverview({ details, openAttachment }: { details: RepairProjectDe
         <Info label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
         <Info label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
         <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
+        <Info label="中选供应商" value={sourcing?.selection?.supplierName ?? "尚未完成定商"} />
+        <Info label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
       </div>
+
+      {sourcing?.selection && (sourcing.selection.recommendationReason || sourcing.selection.insufficientQuoteReason) && <div className="border-b pb-5 text-sm text-muted-foreground">{sourcing.selection.recommendationReason && <div>中选说明：{sourcing.selection.recommendationReason}</div>}{sourcing.selection.insufficientQuoteReason && <div className="mt-1">有效报价不足说明：{sourcing.selection.insufficientQuoteReason}</div>}</div>}
 
       <div className="grid gap-x-8 gap-y-5 border-b pb-5 lg:grid-cols-2">
         <div className="lg:col-span-2">

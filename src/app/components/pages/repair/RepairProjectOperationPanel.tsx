@@ -1,7 +1,6 @@
 // 关联业务：按维修项目状态和真实工作身份执行方案锁定、两类治理、合同、施工、结算、验收、付款及归档。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  FileUp,
   Loader2,
   Play,
   ShieldCheck,
@@ -23,18 +22,22 @@ import type { RepairSupplierOrganization } from "../../../lib/repair";
 import {
   getBuildingRepairGovernance,
   getCommunityRepairAssembly,
+  getRepairProjectSourcing,
   linkRepairPlanAttachment,
   lockRepairProjectPlan,
   postRepairProjectAction,
-  uploadRepairProjectAttachment,
   type RepairBuildingGovernanceDetails,
   type RepairCommunityAssemblyLink,
   type RepairPaymentMilestone,
   type RepairProjectAttachment,
   type RepairProjectDetails,
   type RepairProjectExecutionDetails,
+  type RepairProjectPlan,
+  type RepairProjectSourcingDetails,
   type RepairProjectStage,
 } from "../../../lib/repair-project";
+import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
+import { RepairProjectSourcingOperation } from "./RepairProjectSourcingOperation";
 
 const STAGE_LABEL: Record<RepairProjectStage, string> = {
   BEFORE_CONSTRUCTION: "施工前",
@@ -73,48 +76,6 @@ function OperationSection({ title, desc, children }: { title: string; desc?: str
   );
 }
 
-function FileUpload({
-  projectId,
-  label,
-  value,
-  accept = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx",
-  onUploaded,
-}: {
-  projectId: number;
-  label: string;
-  value?: RepairProjectAttachment | null;
-  accept?: string;
-  onUploaded: (attachment: RepairProjectAttachment) => void;
-}) {
-  const [uploading, setUploading] = useState(false);
-
-  return (
-    <div>
-      <Label>{label}</Label>
-      <label className="mt-1 flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 text-sm hover:bg-muted/40">
-        {uploading ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4 text-muted-foreground" />}
-        <span className="min-w-0 flex-1 truncate">{value?.originalFileName ?? "选择并上传原始文件"}</span>
-        <Input
-          className="hidden"
-          type="file"
-          accept={accept}
-          disabled={uploading}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (!file) return;
-            setUploading(true);
-            uploadRepairProjectAttachment(projectId, file)
-              .then(onUploaded)
-              .catch((error) => toast.error(error instanceof Error ? error.message : "文件上传失败"))
-              .finally(() => setUploading(false));
-          }}
-        />
-      </label>
-    </div>
-  );
-}
-
 export function RepairProjectOperationPanel({
   details,
   execution,
@@ -129,13 +90,15 @@ export function RepairProjectOperationPanel({
   onChanged: () => Promise<void>;
 }) {
   const project = details.project;
-  const plan = details.plans.find((item) => item.planId === project.activePlanId)
+  const draftPlan = details.plans.find((item) => item.status === "DRAFT");
+  const plan = draftPlan ?? details.plans.find((item) => item.planId === project.activePlanId)
     ?? details.plans.find((item) => item.status === "LOCKED")
     ?? details.plans[0];
   const [busy, setBusy] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<RepairProjectAttachment[]>([]);
   const [buildingGovernance, setBuildingGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const [assemblyLink, setAssemblyLink] = useState<RepairCommunityAssemblyLink | null>(null);
+  const [sourcing, setSourcing] = useState<RepairProjectSourcingDetails | null>(null);
 
   const attachments = useMemo(() => {
     const byId = new Map<number, RepairProjectAttachment>();
@@ -147,17 +110,28 @@ export function RepairProjectOperationPanel({
     setUploaded((current) => [...current.filter((item) => item.attachmentId !== attachment.attachmentId), attachment]);
   }
 
-  async function run<T>(key: string, action: () => Promise<T>, success: string) {
+  async function run<T>(key: string, action: () => Promise<T>, success: string): Promise<boolean> {
     setBusy(key);
     try {
       await action();
       toast.success(success);
       setUploaded([]);
       await onChanged();
+      await reloadSourcing();
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "操作失败");
+      return false;
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function reloadSourcing() {
+    try {
+      setSourcing(await getRepairProjectSourcing(project.projectId));
+    } catch {
+      setSourcing(null);
     }
   }
 
@@ -181,18 +155,35 @@ export function RepairProjectOperationPanel({
     void reloadGovernance();
   }, [project.projectId, project.status, project.workflowType]);
 
+  useEffect(() => {
+    void reloadSourcing();
+  }, [project.projectId, plan?.planId]);
+
   return (
     <div>
-      {project.status === "DRAFT" && plan && (
-        <PlanLockOperation
-          details={details}
-          remember={remember}
-          busy={busy}
-          run={run}
-        />
+      {draftPlan && (
+        <>
+          <RepairProjectSourcingOperation
+            details={details}
+            sourcing={sourcing}
+            suppliers={suppliers}
+            remember={remember}
+            busy={busy}
+            run={run}
+            onReload={reloadSourcing}
+          />
+          <PlanLockOperation
+            details={details}
+            plan={draftPlan}
+            sourcing={sourcing}
+            remember={remember}
+            busy={busy}
+            run={run}
+          />
+        </>
       )}
 
-      {["PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
+      {!draftPlan && ["PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
         project.workflowType === "BUILDING_REPAIR" ? (
           <BuildingGovernanceOperation
             details={details}
@@ -217,7 +208,7 @@ export function RepairProjectOperationPanel({
         <ContractOperation
           details={details}
           execution={execution}
-          suppliers={suppliers.filter((supplier) => supplier.verificationStatus === "VERIFIED")}
+          sourcing={sourcing}
           remember={remember}
           busy={busy}
           run={run}
@@ -277,31 +268,35 @@ export function RepairProjectOperationPanel({
   );
 }
 
-function PlanLockOperation({ details, remember, busy, run }: OperationProps) {
+function PlanLockOperation({
+  details,
+  plan,
+  sourcing,
+  remember,
+  busy,
+  run,
+}: OperationProps & { plan: RepairProjectPlan; sourcing: RepairProjectSourcingDetails | null }) {
   const project = details.project;
-  const plan = details.plans[0];
-  const [quote, setQuote] = useState<RepairProjectAttachment | null>(null);
   const [photo, setPhoto] = useState<RepairProjectAttachment | null>(null);
   const linked = new Set(details.currentPlanAttachments.map((item) => item.purpose));
 
-  async function link(attachment: RepairProjectAttachment, purpose: "ORIGINAL_QUOTE" | "SITE_PHOTO") {
+  async function link(attachment: RepairProjectAttachment) {
     remember(attachment);
     await run(
-      `link-${purpose}`,
-      () => linkRepairPlanAttachment(project.projectId, plan.planId, { attachmentId: attachment.attachmentId, purpose }),
-      purpose === "ORIGINAL_QUOTE" ? "原始报价已关联" : "现场照片已关联",
+      "link-SITE_PHOTO",
+      () => linkRepairPlanAttachment(project.projectId, plan.planId, { attachmentId: attachment.attachmentId, purpose: "SITE_PHOTO" }),
+      "现场照片已关联",
     );
   }
 
   return (
-    <OperationSection title="锁定首版实施方案" desc="原始报价和现场照片必须先归档。锁定后工程范围、分摊、验收和付款规则不可原地改写。">
-      <div className="grid gap-4 md:grid-cols-2">
-        <FileUpload projectId={project.projectId} label="原始报价" value={quote} onUploaded={(file) => { setQuote(file); void link(file, "ORIGINAL_QUOTE"); }} />
-        <FileUpload projectId={project.projectId} label="现场照片" value={photo} accept="image/*" onUploaded={(file) => { setPhoto(file); void link(file, "SITE_PHOTO"); }} />
+    <OperationSection title="锁定当前实施方案" desc="完成定商并归档现场照片后锁定；报价原件由上方中选记录自动进入方案快照和业主披露。">
+      <div className="max-w-xl">
+        <FileUpload projectId={project.projectId} label="现场照片" value={photo} accept="image/*" onUploaded={(file) => { setPhoto(file); void link(file); }} />
       </div>
       <div className="mt-4 flex items-center justify-between gap-4">
-        <div className="flex gap-2"><StatusChip tone={linked.has("ORIGINAL_QUOTE") ? "success" : "warning"}>报价{linked.has("ORIGINAL_QUOTE") ? "已归档" : "待归档"}</StatusChip><StatusChip tone={linked.has("SITE_PHOTO") ? "success" : "warning"}>现场照片{linked.has("SITE_PHOTO") ? "已归档" : "待归档"}</StatusChip></div>
-        <Button disabled={busy !== null || !linked.has("ORIGINAL_QUOTE") || !linked.has("SITE_PHOTO")} onClick={() => void run(
+        <div className="flex gap-2"><StatusChip tone={sourcing?.selection ? "success" : "warning"}>定商{sourcing?.selection ? "已完成" : "待完成"}</StatusChip><StatusChip tone={linked.has("SITE_PHOTO") ? "success" : "warning"}>现场照片{linked.has("SITE_PHOTO") ? "已归档" : "待归档"}</StatusChip></div>
+        <Button disabled={busy !== null || !sourcing?.selection || !linked.has("SITE_PHOTO")} onClick={() => void run(
           "lock-plan",
           () => lockRepairProjectPlan(project.projectId, plan.planId, project.version),
           "实施方案已锁定",
@@ -316,7 +311,7 @@ interface OperationProps {
   execution?: RepairProjectExecutionDetails;
   remember: (attachment: RepairProjectAttachment) => void;
   busy: string | null;
-  run: <T>(key: string, action: () => Promise<T>, success: string) => Promise<void>;
+  run: <T>(key: string, action: () => Promise<T>, success: string) => Promise<boolean>;
 }
 
 function BuildingGovernanceOperation({
@@ -444,13 +439,19 @@ function CommunityGovernanceOperation({ details, link, busy, run, afterGovernanc
   );
 }
 
-function ContractOperation({ details, execution, suppliers, remember, busy, run }: OperationProps & { suppliers: RepairSupplierOrganization[] }) {
+function ContractOperation({
+  details,
+  execution,
+  sourcing,
+  remember,
+  busy,
+  run,
+}: OperationProps & { sourcing: RepairProjectSourcingDetails | null }) {
   const project = details.project;
   const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
   const [reviewMode, setReviewMode] = useState("THIRD_PARTY_AUDIT");
   const [reviewAmount, setReviewAmount] = useState("");
   const [reviewReport, setReviewReport] = useState<RepairProjectAttachment | null>(null);
-  const [supplierId, setSupplierId] = useState("");
   const [contractAmount, setContractAmount] = useState("");
   const [contractFile, setContractFile] = useState<RepairProjectAttachment | null>(null);
   const [ownerSignature, setOwnerSignature] = useState<RepairProjectAttachment | null>(null);
@@ -464,7 +465,13 @@ function ContractOperation({ details, execution, suppliers, remember, busy, run 
   const [supplierSignerUserId, setSupplierSignerUserId] = useState("");
   const [signatureMethod, setSignatureMethod] = useState<"PAPER_SCAN" | "ELECTRONIC">("PAPER_SCAN");
   const [signedAt, setSignedAt] = useState(nowLocal());
-  const selectedSupplier = suppliers.find((supplier) => String(supplier.supplierDeptId) === supplierId);
+  const selectedSupplier = sourcing?.selection;
+
+  useEffect(() => {
+    if (selectedSupplier && !contractAmount) {
+      setContractAmount(String(selectedSupplier.quoteAmount));
+    }
+  }, [selectedSupplier?.selectionId]);
 
   return (
     <>
@@ -481,8 +488,8 @@ function ContractOperation({ details, execution, suppliers, remember, busy, run 
 
       <OperationSection title="登记三方施工合同" desc="合同必须由业主大会或相关业主方、物业服务企业和施工单位三方签署，并引用当前锁定方案。">
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2"><Label>已核验施工单位</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="选择供应商" /></SelectTrigger><SelectContent>{suppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>合同含税总额</Label><Input type="number" min="0" step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
+          <div className="md:col-span-2"><Label>锁定方案中选施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取中选结果"}</span>{selectedSupplier && <span className="text-muted-foreground">中选报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
+          <div><Label>合同含税总额</Label><Input type="number" min="0" max={selectedSupplier?.quoteAmount} step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
           <FileUpload projectId={project.projectId} label="完整三方合同" value={contractFile} onUploaded={(file) => { remember(file); setContractFile(file); }} />
           <div><Label>签署方式</Label><Select value={signatureMethod} onValueChange={(value) => setSignatureMethod(value as typeof signatureMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER_SCAN">纸质签署扫描</SelectItem><SelectItem value="ELECTRONIC">可信电子签署</SelectItem></SelectContent></Select></div>
           <div><Label>签署时间</Label><Input type="datetime-local" value={signedAt} onChange={(event) => setSignedAt(event.target.value)} /></div>
@@ -492,12 +499,12 @@ function ContractOperation({ details, execution, suppliers, remember, busy, run 
           <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">物业方</div><Input placeholder="物业签署人姓名" value={propertySignerName} onChange={(event) => setPropertySignerName(event.target.value)} /><Input type="number" placeholder="物业签署人 userId" value={propertySignerUserId} onChange={(event) => setPropertySignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="物业签署页" value={propertySignature} onUploaded={(file) => { remember(file); setPropertySignature(file); }} /></div>
           <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">施工单位</div><Input placeholder="施工单位签署人姓名" value={supplierSignerName} onChange={(event) => setSupplierSignerName(event.target.value)} /><Input type="number" placeholder="系统 userId（纸质可不填）" value={supplierSignerUserId} onChange={(event) => setSupplierSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="施工单位签署页" value={supplierSignature} onUploaded={(file) => { remember(file); setSupplierSignature(file); }} /></div>
         </div>
-        <Button className="mt-4" disabled={busy !== null || !selectedSupplier || Number(contractAmount) <= 0 || !contractFile || !ownerSignature || !propertySignature || !supplierSignature || !ownerSignerName || !ownerSignerUserId || !propertySignerName || !propertySignerUserId || !supplierSignerName} onClick={() => void run(
+        <Button className="mt-4" disabled={busy !== null || !selectedSupplier || Number(contractAmount) <= 0 || Number(contractAmount) > Number(selectedSupplier?.quoteAmount ?? 0) || !contractFile || !ownerSignature || !propertySignature || !supplierSignature || !ownerSignerName || !ownerSignerUserId || !propertySignerName || !propertySignerUserId || !supplierSignerName} onClick={() => void run(
           "contract",
           () => postRepairProjectAction(project.projectId, "contract", {
             expectedProjectVersion: project.version,
             supplierDeptId: selectedSupplier?.supplierDeptId,
-            supplierName: selectedSupplier?.legalName,
+            supplierName: selectedSupplier?.supplierName,
             contractAmount: Number(contractAmount),
             contractAttachmentId: contractFile?.attachmentId,
             signatures: [

@@ -9,6 +9,7 @@ import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { SupplierProjectWorkbench } from "./repair/SupplierProjectWorkbench";
+import { SupplierProjectQuoteWorkbench } from "./repair/SupplierProjectQuoteWorkbench";
 import {
   listSupplierRepairWorkOrders,
   deleteSupplierQuoteAttachment,
@@ -22,13 +23,15 @@ export function SupplierWorkbench() {
   return (
     <div className="space-y-5">
       <PageHeader title="供应商工作台" />
-      <Tabs defaultValue="projects" className="gap-4">
+      <Tabs defaultValue="project-quotes" className="gap-4">
         <TabsList className="rounded-md">
+          <TabsTrigger value="project-quotes" className="rounded-sm">工程邀价</TabsTrigger>
           <TabsTrigger value="projects" className="rounded-sm">施工项目</TabsTrigger>
-          <TabsTrigger value="quotes" className="rounded-sm">待报价</TabsTrigger>
+          <TabsTrigger value="legacy-quotes" className="rounded-sm">历史工单邀价</TabsTrigger>
         </TabsList>
+        <TabsContent value="project-quotes"><SupplierProjectQuoteWorkbench /></TabsContent>
         <TabsContent value="projects"><SupplierProjectWorkbench /></TabsContent>
-        <TabsContent value="quotes"><SupplierQuoteWorkbench /></TabsContent>
+        <TabsContent value="legacy-quotes"><SupplierQuoteWorkbench /></TabsContent>
       </Tabs>
     </div>
   );

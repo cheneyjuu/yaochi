@@ -24,6 +24,11 @@ export type RepairProjectStage =
 export type RepairVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 export type RepairAcceptanceConclusion = "PASSED" | "RECTIFICATION_REQUIRED";
 export type RepairPaymentMilestone = "ADVANCE" | "PROGRESS" | "COMPLETION" | "WARRANTY_RELEASE";
+export type RepairProjectSupplierSelectionMethod =
+  | "COMPETITIVE_QUOTATION"
+  | "FRAMEWORK_SUPPLIER"
+  | "DIRECT_AWARD"
+  | "EMERGENCY_APPOINTMENT";
 
 export interface RepairProject {
   projectId: number;
@@ -55,7 +60,7 @@ export interface RepairProjectPlan {
   planDescription: string;
   budgetTotal: number;
   allocationRuleDescription: string;
-  supplierSelectionMethod: string;
+  supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
   supplierSelectionReason: string;
   constructionManagementRequirements: string;
   safetyRequirements: string;
@@ -97,6 +102,94 @@ export interface RepairProjectAttachment {
   fileSize: number;
   sha256: string;
   createTime: string;
+}
+
+export interface RepairProjectQuoteInvitation {
+  invitationId: number;
+  projectId: number;
+  planId: number;
+  supplierDeptId: number;
+  supplierName: string;
+  invitedByUserId: number;
+  deadline?: string | null;
+  status: "PENDING" | "SUBMITTED" | "DECLINED" | "EXPIRED" | "CANCELLED";
+  invitationRound: number;
+  invitationType: "INITIAL" | "REVISION";
+  revisionReason?: string | null;
+  sentAt: string;
+  respondedAt?: string | null;
+}
+
+export interface RepairProjectSupplierQuote {
+  quoteId: number;
+  projectId: number;
+  planId: number;
+  supplierDeptId: number;
+  supplierName: string;
+  quoteAmount: number;
+  quoteSummary?: string | null;
+  attachmentId: number;
+  submittedByUserId: number;
+  submittedByRoleKey: string;
+  submissionSource: "SUPPLIER_ONLINE" | "PROPERTY_ENTRY";
+  confirmationStatus:
+    | "PENDING_SUPPLIER_CONFIRMATION"
+    | "ONLINE_CONFIRMED"
+    | "OFFLINE_EVIDENCE_VERIFIED"
+    | "CONTRACT_CONFIRMED";
+  originalSource?: string | null;
+  quoteStatus: "ACTIVE" | "REVISION_REQUESTED" | "SUPERSEDED";
+  revisionNo: number;
+  supersededByQuoteId?: number | null;
+  createTime: string;
+}
+
+export interface RepairProjectSupplierSelection {
+  selectionId: number;
+  projectId: number;
+  planId: number;
+  quoteId: number;
+  supplierDeptId: number;
+  supplierName: string;
+  quoteAmount: number;
+  selectionMethod: RepairProjectSupplierSelectionMethod;
+  recommendationReason?: string | null;
+  insufficientQuoteReason?: string | null;
+  frameworkRelationId?: number | null;
+  recommendedByUserId: number;
+  createTime: string;
+}
+
+export interface RepairProjectSourcingDetails {
+  projectId: number;
+  planId: number;
+  selectionMethod: RepairProjectSupplierSelectionMethod;
+  invitations: RepairProjectQuoteInvitation[];
+  quotes: RepairProjectSupplierQuote[];
+  selection?: RepairProjectSupplierSelection | null;
+}
+
+export interface RepairSupplierQuoteOpportunity {
+  projectId: number;
+  projectNo: string;
+  projectName: string;
+  planId: number;
+  planDescription: string;
+  constructionManagementRequirements: string;
+  safetyRequirements: string;
+  plannedStartDate: string;
+  plannedCompletionDate: string;
+  warrantyDays: number;
+  items: Array<{
+    itemId: number;
+    itemNo: string;
+    locationText: string;
+    workContent: string;
+    quantity: number;
+    unit: string;
+  }>;
+  invitation: RepairProjectQuoteInvitation;
+  latestQuote?: RepairProjectSupplierQuote | null;
 }
 
 export interface RepairNarrativeImage {
@@ -300,7 +393,7 @@ export interface RepairProjectPage {
 export interface RepairPlanDraftInput {
   planDescription: string;
   budgetTotal: number;
-  supplierSelectionMethod: "COMPETITIVE_QUOTATION" | "FRAMEWORK_SUPPLIER" | "DIRECT_AWARD" | "EMERGENCY_APPOINTMENT";
+  supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
   supplierSelectionReason: string;
   constructionManagementRequirements: string;
   evidenceRequirements: Array<{ stage: RepairProjectStage; description: string; required: boolean }>;
@@ -422,6 +515,67 @@ export function getRepairProject(projectId: number): Promise<RepairProjectDetail
 
 export function getRepairProjectExecution(projectId: number): Promise<RepairProjectExecutionDetails> {
   return apiGet<RepairProjectExecutionDetails>(`/admin/repair-projects/${projectId}/execution`);
+}
+
+export function getRepairProjectSourcing(projectId: number): Promise<RepairProjectSourcingDetails> {
+  return apiGet<RepairProjectSourcingDetails>(`/admin/repair-projects/${projectId}/sourcing`);
+}
+
+export function inviteRepairProjectSuppliers(
+  projectId: number,
+  input: { supplierDeptIds: number[]; deadline?: string },
+): Promise<RepairProjectSourcingDetails> {
+  return apiPost<RepairProjectSourcingDetails>(`/admin/repair-projects/${projectId}/sourcing/invitations`, input);
+}
+
+export function requestRepairProjectQuoteRevisions(
+  projectId: number,
+  input: { supplierDeptIds: number[]; deadline?: string; revisionReason: string },
+): Promise<RepairProjectSourcingDetails> {
+  return apiPost<RepairProjectSourcingDetails>(`/admin/repair-projects/${projectId}/sourcing/quote-revisions`, input);
+}
+
+export function submitPropertyRepairProjectQuote(
+  projectId: number,
+  input: {
+    supplierDeptId: number;
+    invitationId?: number;
+    quoteAmount: number;
+    quoteSummary?: string;
+    attachmentId: number;
+    confirmationStatus: "PENDING_SUPPLIER_CONFIRMATION" | "OFFLINE_EVIDENCE_VERIFIED";
+    originalSource: string;
+  },
+): Promise<RepairProjectSupplierQuote> {
+  return apiPost<RepairProjectSupplierQuote>(`/admin/repair-projects/${projectId}/sourcing/quotes`, input);
+}
+
+export function selectRepairProjectSupplier(
+  projectId: number,
+  input: {
+    quoteId: number;
+    recommendationReason?: string;
+    insufficientQuoteReason?: string;
+    frameworkRelationId?: number;
+  },
+): Promise<RepairProjectSourcingDetails> {
+  return apiPost<RepairProjectSourcingDetails>(`/admin/repair-projects/${projectId}/sourcing/selection`, input);
+}
+
+export function listSupplierRepairProjectQuoteOpportunities(): Promise<RepairSupplierQuoteOpportunity[]> {
+  return apiGet<RepairSupplierQuoteOpportunity[]>("/supplier/repair-projects/quote-opportunities");
+}
+
+export function submitSupplierRepairProjectQuote(
+  projectId: number,
+  input: {
+    invitationId: number;
+    quoteAmount: number;
+    quoteSummary?: string;
+    attachmentId: number;
+  },
+): Promise<RepairProjectSupplierQuote> {
+  return apiPost<RepairProjectSupplierQuote>(`/supplier/repair-projects/${projectId}/quotes`, input);
 }
 
 export function listSupplierRepairProjects(): Promise<RepairSupplierProjectSummary[]> {
