@@ -258,7 +258,7 @@ export function Engineering() {
       </SectionCard>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-[min(96vw,1080px)] overflow-y-auto sm:max-w-[1080px]">
+        <SheetContent className="w-screen gap-0 overflow-hidden bg-card p-0 sm:w-[min(94vw,1200px)] sm:max-w-[1200px]">
           {detailLoading || !details ? (
             <>
               <SheetHeader className="sr-only">
@@ -269,32 +269,42 @@ export function Engineering() {
             </>
           ) : (
             <>
-              <SheetHeader className="border-b pb-4">
-                <SheetTitle className="pr-8 text-xl">{details.project.projectName}</SheetTitle>
+              <SheetHeader className="shrink-0 border-b bg-card px-4 py-5 sm:px-6">
+                <SheetTitle className="pr-8 text-lg sm:text-xl">{details.project.projectName}</SheetTitle>
                 <SheetDescription className="flex flex-wrap items-center gap-2"><span className="font-mono-num">{details.project.projectNo}</span><StatusChip tone={STATUS_TONE[details.project.status]} dot>{STATUS_LABEL[details.project.status]}</StatusChip><StatusChip tone={details.project.workflowType === "BUILDING_REPAIR" ? "warning" : "tech"}>{details.project.workflowType === "BUILDING_REPAIR" ? "楼栋维修" : "全小区公共维修"}</StatusChip></SheetDescription>
               </SheetHeader>
 
-              <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-5">
-                <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">项目方案</TabsTrigger><TabsTrigger value="execution">工程档案</TabsTrigger><TabsTrigger value="acceptance">验收付款</TabsTrigger><TabsTrigger value="actions">{details.plans.some((plan) => plan.status === "DRAFT") ? "供应商邀价" : "办理操作"}</TabsTrigger></TabsList>
+              <Tabs value={detailTab} onValueChange={setDetailTab} className="min-h-0 flex-1 gap-0">
+                <div className="shrink-0 border-b bg-card px-4 py-3 sm:px-6">
+                  <TabsList className="grid h-10 w-full grid-cols-4 rounded-md"><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="overview">项目方案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="execution">工程档案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="acceptance">验收付款</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="actions">{details.plans.some((plan) => plan.status === "DRAFT") ? "供应商邀价" : "办理操作"}</TabsTrigger></TabsList>
+                </div>
 
-                <TabsContent value="overview" className="mt-5 space-y-5">
-                  <ProjectOverview details={details} sourcing={sourcing} openAttachment={openAttachment} />
+                <TabsContent value="overview" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
+                  <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
+                    <ProjectOverview details={details} sourcing={sourcing} openAttachment={openAttachment} />
+                  </div>
                 </TabsContent>
 
-                <TabsContent value="execution" className="mt-5">
-                  {execution
-                    ? <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
-                    : <Empty text="方案锁定并生成工程档案后，可在这里查看合同、施工与结算记录" />}
+                <TabsContent value="execution" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
+                  <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
+                    {execution
+                      ? <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
+                      : <Empty text="方案锁定并生成工程档案后，可在这里查看合同、施工与结算记录" />}
+                  </div>
                 </TabsContent>
 
-                <TabsContent value="acceptance" className="mt-5">
-                  {execution
-                    ? <AcceptanceAndPayments execution={execution} />
-                    : <Empty text="方案锁定并进入实施阶段后，可在这里查看验收与付款记录" />}
+                <TabsContent value="acceptance" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
+                  <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
+                    {execution
+                      ? <AcceptanceAndPayments execution={execution} />
+                      : <Empty text="方案锁定并进入实施阶段后，可在这里查看验收与付款记录" />}
+                  </div>
                 </TabsContent>
 
-                <TabsContent value="actions" className="mt-5">
-                  <RepairProjectOperationPanel details={details} execution={execution} suppliers={suppliers} hasPermission={hasPermission} onChanged={refreshSelected} />
+                <TabsContent value="actions" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
+                  <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
+                    <RepairProjectOperationPanel details={details} execution={execution} suppliers={suppliers} hasPermission={hasPermission} onChanged={refreshSelected} />
+                  </div>
                 </TabsContent>
               </Tabs>
             </>
@@ -310,46 +320,63 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
   const project = details.project;
   const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
   return (
-    <>
-      <div className="grid gap-x-8 gap-y-4 border-b pb-5 text-sm md:grid-cols-3">
-        <Info label="资金范围" value={FUND_LABEL[project.fundSource]} icon={<Banknote className="size-4" />} />
-        <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
-        <Info label="实施计划" value={`${plan?.plannedStartDate ?? "-"} 至 ${plan?.plannedCompletionDate ?? "-"}`} />
-        <Info label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
-        <Info label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
-        <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
-        <Info label="中选供应商" value={sourcing?.selection?.supplierName ?? "尚未完成定商"} />
-        <Info label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
-      </div>
-
-      {sourcing?.selection && (sourcing.selection.recommendationReason || sourcing.selection.insufficientQuoteReason) && <div className="border-b pb-5 text-sm text-muted-foreground">{sourcing.selection.recommendationReason && <div>中选说明：{sourcing.selection.recommendationReason}</div>}{sourcing.selection.insufficientQuoteReason && <div className="mt-1">有效报价不足说明：{sourcing.selection.insufficientQuoteReason}</div>}</div>}
-
-      <div className="grid gap-x-8 gap-y-5 border-b pb-5 lg:grid-cols-2">
-        <div className="lg:col-span-2">
-          <PlanNarrative label="问题与维修方案" html={plan?.planDescription} />
+    <div>
+      <section className="pb-7">
+        <h3 className="mb-5 text-base font-semibold text-slate-950">项目概况</h3>
+        <div className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-4">
+          <Info label="资金范围" value={FUND_LABEL[project.fundSource]} icon={<Banknote className="size-4" />} />
+          <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
+          <Info label="实施计划" value={`${plan?.plannedStartDate ?? "-"} 至 ${plan?.plannedCompletionDate ?? "-"}`} />
+          <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
+          <Info className="md:col-span-2" label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
+          <Info className="md:col-span-2" label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
+          <Info className="xl:col-span-2" label="中选供应商" value={sourcing?.selection?.supplierName ?? "尚未完成定商"} />
+          <Info className="xl:col-span-2" label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
         </div>
-        <PlanNarrative label="施工管理要求" html={plan?.constructionManagementRequirements} />
-        <PlanNarrative label="安全要求" html={plan?.safetyRequirements} />
-      </div>
 
-      <div><h4 className="mb-3 text-sm font-semibold">工程项（{details.currentPlanItems.length}）</h4><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>编号</TableHead><TableHead>位置</TableHead><TableHead>工作内容</TableHead><TableHead className="text-right">数量</TableHead><TableHead className="text-right">估算金额</TableHead><TableHead>关联工单</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanItems.map((item) => <TableRow key={item.itemId}><TableCell className="font-mono-num text-xs">{item.itemNo}</TableCell><TableCell>{item.locationText}</TableCell><TableCell>{item.workContent}</TableCell><TableCell className="text-right">{item.quantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.estimatedAmount)} /></TableCell><TableCell className="text-xs text-muted-foreground">{item.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>
+        {sourcing?.selection && (sourcing.selection.recommendationReason || sourcing.selection.insufficientQuoteReason) && <div className="mt-5 border-l-2 border-primary/50 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">{sourcing.selection.recommendationReason && <div>中选说明：{sourcing.selection.recommendationReason}</div>}{sourcing.selection.insufficientQuoteReason && <div className="mt-1">有效报价不足说明：{sourcing.selection.insufficientQuoteReason}</div>}</div>}
+      </section>
 
-      <div><h4 className="mb-3 text-sm font-semibold">项目附件（{details.attachments.length}）</h4>{details.attachments.length === 0 ? <div className="text-sm text-muted-foreground">尚未归档附件</div> : <div className="grid gap-2 md:grid-cols-2">{details.attachments.map((attachment) => <button key={attachment.attachmentId} className="flex items-center gap-3 rounded-md border p-3 text-left hover:bg-muted/40" onClick={() => void openAttachment(attachment.attachmentId)}><FileText className="size-4 text-primary" /><span className="min-w-0 flex-1 truncate text-sm">{attachment.originalFileName}</span><span className="text-xs text-muted-foreground">#{attachment.attachmentId}</span></button>)}</div>}</div>
-    </>
+      <section className="border-t py-7">
+        <PlanNarrative label="问题与维修方案" html={plan?.planDescription} />
+        <div className="mt-7 grid divide-y border-t lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <PlanNarrative className="py-6 lg:pr-8" label="施工管理要求" html={plan?.constructionManagementRequirements} />
+          <PlanNarrative className="py-6 lg:pl-8" label="安全要求" html={plan?.safetyRequirements} />
+        </div>
+      </section>
+
+      <section className="border-t py-7">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h3 className="text-base font-semibold text-slate-950">工程清单</h3>
+          <span className="text-xs text-muted-foreground">共 {details.currentPlanItems.length} 项</span>
+        </div>
+        <div className="overflow-hidden rounded-md border">
+          <Table><TableHeader className="bg-slate-50"><TableRow><TableHead>编号</TableHead><TableHead>位置</TableHead><TableHead>工作内容</TableHead><TableHead className="text-right">数量</TableHead><TableHead className="text-right">估算金额</TableHead><TableHead>关联工单</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanItems.map((item) => <TableRow key={item.itemId}><TableCell className="font-mono-num text-xs">{item.itemNo}</TableCell><TableCell className="min-w-40 whitespace-normal">{item.locationText}</TableCell><TableCell className="min-w-56 whitespace-normal">{item.workContent}</TableCell><TableCell className="text-right">{item.quantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.estimatedAmount)} /></TableCell><TableCell className="text-xs text-muted-foreground">{item.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table>
+        </div>
+      </section>
+
+      <section className="border-t pt-7">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h3 className="text-base font-semibold text-slate-950">项目附件</h3>
+          <span className="text-xs text-muted-foreground">共 {details.attachments.length} 份</span>
+        </div>
+        {details.attachments.length === 0 ? <div className="rounded-md border border-dashed px-4 py-7 text-center text-sm text-muted-foreground">尚未归档附件</div> : <div className="grid gap-2 md:grid-cols-2">{details.attachments.map((attachment) => <button key={attachment.attachmentId} className="flex items-center gap-3 rounded-md border p-3 text-left hover:bg-muted/40" onClick={() => void openAttachment(attachment.attachmentId)}><FileText className="size-4 text-primary" /><span className="min-w-0 flex-1 truncate text-sm">{attachment.originalFileName}</span><span className="text-xs text-muted-foreground">#{attachment.attachmentId}</span></button>)}</div>}
+      </section>
+    </div>
   );
 }
 
-function PlanNarrative({ label, html }: { label: string; html?: string | null }) {
+function PlanNarrative({ label, html, className }: { label: string; html?: string | null; className?: string }) {
   return (
-    <div className="min-w-0">
-      <h4 className="mb-2 text-sm font-semibold">{label}</h4>
+    <div className={`min-w-0 ${className ?? ""}`}>
+      <h3 className="mb-3 text-base font-semibold text-slate-950">{label}</h3>
       <RichTextView html={html} />
     </div>
   );
 }
 
-function Info({ label, value, icon }: { label: string; value: ReactNode; icon?: ReactNode }) {
-  return <div><div className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">{icon}{label}</div><div className="leading-relaxed text-foreground">{value}</div></div>;
+function Info({ label, value, icon, className }: { label: string; value: ReactNode; icon?: ReactNode; className?: string }) {
+  return <div className={`min-w-0 ${className ?? ""}`}><div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">{icon}{label}</div><div className="break-words leading-relaxed text-foreground">{value}</div></div>;
 }
 
 function ExecutionArchive({ details, execution, openAttachment }: { details: RepairProjectDetails; execution: RepairProjectExecutionDetails; openAttachment: (attachmentId: number) => Promise<void> }) {

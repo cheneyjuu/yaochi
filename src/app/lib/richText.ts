@@ -41,6 +41,34 @@ function escapeAttribute(value: string) {
   return escapeHtml(value).replace(/'/g, "&#39;");
 }
 
+/**
+ * HTML returned by the backend already contains escaped attribute entities.
+ * Decode once before validating and serializing so repeated sanitization stays idempotent.
+ */
+function decodeAttribute(value: string) {
+  return value.replace(
+    /&(?:#(\d+)|#x([0-9a-f]+)|amp|quot|apos|lt|gt);/gi,
+    (entity, decimal: string | undefined, hexadecimal: string | undefined) => {
+      if (decimal || hexadecimal) {
+        const codePoint = Number.parseInt(decimal ?? hexadecimal, decimal ? 10 : 16);
+        if (!Number.isFinite(codePoint) || codePoint <= 0 || codePoint > 0x10ffff
+          || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+          return entity;
+        }
+        return String.fromCodePoint(codePoint);
+      }
+      switch (entity.toLowerCase()) {
+        case "&amp;": return "&";
+        case "&quot;": return '"';
+        case "&apos;": return "'";
+        case "&lt;": return "<";
+        case "&gt;": return ">";
+        default: return entity;
+      }
+    },
+  );
+}
+
 function formatInline(value: string) {
   return escapeHtml(value)
     .replace(/!\[([^\]]*)\]\(repair-image:\/\/(\d+)\)/g, '<img data-repair-image-id="$2" alt="$1">')
@@ -199,7 +227,7 @@ function sanitizeTaggedHtml(value: string) {
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s+(href|src)\s*=\s*("[^"]*javascript:[^"]*"|'[^']*javascript:[^']*'|[^\s>]*javascript:[^\s>]*)/gi, "")
     .replace(/<a\s+[^>]*href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (_match, _raw, doubleUrl, singleUrl, bareUrl) => {
-      const href = String(doubleUrl ?? singleUrl ?? bareUrl ?? "");
+      const href = decodeAttribute(String(doubleUrl ?? singleUrl ?? bareUrl ?? ""));
       if (!/^https?:\/\//i.test(href)) return "<a>";
       return `<a href="${escapeAttribute(href)}">`;
     })
@@ -223,12 +251,12 @@ function sanitizeTaggedHtml(value: string) {
       if (safeTag === "img") {
         const imageIdMatch = match.match(/\sdata-repair-image-id\s*=\s*["']?(\d+)["']?/i);
         const altMatch = match.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-        const alt = String(altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? "现场图片");
+        const alt = decodeAttribute(String(altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? "现场图片"));
         if (imageIdMatch && Number(imageIdMatch[1]) > 0) {
           return `<img data-repair-image-id="${imageIdMatch[1]}" alt="${escapeAttribute(alt)}">`;
         }
         const srcMatch = match.match(/\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-        const src = String(srcMatch?.[1] ?? srcMatch?.[2] ?? srcMatch?.[3] ?? "");
+        const src = decodeAttribute(String(srcMatch?.[1] ?? srcMatch?.[2] ?? srcMatch?.[3] ?? ""));
         return /^https:\/\//i.test(src)
           ? `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}">`
           : "";
