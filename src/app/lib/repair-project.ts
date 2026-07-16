@@ -61,7 +61,7 @@ export interface RepairProjectPlan {
   budgetTotal: number;
   allocationRuleDescription: string;
   supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
-  supplierSelectionReason: string;
+  supplierSelectionReason?: string | null;
   constructionManagementRequirements: string;
   safetyRequirements: string;
   acceptanceMethod: string;
@@ -213,6 +213,15 @@ export interface RepairProjectDetails {
     ownerUid?: number | null;
     buildArea: number;
   }>;
+  currentPlanAffectedOwners: Array<{
+    roomId: number;
+    buildingId: number;
+    buildingName: string;
+    unitName?: string | null;
+    roomName: string;
+    affectedReason: string;
+    sourceType: "SYSTEM_RECOMMENDED" | "PROPERTY_ADJUSTED";
+  }>;
   attachments: RepairProjectAttachment[];
   currentPlanAttachments: Array<{ attachmentId: number; purpose: string; sortOrder: number }>;
 }
@@ -227,6 +236,19 @@ export interface RepairAllocationPreview {
   allocationRuleType: "BY_BUILDING_AREA" | "EQUAL_BY_ROOM";
   allocationRuleDescription: string;
   legalBasis: string;
+}
+
+export interface RepairAffectedOwnerPreview {
+  scopeLabel: string;
+  recommendedOwnerCount: number;
+  candidates: Array<{
+    roomId: number;
+    buildingId: number;
+    buildingName: string;
+    unitName?: string | null;
+    roomName: string;
+    affectedReason: string;
+  }>;
 }
 
 export interface RepairSupplierProjectSummary {
@@ -394,12 +416,13 @@ export interface RepairPlanDraftInput {
   planDescription: string;
   budgetTotal: number;
   supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
-  supplierSelectionReason: string;
+  supplierSelectionReason?: string;
   constructionManagementRequirements: string;
   evidenceRequirements: Array<{ stage: RepairProjectStage; description: string; required: boolean }>;
   safetyRequirements: string;
   acceptanceMethod: string;
-  affectedOwnerScopeDescription?: string;
+  affectedOwners?: Array<{ roomId: number; affectedReason: string }>;
+  affectedOwnerAdjustmentReason?: string;
   minimumAffectedOwnerAcceptors?: number;
   affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO";
   affectedOwnerApprovalRatio?: number;
@@ -507,6 +530,14 @@ export function getRepairAllocationPreview(input: {
   unitName?: string;
 }): Promise<RepairAllocationPreview> {
   return apiGet<RepairAllocationPreview>(`/admin/repair-projects/allocation-preview?${queryString(input)}`);
+}
+
+export function getRepairAffectedOwnerPreview(input: {
+  scopeType: "BUILDING" | "BUILDING_UNIT";
+  buildingId: number;
+  unitName?: string;
+}): Promise<RepairAffectedOwnerPreview> {
+  return apiGet<RepairAffectedOwnerPreview>(`/admin/repair-projects/affected-owner-preview?${queryString(input)}`);
 }
 
 export function getRepairProject(projectId: number): Promise<RepairProjectDetails> {

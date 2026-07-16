@@ -35,9 +35,11 @@ import {
 } from "../../lib/repair";
 import {
   createRepairProject,
+  getRepairAffectedOwnerPreview,
   getRepairNarrativeImagePreview,
   getRepairAllocationPreview,
   uploadRepairNarrativeImage,
+  type RepairAffectedOwnerPreview,
   type RepairAllocationPreview,
   type RepairPlanDraftInput,
   type RepairProjectCreateInput,
@@ -80,7 +82,7 @@ const EDITOR_STEPS: EditorStep[] = [
   { key: "scope", label: "项目范围", title: "确定维修范围与资金来源" },
   { key: "plan", label: "实施方案", title: "编制现场问题与维修方案" },
   { key: "items", label: "工程清单", title: "拆分工程项并关联报修事项" },
-  { key: "construction", label: "施工安排", title: "锁定供应商选择、工期与现场要求" },
+  { key: "construction", label: "施工安排", title: "确定供应商遴选方式、工期与现场要求" },
   { key: "acceptance", label: "验收付款", title: "设置验收门槛与分期付款比例" },
   { key: "review", label: "核对提交", title: "核对完整方案后创建项目" },
 ];
@@ -241,7 +243,11 @@ export function RepairProjectEditor() {
   const [supplierSelectionReason, setSupplierSelectionReason] = useState("");
   const [constructionRequirements, setConstructionRequirements] = useState("");
   const [safetyRequirements, setSafetyRequirements] = useState("");
-  const [affectedOwnerScope, setAffectedOwnerScope] = useState("");
+  const [affectedOwnerPreview, setAffectedOwnerPreview] = useState<RepairAffectedOwnerPreview | null>(null);
+  const [affectedOwnerLoading, setAffectedOwnerLoading] = useState(false);
+  const [affectedOwnerError, setAffectedOwnerError] = useState("");
+  const [selectedAffectedOwnerRoomIds, setSelectedAffectedOwnerRoomIds] = useState<number[]>([]);
+  const [affectedOwnerAdjustmentReason, setAffectedOwnerAdjustmentReason] = useState("");
   const [minimumAcceptors, setMinimumAcceptors] = useState("");
   const [passRule, setPassRule] = useState<"" | "ALL" | "AT_LEAST_RATIO">("");
   const [approvalPercent, setApprovalPercent] = useState("");
@@ -294,12 +300,24 @@ export function RepairProjectEditor() {
     if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return sum;
     return sum + quantity * unitPrice;
   }, 0), [items]);
+  const affectedOwnerCandidateRoomIds = useMemo(
+    () => affectedOwnerPreview?.candidates.map((candidate) => candidate.roomId) ?? [],
+    [affectedOwnerPreview],
+  );
+  const affectedOwnerSelectionAdjusted = useMemo(() => {
+    if (!affectedOwnerPreview) return false;
+    if (selectedAffectedOwnerRoomIds.length !== affectedOwnerCandidateRoomIds.length) return true;
+    const selected = new Set(selectedAffectedOwnerRoomIds);
+    return affectedOwnerCandidateRoomIds.some((roomId) => !selected.has(roomId));
+  }, [affectedOwnerCandidateRoomIds, affectedOwnerPreview, selectedAffectedOwnerRoomIds]);
 
   useEffect(() => {
     if (workflow === "COMMUNITY_PUBLIC_REPAIR") {
       setBuildingId("");
       setUnitName("");
-      setAffectedOwnerScope("");
+      setAffectedOwnerPreview(null);
+      setSelectedAffectedOwnerRoomIds([]);
+      setAffectedOwnerAdjustmentReason("");
     }
   }, [workflow]);
 
@@ -374,6 +392,45 @@ export function RepairProjectEditor() {
     };
   }, [buildingId, canCreate, unitName, workflow]);
 
+  useEffect(() => {
+    const numericBuildingId = Number(buildingId);
+    if (!canCreate || workflow !== "BUILDING_REPAIR"
+      || !Number.isFinite(numericBuildingId) || numericBuildingId <= 0) {
+      setAffectedOwnerPreview(null);
+      setSelectedAffectedOwnerRoomIds([]);
+      setAffectedOwnerError("");
+      setAffectedOwnerLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAffectedOwnerPreview(null);
+    setSelectedAffectedOwnerRoomIds([]);
+    setAffectedOwnerAdjustmentReason("");
+    setAffectedOwnerError("");
+    setAffectedOwnerLoading(true);
+    getRepairAffectedOwnerPreview({
+      scopeType: unitName.trim() ? "BUILDING_UNIT" : "BUILDING",
+      buildingId: numericBuildingId,
+      unitName: unitName.trim() || undefined,
+    })
+      .then((preview) => {
+        if (cancelled) return;
+        setAffectedOwnerPreview(preview);
+        setSelectedAffectedOwnerRoomIds(preview.candidates.map((candidate) => candidate.roomId));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAffectedOwnerError(error instanceof Error ? error.message : "受影响业主名单生成失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAffectedOwnerLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId, canCreate, unitName, workflow]);
+
   function updateItem(index: number, field: DraftItemTextField, value: string) {
     setItems((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [field]: value } : item
@@ -396,6 +453,12 @@ export function RepairProjectEditor() {
 
   function resetLinkedWorkOrders() {
     setItems((current) => current.map((item) => ({ ...item, linkedWorkOrderIds: [] })));
+  }
+
+  function toggleAffectedOwner(roomId: number, checked: boolean) {
+    setSelectedAffectedOwnerRoomIds((current) => checked
+      ? Array.from(new Set([...current, roomId]))
+      : current.filter((candidateRoomId) => candidateRoomId !== roomId));
   }
 
   function moveToStep(stepIndex: number) {
@@ -451,9 +514,12 @@ export function RepairProjectEditor() {
     if (stepIndex === 3) {
       const constructionRequirementsHtml = toMiniappRichText(constructionRequirements);
       const safetyRequirementsHtml = toMiniappRichText(safetyRequirements);
-      if (!supplierSelectionReason.trim() || !richTextToPlain(constructionRequirementsHtml)
-        || !richTextToPlain(safetyRequirementsHtml)) {
-        toast.error("请填写施工单位选择理由、施工管理要求和安全要求");
+      const nonCompetitive = supplierSelectionMethod !== "COMPETITIVE_QUOTATION";
+      if ((nonCompetitive && !supplierSelectionReason.trim())
+        || !richTextToPlain(constructionRequirementsHtml) || !richTextToPlain(safetyRequirementsHtml)) {
+        toast.error(nonCompetitive
+          ? "请填写非竞争方式依据、施工管理要求和安全要求"
+          : "请填写施工管理要求和安全要求");
         return false;
       }
       if (!plannedStartDate || !plannedCompletionDate || plannedCompletionDate < plannedStartDate
@@ -466,9 +532,28 @@ export function RepairProjectEditor() {
     if (stepIndex !== 4) return true;
 
     const building = workflow === "BUILDING_REPAIR";
-    if (building && (!affectedOwnerScope.trim() || Number(minimumAcceptors) < 1 || !passRule)) {
-      toast.error("请明确填写受影响业主范围、最低有效人数和通过规则，不使用平台默认值");
-      return false;
+    if (building) {
+      if (affectedOwnerLoading) {
+        toast.error("受影响业主名单正在生成，请稍候");
+        return false;
+      }
+      if (!affectedOwnerPreview || selectedAffectedOwnerRoomIds.length === 0) {
+        toast.error(affectedOwnerError || "当前范围无法形成受影响业主名单");
+        return false;
+      }
+      if (Number(minimumAcceptors) < 1 || !passRule) {
+        toast.error("请明确填写最低有效人数和通过规则");
+        return false;
+      }
+      if (Number(minimumAcceptors) > affectedOwnerPreview.recommendedOwnerCount
+        || Number(minimumAcceptors) > selectedAffectedOwnerRoomIds.length) {
+        toast.error("最低有效人数不能超过当前选择范围内的业主人数");
+        return false;
+      }
+      if (affectedOwnerSelectionAdjusted && !affectedOwnerAdjustmentReason.trim()) {
+        toast.error("调整系统推荐的受影响业主名单时必须填写调整原因");
+        return false;
+      }
     }
     const approvalPercentValue = Number(approvalPercent);
     if (building && (!Number.isFinite(approvalPercentValue)
@@ -558,7 +643,9 @@ export function RepairProjectEditor() {
       planDescription: planDescriptionHtml,
       budgetTotal,
       supplierSelectionMethod,
-      supplierSelectionReason: supplierSelectionReason.trim(),
+      supplierSelectionReason: supplierSelectionMethod === "COMPETITIVE_QUOTATION"
+        ? undefined
+        : supplierSelectionReason.trim(),
       constructionManagementRequirements: constructionRequirementsHtml,
       evidenceRequirements: EVIDENCE_STAGES.map((stage) => ({
         stage,
@@ -569,7 +656,17 @@ export function RepairProjectEditor() {
       acceptanceMethod: building
         ? "楼组长与锁定受影响业主按最低人数及通过规则共同验收"
         : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署",
-      affectedOwnerScopeDescription: building ? affectedOwnerScope.trim() : undefined,
+      affectedOwners: building
+        ? affectedOwnerPreview?.candidates
+          .filter((candidate) => selectedAffectedOwnerRoomIds.includes(candidate.roomId))
+          .map((candidate) => ({
+            roomId: candidate.roomId,
+            affectedReason: candidate.affectedReason,
+          }))
+        : undefined,
+      affectedOwnerAdjustmentReason: building && affectedOwnerSelectionAdjusted
+        ? affectedOwnerAdjustmentReason.trim()
+        : undefined,
       minimumAffectedOwnerAcceptors: building ? Number(minimumAcceptors) : undefined,
       affectedOwnerPassRule: building ? passRule || undefined : undefined,
       affectedOwnerApprovalRatio: building ? percentageToRatio(approvalPercentValue) : undefined,
@@ -617,7 +714,7 @@ export function RepairProjectEditor() {
     ? `${allocationPreview.scopeLabel} · ${allocationPreview.roomCount} 套 · ${Number(allocationPreview.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡ · 按建筑面积比例`
     : allocationError || "待系统计算";
   const acceptanceSummary = workflow === "BUILDING_REPAIR"
-    ? `${affectedOwnerScope || "未填写范围"} · 最低 ${minimumAcceptors || "0"} 人 · ${passRule === "ALL" ? "参与业主全部通过" : `同意比例不低于 ${approvalPercent || "0"}%`}`
+    ? `${affectedOwnerPreview?.scopeLabel || "待生成范围"} · 已选 ${selectedAffectedOwnerRoomIds.length} 套房屋 · 最低 ${minimumAcceptors || "0"} 人 · ${passRule === "ALL" ? "参与业主全部通过" : `同意比例不低于 ${approvalPercent || "0"}%`}`
     : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署";
   const paymentSummary = `首次支取 ${advanceSharePercent || "0"}% · 进度款 ${progressSharePercent || "0"}% · 完工款 ${completionSharePercent || "0"}% · 质保金 ${warrantyReleaseSharePercent || "0"}%`;
 
@@ -768,8 +865,10 @@ export function RepairProjectEditor() {
           <SectionCard title="施工安排">
             <div className="space-y-5">
               <div className="grid gap-4 md:grid-cols-4">
-                <div><Label>施工单位选择方式</Label><Select value={supplierSelectionMethod} onValueChange={(value) => setSupplierSelectionMethod(value as RepairPlanDraftInput["supplierSelectionMethod"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COMPETITIVE_QUOTATION">竞争性询价</SelectItem><SelectItem value="FRAMEWORK_SUPPLIER">框架供应商</SelectItem><SelectItem value="DIRECT_AWARD">依法直接委托</SelectItem><SelectItem value="EMERGENCY_APPOINTMENT">紧急指定</SelectItem></SelectContent></Select></div>
-                <div className="md:col-span-3"><Label>选择理由</Label><Input value={supplierSelectionReason} onChange={(event) => setSupplierSelectionReason(event.target.value)} /></div>
+                <div className="md:col-span-2"><Label>供应商遴选方式</Label><Select value={supplierSelectionMethod} onValueChange={(value) => { const next = value as RepairPlanDraftInput["supplierSelectionMethod"]; setSupplierSelectionMethod(next); if (next === "COMPETITIVE_QUOTATION") setSupplierSelectionReason(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COMPETITIVE_QUOTATION">竞争性询价</SelectItem><SelectItem value="FRAMEWORK_SUPPLIER">框架供应商</SelectItem><SelectItem value="DIRECT_AWARD">依法直接委托</SelectItem><SelectItem value="EMERGENCY_APPOINTMENT">紧急指定</SelectItem></SelectContent></Select></div>
+                {supplierSelectionMethod !== "COMPETITIVE_QUOTATION" && (
+                  <div className="md:col-span-2"><Label>非竞争方式依据</Label><Input value={supplierSelectionReason} onChange={(event) => setSupplierSelectionReason(event.target.value)} /></div>
+                )}
                 <div><Label>结算方式</Label><Select value={settlementMethod} onValueChange={(value) => setSettlementMethod(value as typeof settlementMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTUAL_QUANTITY">按实际工程量</SelectItem><SelectItem value="FIXED_TOTAL">固定总价</SelectItem></SelectContent></Select></div>
                 <div><Label><CalendarDays className="mr-1 inline size-3.5" />计划开工</Label><Input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} /></div>
                 <div><Label>计划完工</Label><Input type="date" value={plannedCompletionDate} onChange={(event) => setPlannedCompletionDate(event.target.value)} /></div>
@@ -792,11 +891,46 @@ export function RepairProjectEditor() {
                     : "全小区公共维修由主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署。"}
                 </div>
                 {workflow === "BUILDING_REPAIR" && (
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="md:col-span-2"><Label>受影响业主范围</Label><Input value={affectedOwnerScope} onChange={(event) => setAffectedOwnerScope(event.target.value)} /></div>
-                    <div><Label>最低有效业主人数</Label><Input type="number" min="1" value={minimumAcceptors} onChange={(event) => setMinimumAcceptors(event.target.value)} /></div>
-                    <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalPercent(next === "ALL" ? "100" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
-                    <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} min={0.01} placeholder="例如 60" onChange={setApprovalPercent} />
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <Label>系统生成的受影响业主名单</Label>
+                        {affectedOwnerPreview && (
+                          <span className="text-xs text-muted-foreground">
+                            {selectedAffectedOwnerRoomIds.length} / {affectedOwnerPreview.candidates.length} 套房屋 · {affectedOwnerPreview.recommendedOwnerCount} 名业主
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 max-h-52 overflow-y-auto rounded-md border">
+                        {affectedOwnerLoading ? (
+                          <div className="flex items-center justify-center px-3 py-6 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在核对产权名册</div>
+                        ) : affectedOwnerPreview ? affectedOwnerPreview.candidates.map((candidate) => (
+                          <label key={candidate.roomId} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/30">
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={selectedAffectedOwnerRoomIds.includes(candidate.roomId)}
+                              onCheckedChange={(checked) => toggleAffectedOwner(candidate.roomId, checked === true)}
+                            />
+                            <span className="min-w-0 text-sm">
+                              <span className="block font-medium">{candidate.buildingName} · {candidate.unitName ? `${candidate.unitName} · ` : ""}{candidate.roomName}</span>
+                              <span className="block text-xs text-muted-foreground">{candidate.affectedReason}</span>
+                            </span>
+                          </label>
+                        )) : (
+                          <div className={`px-3 py-6 text-center text-sm ${affectedOwnerError ? "text-destructive" : "text-muted-foreground"}`}>
+                            {affectedOwnerError || "选择维修范围后自动生成"}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {affectedOwnerSelectionAdjusted && (
+                      <div><Label>名单调整原因</Label><Input value={affectedOwnerAdjustmentReason} onChange={(event) => setAffectedOwnerAdjustmentReason(event.target.value)} /></div>
+                    )}
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div><Label>最低有效业主人数</Label><Input type="number" min="1" max={affectedOwnerPreview?.recommendedOwnerCount} value={minimumAcceptors} onChange={(event) => setMinimumAcceptors(event.target.value)} /></div>
+                      <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalPercent(next === "ALL" ? "100" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
+                      <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} min={0.01} placeholder="例如 60" onChange={setApprovalPercent} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -842,7 +976,10 @@ export function RepairProjectEditor() {
 
               <ReviewBlock title="施工安排" onEdit={() => moveToStep(3)}>
                 <dl className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <ReviewField label="施工单位选择">{SUPPLIER_METHOD_LABEL[supplierSelectionMethod]}</ReviewField>
+                  <ReviewField label="供应商遴选方式">{SUPPLIER_METHOD_LABEL[supplierSelectionMethod]}</ReviewField>
+                  {supplierSelectionMethod !== "COMPETITIVE_QUOTATION" && (
+                    <ReviewField label="非竞争方式依据">{supplierSelectionReason}</ReviewField>
+                  )}
                   <ReviewField label="结算方式">{settlementMethod === "ACTUAL_QUANTITY" ? "按实际工程量" : "固定总价"}</ReviewField>
                   <ReviewField label="计划工期">{plannedStartDate} 至 {plannedCompletionDate}</ReviewField>
                   <ReviewField label="质保与审价">{warrantyDays} 天 · {priceReviewRequired ? "需审价" : "无需审价"}</ReviewField>
