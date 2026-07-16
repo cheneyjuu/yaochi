@@ -9,6 +9,7 @@ import {
   PencilLine,
   Plus,
   Save,
+  Scale,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +35,8 @@ import {
 } from "../../lib/repair";
 import {
   createRepairProject,
+  getRepairAllocationPreview,
+  type RepairAllocationPreview,
   type RepairPlanDraftInput,
   type RepairProjectCreateInput,
   type RepairProjectStage,
@@ -200,7 +203,9 @@ export function RepairProjectEditor() {
   const [unitName, setUnitName] = useState("");
   const [problemCause, setProblemCause] = useState("");
   const [implementationScope, setImplementationScope] = useState("");
-  const [allocationDescription, setAllocationDescription] = useState("");
+  const [allocationPreview, setAllocationPreview] = useState<RepairAllocationPreview | null>(null);
+  const [allocationLoading, setAllocationLoading] = useState(false);
+  const [allocationError, setAllocationError] = useState("");
   const [supplierSelectionMethod, setSupplierSelectionMethod] = useState<RepairPlanDraftInput["supplierSelectionMethod"]>("COMPETITIVE_QUOTATION");
   const [supplierSelectionReason, setSupplierSelectionReason] = useState("");
   const [constructionRequirements, setConstructionRequirements] = useState("");
@@ -284,6 +289,43 @@ export function RepairProjectEditor() {
       .finally(() => setLocationLoading(false));
   }, [canCreate, workflow]);
 
+  useEffect(() => {
+    if (!canCreate) return;
+    const numericBuildingId = Number(buildingId);
+    if (workflow === "BUILDING_REPAIR"
+      && (!Number.isFinite(numericBuildingId) || numericBuildingId <= 0)) {
+      setAllocationPreview(null);
+      setAllocationError("");
+      setAllocationLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAllocationPreview(null);
+    setAllocationError("");
+    setAllocationLoading(true);
+    getRepairAllocationPreview({
+      scopeType: workflow === "COMMUNITY_PUBLIC_REPAIR"
+        ? "COMMUNITY"
+        : unitName.trim() ? "BUILDING_UNIT" : "BUILDING",
+      buildingId: workflow === "BUILDING_REPAIR" ? numericBuildingId : undefined,
+      unitName: workflow === "BUILDING_REPAIR" ? unitName.trim() || undefined : undefined,
+    })
+      .then((preview) => {
+        if (!cancelled) setAllocationPreview(preview);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAllocationError(error instanceof Error ? error.message : "费用承担范围计算失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAllocationLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId, canCreate, unitName, workflow]);
+
   function updateItem(index: number, field: DraftItemTextField, value: string) {
     setItems((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [field]: value } : item
@@ -321,6 +363,14 @@ export function RepairProjectEditor() {
       const numericBuildingId = Number(buildingId);
       if (workflow === "BUILDING_REPAIR" && (!Number.isFinite(numericBuildingId) || numericBuildingId <= 0)) {
         toast.error("楼栋维修必须选择楼栋范围");
+        return false;
+      }
+      if (allocationLoading) {
+        toast.error("费用承担范围正在计算，请稍候");
+        return false;
+      }
+      if (!allocationPreview) {
+        toast.error(allocationError || "当前范围无法形成费用承担房屋清单");
         return false;
       }
       return true;
@@ -458,10 +508,6 @@ export function RepairProjectEditor() {
       problemCause: problemCauseHtml,
       implementationScope: implementationScopeHtml,
       budgetTotal,
-      allocationRuleType: "BY_BUILDING_AREA",
-      allocationRuleDescription: allocationDescription.trim() || (building
-        ? "按锁定楼栋或单元范围内房屋建筑面积分摊"
-        : "按全小区锁定房屋建筑面积分摊"),
       supplierSelectionMethod,
       supplierSelectionReason: supplierSelectionReason.trim(),
       constructionManagementRequirements: constructionRequirementsHtml,
@@ -513,14 +559,14 @@ export function RepairProjectEditor() {
     }
   }
 
-  const scopeLabel = workflow === "BUILDING_REPAIR"
+  const scopeLabel = allocationPreview?.scopeLabel || (workflow === "BUILDING_REPAIR"
     ? selectedBuilding
       ? `${selectedBuilding.communityName} · ${selectedBuilding.buildingName} · ${unitName || "整栋"}`
       : "未选择楼栋"
-    : "全小区公共区域";
-  const allocationLabel = allocationDescription.trim() || (workflow === "BUILDING_REPAIR"
-    ? "按锁定楼栋或单元范围内房屋建筑面积分摊"
-    : "按全小区锁定房屋建筑面积分摊");
+    : "全小区公共区域");
+  const allocationLabel = allocationPreview
+    ? `${allocationPreview.scopeLabel} · ${allocationPreview.roomCount} 套 · ${Number(allocationPreview.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡ · 按建筑面积比例`
+    : allocationError || "待系统计算";
   const acceptanceSummary = workflow === "BUILDING_REPAIR"
     ? `${affectedOwnerScope || "未填写范围"} · 最低 ${minimumAcceptors || "0"} 人 · ${passRule === "ALL" ? "参与业主全部通过" : `同意比例不低于 ${approvalPercent || "0"}%`}`
     : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署";
@@ -561,7 +607,7 @@ export function RepairProjectEditor() {
         <Stepper steps={EDITOR_STEPS} current={currentStep} />
       </SectionCard>
 
-      <div ref={stepContentRef} className="min-h-[420px] scroll-mt-4">
+      <div ref={stepContentRef} className="box-content min-h-[420px] scroll-mt-4 pb-32 sm:pb-24">
         {currentStep === 0 && (
           <SectionCard title="项目范围与资金">
             <div className="space-y-5">
@@ -577,7 +623,29 @@ export function RepairProjectEditor() {
                   <div><Label>资金范围</Label><Input value="小区公共维修资金" disabled /></div>
                 )}
                 {workflow === "BUILDING_REPAIR" && <div><Label>单元范围</Label><Select value={unitName || "__BUILDING__"} onValueChange={(value) => setUnitName(value === "__BUILDING__" ? "" : value)} disabled={!selectedBuilding}><SelectTrigger><SelectValue placeholder="整栋" /></SelectTrigger><SelectContent><SelectItem value="__BUILDING__">整栋</SelectItem>{selectedBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>}
-                <div className={workflow === "BUILDING_REPAIR" ? "md:col-span-2" : "md:col-span-3"}><Label>分摊范围说明</Label><Input value={allocationDescription} onChange={(event) => setAllocationDescription(event.target.value)} /></div>
+                <div className="md:col-span-3 border-y bg-muted/20 py-4">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Scale className="size-4 text-primary" />
+                    系统确定的费用承担范围
+                  </div>
+                  {allocationLoading ? (
+                    <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在核对产权名册</div>
+                  ) : allocationPreview ? (
+                    <div className="mt-3 space-y-3">
+                      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <ReviewField label="承担范围">{allocationPreview.scopeLabel}</ReviewField>
+                        <ReviewField label="费用承担房屋">{allocationPreview.roomCount} 套</ReviewField>
+                        <ReviewField label="汇总建筑面积">{Number(allocationPreview.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡</ReviewField>
+                        <ReviewField label="分摊方式">按各套住宅建筑面积比例</ReviewField>
+                      </dl>
+                      <p className="text-xs leading-5 text-muted-foreground">依据：{allocationPreview.legalBasis}</p>
+                    </div>
+                  ) : (
+                    <p className={`mt-3 text-sm ${allocationError ? "text-destructive" : "text-muted-foreground"}`}>
+                      {allocationError || "选择维修范围后自动核对"}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </SectionCard>

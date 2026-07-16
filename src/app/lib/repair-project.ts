@@ -115,6 +115,18 @@ export interface RepairProjectDetails {
   currentPlanAttachments: Array<{ attachmentId: number; purpose: string; sortOrder: number }>;
 }
 
+export interface RepairAllocationPreview {
+  scopeType: RepairProject["scopeType"];
+  fundSource: RepairProject["fundSource"];
+  scopeLabel: string;
+  roomCount: number;
+  ownerCount: number;
+  totalBuildArea: number;
+  allocationRuleType: "BY_BUILDING_AREA" | "EQUAL_BY_ROOM";
+  allocationRuleDescription: string;
+  legalBasis: string;
+}
+
 export interface RepairSupplierProjectSummary {
   project: RepairProject;
   contract: RepairProjectContract;
@@ -280,8 +292,6 @@ export interface RepairPlanDraftInput {
   problemCause: string;
   implementationScope: string;
   budgetTotal: number;
-  allocationRuleType: "BY_BUILDING_AREA" | "EQUAL_BY_ROOM";
-  allocationRuleDescription: string;
   supplierSelectionMethod: "COMPETITIVE_QUOTATION" | "FRAMEWORK_SUPPLIER" | "DIRECT_AWARD" | "EMERGENCY_APPOINTMENT";
   supplierSelectionReason: string;
   constructionManagementRequirements: string;
@@ -388,6 +398,14 @@ export function pageRepairProjects(params: {
 
 export function createRepairProject(input: RepairProjectCreateInput): Promise<RepairProjectDetails> {
   return apiPost<RepairProjectDetails>("/admin/repair-projects", input);
+}
+
+export function getRepairAllocationPreview(input: {
+  scopeType: RepairProject["scopeType"];
+  buildingId?: number;
+  unitName?: string;
+}): Promise<RepairAllocationPreview> {
+  return apiGet<RepairAllocationPreview>(`/admin/repair-projects/allocation-preview?${queryString(input)}`);
 }
 
 export function getRepairProject(projectId: number): Promise<RepairProjectDetails> {
