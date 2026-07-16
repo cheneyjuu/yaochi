@@ -43,13 +43,13 @@ const SEED_ACCOUNTS = [
 ];
 
 const FIELD_GROUP_CLASS = "space-y-2";
-const FIELD_LABEL_CLASS = "block text-[13px] font-medium leading-5 text-[#26312e]";
-const FIELD_INPUT_CLASS = "h-12 rounded-md border-[#d9dfdc] bg-white pl-10 text-[14px] shadow-none transition-colors placeholder:text-[#9aa5a0] hover:border-[#8da39b] focus-visible:border-[#205f55] focus-visible:ring-[#205f55]/15";
+const FIELD_LABEL_CLASS = "block text-[13px] font-medium leading-5 text-foreground";
+const FIELD_INPUT_CLASS = "h-12 rounded-md border-border bg-white pl-10 text-[14px] shadow-none transition-colors placeholder:text-[var(--gov-placeholder)] hover:border-primary/40 focus-visible:border-primary focus-visible:ring-primary/15";
 
 function BrandMark({ inverse = false }: { inverse?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <div className={`grid size-10 place-items-center rounded-md text-[18px] font-semibold ${inverse ? "bg-white text-[#174f47]" : "bg-[#174f47] text-white"}`}>
+      <div className={`grid size-10 place-items-center rounded-md text-[18px] font-semibold ${inverse ? "bg-white text-primary" : "bg-primary text-white"}`}>
         盘
       </div>
       <div>
@@ -112,15 +112,15 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
   };
 
   return (
-    <div className="h-[100dvh] w-full overflow-y-auto bg-[#f6f8f7] lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,0.92fr)]">
+    <div className="h-[100dvh] w-full overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,0.92fr)]">
       <aside className="relative hidden min-h-[100dvh] overflow-hidden lg:flex" aria-label="盘古社区治理平台简介">
         <img
           src={communityImage}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 size-full object-cover object-center"
+          className="login-photo-motion absolute inset-0 size-full object-cover object-center"
         />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,27,24,0.2)_0%,rgba(8,27,24,0.3)_42%,rgba(8,27,24,0.94)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,29,58,0.18)_0%,rgba(9,31,64,0.3)_42%,rgba(8,27,57,0.94)_100%)]" />
 
         <div className="relative z-10 flex w-full flex-col p-10 text-white xl:p-14 2xl:p-16">
           <BrandMark inverse />
@@ -158,14 +158,14 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
         </div>
       </aside>
 
-      <main className="flex min-h-[100dvh] flex-col bg-[#f6f8f7]">
+      <main className="flex min-h-[100dvh] flex-col bg-background">
         <header className="flex min-h-20 items-center justify-between px-5 sm:px-10 lg:px-12 xl:px-16">
           <div className="lg:hidden">
             <BrandMark />
           </div>
           <button
             type="button"
-            className="ml-auto inline-flex h-9 items-center gap-2 rounded-md px-2 text-[13px] text-[#5f6e69] transition-colors hover:bg-[#e9eeec] hover:text-[#174f47]"
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
             onClick={() => toast("请联系小区管理员或街道办获取登录帮助")}
           >
             <CircleHelp className="size-4" />
@@ -176,26 +176,26 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
         <div className="flex flex-1 items-center px-5 py-8 sm:px-10 lg:px-12 xl:px-16">
           <section className="mx-auto w-full max-w-[420px] py-4" aria-labelledby="login-title">
             <div className="mb-7">
-              <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-[#6a7773]">
+              <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
                 <span className="size-2 rounded-full bg-[#d9793d]" />
                 身份验证
               </div>
-              <h2 id="login-title" className="text-[30px] font-semibold leading-[1.25] text-[#19231f]">
+              <h2 id="login-title" className="text-[30px] font-semibold leading-[1.25] text-foreground">
                 {view === "login" ? "欢迎回来" : "激活供应商账号"}
               </h2>
-              <p className="mt-2 text-[14px] leading-6 text-[#68756f]">
+              <p className="mt-2 text-[14px] leading-6 text-muted-foreground">
                 {view === "login"
                   ? "使用机构手机号登录，角色、权限和小区范围由当前工作身份确定。"
                   : "使用物业发送的邀请编号与受邀手机号，完成经办人账号激活。"}
               </p>
             </div>
 
-            <div className="mb-7 grid grid-cols-2 rounded-md bg-[#e8edeb] p-1" role="tablist" aria-label="账号访问方式">
+            <div className="mb-7 grid grid-cols-2 rounded-md bg-muted p-1" role="tablist" aria-label="账号访问方式">
               <button
                 type="button"
                 role="tab"
                 aria-selected={view === "login"}
-                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "login" ? "bg-white text-[#174f47] shadow-[0_1px_3px_rgba(23,52,45,0.12)]" : "text-[#65736e] hover:text-[#24312d]"}`}
+                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "login" ? "bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setView("login")}
               >
                 工作身份登录
@@ -204,7 +204,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 type="button"
                 role="tab"
                 aria-selected={view === "activation"}
-                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "activation" ? "bg-white text-[#174f47] shadow-[0_1px_3px_rgba(23,52,45,0.12)]" : "text-[#65736e] hover:text-[#24312d]"}`}
+                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "activation" ? "bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setView("activation")}
               >
                 供应商激活
@@ -217,7 +217,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                   <div className={FIELD_GROUP_CLASS}>
                     <label htmlFor="invitation-id" className={FIELD_LABEL_CLASS}>邀请编号</label>
                     <div className="relative">
-                      <Hash className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                      <Hash className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="invitation-id"
                         value={invitationId}
@@ -232,7 +232,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                   <div className={FIELD_GROUP_CLASS}>
                     <label htmlFor="operator-name" className={FIELD_LABEL_CLASS}>经办人姓名</label>
                     <div className="relative">
-                      <UserPlus className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                      <UserPlus className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="operator-name"
                         value={operatorName}
@@ -249,7 +249,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
               <div className={FIELD_GROUP_CLASS}>
                 <label htmlFor="login-phone" className={FIELD_LABEL_CLASS}>手机号</label>
                 <div className="relative">
-                  <Smartphone className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                  <Smartphone className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="login-phone"
                     type="tel"
@@ -267,7 +267,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
               <div className={FIELD_GROUP_CLASS}>
                 <label htmlFor="sms-code" className={FIELD_LABEL_CLASS}>短信验证码</label>
                 <div className="relative">
-                  <ShieldCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                  <ShieldCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="sms-code"
                     value={smsCode}
@@ -285,7 +285,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    className="text-[13px] text-[#2e665d] hover:text-[#174f47] hover:underline"
+                    className="text-[13px] text-primary hover:text-[var(--gov-primary-dark)] hover:underline"
                     onClick={() => toast("请联系小区管理员或街道办重置登录信息")}
                   >
                     登录遇到问题？
@@ -295,7 +295,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
 
               <Button
                 type="submit"
-                className="h-12 w-full rounded-md bg-[#174f47] text-[14px] text-white shadow-none hover:bg-[#103f39] focus-visible:ring-[#174f47]/25"
+                className="h-12 w-full rounded-md bg-primary text-[14px] text-white shadow-none hover:bg-[var(--gov-primary-dark)] focus-visible:ring-primary/25"
                 disabled={loading}
                 aria-busy={loading}
               >
@@ -310,12 +310,12 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
               </Button>
             </form>
 
-            <div className="mt-6 border-t border-[#dfe5e2] pt-6">
-              <div className="mb-3 text-center text-[12px] text-[#7a8782]">尚未开通小区工作区</div>
+            <div className="mt-6 border-t border-border pt-6">
+              <div className="mb-3 text-center text-[12px] text-muted-foreground">尚未开通小区工作区</div>
               <Button
                 type="button"
                 variant="outline"
-                className="h-11 w-full rounded-md border-[#cfd8d4] bg-transparent text-[13px] text-[#2f4942] shadow-none hover:bg-[#edf2f0]"
+                className="h-11 w-full rounded-md border-border bg-transparent text-[13px] text-foreground shadow-none hover:bg-accent"
                 onClick={onCommunityRegistration}
               >
                 <Building2 className="mr-2 size-4" />
@@ -324,24 +324,24 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
             </div>
 
             {import.meta.env.DEV && view === "login" && (
-              <details className="group mt-6 rounded-md border border-dashed border-[#cfd8d4] bg-white/60 text-[12px] text-[#66736f]">
-                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-3 font-medium text-[#4c5b56]">
+              <details className="group mt-6 rounded-md border border-dashed border-border bg-white/60 text-[12px] text-muted-foreground">
+                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-3 font-medium text-foreground/75">
                   <KeyRound className="size-4" />
                   开发账号
-                  <code className="ml-1 font-mono-num text-[#71807b]">验证码 123456</code>
+                  <code className="ml-1 font-mono-num text-muted-foreground">验证码 123456</code>
                   <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
                 </summary>
-                <div className="grid grid-cols-1 gap-1 border-t border-dashed border-[#d9dfdc] p-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-1 border-t border-dashed border-border p-3 sm:grid-cols-2">
                   {SEED_ACCOUNTS.map((account) => (
                     <button
                       key={account.phone}
                       type="button"
                       onClick={() => setPhone(account.phone)}
-                      className="min-w-0 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-[#eaf0ed] hover:text-[#174f47]"
+                      className="min-w-0 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-primary"
                       title="点击填入手机号"
                     >
                       <code className="font-mono-num">{account.phone}</code>
-                      <span className="ml-1 text-[#89938f]">{account.role}</span>
+                      <span className="ml-1 text-muted-foreground">{account.role}</span>
                     </button>
                   ))}
                 </div>
@@ -350,7 +350,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
           </section>
         </div>
 
-        <footer className="px-5 pb-6 text-center text-[11px] text-[#96a09c] sm:px-10 lg:px-12 xl:px-16">
+        <footer className="px-5 pb-6 text-center text-[11px] text-muted-foreground/65 sm:px-10 lg:px-12 xl:px-16">
           © 2026 盘古社区治理平台
         </footer>
       </main>

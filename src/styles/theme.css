@@ -258,6 +258,25 @@ body {
   background-image: linear-gradient(135deg, #143c78 0%, #1b4f9c 60%, #3a6fbf 100%);
 }
 
+/* 登录页只让实景照片缓慢漂移，避免动画干扰身份验证。 */
+@keyframes login-photo-drift {
+  from { transform: scale(1.035) translate3d(-0.35%, 0, 0); }
+  to { transform: scale(1.075) translate3d(0.55%, -0.45%, 0); }
+}
+
+.login-photo-motion {
+  animation: login-photo-drift 22s ease-in-out infinite alternate;
+  transform-origin: 56% 48%;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-photo-motion {
+    animation: none;
+    transform: scale(1.035);
+  }
+}
+
 /* 细滚动条 */
 .gov-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .gov-scroll::-webkit-scrollbar-thumb { background: #cbd4e1; border-radius: 8px; }
