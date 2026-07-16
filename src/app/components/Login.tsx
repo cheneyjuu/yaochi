@@ -3,20 +3,29 @@ import { useState, type FormEvent } from "react";
 import { useStore } from "../lib/store";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Checkbox } from "./ui/checkbox";
 import {
-  Smartphone, ShieldCheck, Vote,
-  BarChart3, Network, UserPlus, Hash,
+  ArrowRight,
+  BriefcaseBusiness,
   Building2,
+  ChevronDown,
+  CircleHelp,
+  Hash,
+  KeyRound,
+  Landmark,
+  LoaderCircle,
+  ShieldCheck,
+  Smartphone,
+  UserPlus,
+  UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { activateSupplierAccount } from "../lib/auth";
+import communityImage from "../../assets/community-login.webp";
 
-const HIGHLIGHTS = [
-  { icon: Vote, title: "双过半表决", desc: "专有面积与人数双红线，分母随议题范围动态计算" },
-  { icon: ShieldCheck, title: "双签上链存证", desc: "信托资金双密码签名，写入最高院司法链" },
-  { icon: Network, title: "ABAC 数据范围", desc: "辖区 / 小区 / 楼栋 / 物业组织五级权限穿透" },
-  { icon: BarChart3, title: "监管看板", desc: "大额前置审查、换届熔断、千人千面定向推送" },
+const COLLABORATION_AREAS = [
+  { icon: UsersRound, title: "业主自治", desc: "议题、会议与表决" },
+  { icon: BriefcaseBusiness, title: "物业协同", desc: "服务、维修与资金" },
+  { icon: Landmark, title: "属地监管", desc: "辖区、流程与留痕" },
 ];
 
 const SEED_ACCOUNTS = [
@@ -33,15 +42,28 @@ const SEED_ACCOUNTS = [
   { phone: "13800000031", role: "供应商报价经办人 (S)" },
 ];
 
-const FIELD_GROUP_CLASS = "space-y-2.5";
-const FIELD_LABEL_CLASS = "block text-sm font-medium leading-5";
-const FIELD_INPUT_CLASS = "h-11 border-border bg-background pl-9 shadow-xs hover:border-primary/40";
+const FIELD_GROUP_CLASS = "space-y-2";
+const FIELD_LABEL_CLASS = "block text-[13px] font-medium leading-5 text-[#26312e]";
+const FIELD_INPUT_CLASS = "h-12 rounded-md border-[#d9dfdc] bg-white pl-10 text-[14px] shadow-none transition-colors placeholder:text-[#9aa5a0] hover:border-[#8da39b] focus-visible:border-[#205f55] focus-visible:ring-[#205f55]/15";
+
+function BrandMark({ inverse = false }: { inverse?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className={`grid size-10 place-items-center rounded-md text-[18px] font-semibold ${inverse ? "bg-white text-[#174f47]" : "bg-[#174f47] text-white"}`}>
+        盘
+      </div>
+      <div>
+        <div className={`text-[17px] font-semibold leading-5 ${inverse ? "text-white" : "text-[#1d2925]"}`}>盘古</div>
+        <div className={`mt-0.5 text-[11px] leading-4 ${inverse ? "text-white/70" : "text-[#6f7d78]"}`}>社区治理工作台</div>
+      </div>
+    </div>
+  );
+}
 
 export function Login({ onCommunityRegistration }: { onCommunityRegistration: () => void }) {
   const { login } = useStore();
-  const [phone, setPhone] = useState("13800000011");
-  const [smsCode, setSmsCode] = useState("123456");
-  const [remember, setRemember] = useState(true);
+  const [phone, setPhone] = useState(() => import.meta.env.DEV ? "13800000011" : "");
+  const [smsCode, setSmsCode] = useState(() => import.meta.env.DEV ? "123456" : "");
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<"login" | "activation">("login");
   const [invitationId, setInvitationId] = useState("");
@@ -90,167 +112,248 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
   };
 
   return (
-    <div className="h-screen w-screen flex bg-background overflow-hidden">
-      {/* 左侧品牌区 */}
-      <div className="relative hidden lg:flex flex-col w-[46%] xl:w-1/2 gov-primary-gradient text-white overflow-hidden">
-        {/* 背景装饰 */}
-        <div className="absolute inset-0 opacity-[0.08]" style={{
-          backgroundImage: "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)",
-          backgroundSize: "26px 26px",
-        }} />
-        <div className="absolute -bottom-32 -right-24 size-[460px] rounded-full opacity-20 gov-tech-gradient blur-2xl" />
-        <div className="absolute top-1/3 -left-20 size-72 rounded-full opacity-20 bg-[#19a0c4] blur-3xl" />
+    <div className="h-[100dvh] w-full overflow-y-auto bg-[#f6f8f7] lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,0.92fr)]">
+      <aside className="relative hidden min-h-[100dvh] overflow-hidden lg:flex" aria-label="盘古社区治理平台简介">
+        <img
+          src={communityImage}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 size-full object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,27,24,0.2)_0%,rgba(8,27,24,0.3)_42%,rgba(8,27,24,0.94)_100%)]" />
 
-        <div className="relative z-10 flex flex-col h-full p-12 xl:p-16">
-          <div className="flex items-center gap-3">
-            <div className="grid place-items-center size-11 rounded-lg bg-white/15 backdrop-blur" style={{ fontWeight: 700, fontSize: 22 }}>盘</div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 20 }}>盘古</div>
-              <div className="text-xs text-white/70">社区治理 · 业主自治后台</div>
+        <div className="relative z-10 flex w-full flex-col p-10 text-white xl:p-14 2xl:p-16">
+          <BrandMark inverse />
+
+          <div className="mt-auto max-w-[640px]">
+            <div className="mb-4 flex items-center gap-3 text-[13px] text-white/78">
+              <span className="h-px w-9 bg-[#e7a666]" />
+              多方协同的社区事务工作区
             </div>
-          </div>
-
-          <div className="mt-auto mb-10">
-            <h1 className="text-white" style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.3 }}>
-              让社区治理<br />阳光、透明、可追溯
+            <h1 className="max-w-[620px] text-[42px] font-semibold leading-[1.16] text-white xl:text-[50px]">
+              盘古社区治理平台
             </h1>
-            <p className="mt-4 text-white/80 max-w-md leading-relaxed">
-              面向「业委会自治 + 物业协同 + 街道办监管」的多租户治理平台，
-              一套角色自适应外壳，贯穿议题投票、资金双签、司法链存证与全流程监管。
+            <p className="mt-5 max-w-[560px] text-[16px] leading-7 text-white/80">
+              让业主自治、物业服务与属地监管，在统一身份、清晰权限和可追溯流程中协同。
             </p>
-          </div>
 
-          <div className="relative z-10 grid grid-cols-2 gap-3">
-            {HIGHLIGHTS.map((h) => {
-              const Icon = h.icon;
-              return (
-                <div key={h.title} className="rounded-xl bg-white/10 backdrop-blur border border-white/15 p-4">
-                  <Icon className="size-5 mb-2 text-[#7fe9d8]" />
-                  <div style={{ fontWeight: 600 }}>{h.title}</div>
-                  <div className="text-xs text-white/70 mt-1 leading-relaxed">{h.desc}</div>
-                </div>
-              );
-            })}
-          </div>
+            <div className="mt-10 grid grid-cols-3 border-y border-white/25 py-5">
+              {COLLABORATION_AREAS.map((area, index) => {
+                const Icon = area.icon;
+                return (
+                  <div key={area.title} className={`min-w-0 px-5 first:pl-0 ${index > 0 ? "border-l border-white/20" : ""}`}>
+                    <Icon className="mb-3 size-5 text-[#f0b273]" strokeWidth={1.8} />
+                    <div className="text-[14px] font-medium text-white">{area.title}</div>
+                    <div className="mt-1 text-[12px] leading-5 text-white/62">{area.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
 
-          <div className="relative z-10 mt-10 text-xs text-white/50">
-            © 2026 盘古社区治理平台 · 数据接入最高院司法链存证
+            <div className="mt-6 flex items-center gap-2 text-[12px] text-white/58">
+              <ShieldCheck className="size-4" />
+              多租户工作区，访问范围由当前登录身份确定
+            </div>
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* 右侧登录区 */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto flex min-h-full w-full max-w-[400px] flex-col justify-center py-6">
-          {/* 移动端 logo */}
-          <div className="flex lg:hidden items-center gap-2 justify-center mb-6">
-            <div className="grid place-items-center size-9 rounded-md gov-primary-gradient text-white" style={{ fontWeight: 700 }}>盘</div>
-            <span style={{ fontWeight: 700, fontSize: 18 }}>盘古社区治理后台</span>
+      <main className="flex min-h-[100dvh] flex-col bg-[#f6f8f7]">
+        <header className="flex min-h-20 items-center justify-between px-5 sm:px-10 lg:px-12 xl:px-16">
+          <div className="lg:hidden">
+            <BrandMark />
           </div>
+          <button
+            type="button"
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-md px-2 text-[13px] text-[#5f6e69] transition-colors hover:bg-[#e9eeec] hover:text-[#174f47]"
+            onClick={() => toast("请联系小区管理员或街道办获取登录帮助")}
+          >
+            <CircleHelp className="size-4" />
+            访问帮助
+          </button>
+        </header>
 
-          <div className="mb-5 grid grid-cols-2 rounded-md bg-muted p-1" role="tablist">
-            <button
-              type="button"
-              className={`h-9 rounded-sm text-sm font-medium ${view === "login" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-              onClick={() => setView("login")}
-            >
-              手机号登录
-            </button>
-            <button
-              type="button"
-              className={`h-9 rounded-sm text-sm font-medium ${view === "activation" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-              onClick={() => setView("activation")}
-            >
-              供应商激活
-            </button>
-          </div>
-
-          <div className="mb-6">
-            <h2 style={{ fontSize: 22, fontWeight: 600 }}>{view === "login" ? "手机号登录" : "激活供应商账号"}</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {view === "login"
-                ? "使用机构手机号 + 短信验证码登录，角色与权限由后端身份决定"
-                : "使用物业发送的邀请编号与受邀手机号完成个人账号激活"}
-            </p>
-          </div>
-
-          <form onSubmit={view === "login" ? submit : activate} className="space-y-5">
-            {view === "activation" && (
-              <>
-                <div className={FIELD_GROUP_CLASS}>
-                  <label className={FIELD_LABEL_CLASS}>邀请编号</label>
-                  <div className="relative">
-                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input value={invitationId} onChange={(e) => setInvitationId(e.target.value)} inputMode="numeric" placeholder="请输入邀请编号" className={FIELD_INPUT_CLASS} />
-                  </div>
-                </div>
-                <div className={FIELD_GROUP_CLASS}>
-                  <label className={FIELD_LABEL_CLASS}>经办人姓名</label>
-                  <div className="relative">
-                    <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input value={operatorName} onChange={(e) => setOperatorName(e.target.value)} placeholder="请输入本人姓名" className={FIELD_INPUT_CLASS} />
-                  </div>
-                </div>
-              </>
-            )}
-            {/* 手机号 */}
-            <div className={FIELD_GROUP_CLASS}>
-              <label className={FIELD_LABEL_CLASS}>手机号</label>
-              <div className="relative">
-                <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入登录手机号" className={FIELD_INPUT_CLASS} />
+        <div className="flex flex-1 items-center px-5 py-8 sm:px-10 lg:px-12 xl:px-16">
+          <section className="mx-auto w-full max-w-[420px] py-4" aria-labelledby="login-title">
+            <div className="mb-7">
+              <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-[#6a7773]">
+                <span className="size-2 rounded-full bg-[#d9793d]" />
+                身份验证
               </div>
+              <h2 id="login-title" className="text-[30px] font-semibold leading-[1.25] text-[#19231f]">
+                {view === "login" ? "欢迎回来" : "激活供应商账号"}
+              </h2>
+              <p className="mt-2 text-[14px] leading-6 text-[#68756f]">
+                {view === "login"
+                  ? "使用机构手机号登录，角色、权限和小区范围由当前工作身份确定。"
+                  : "使用物业发送的邀请编号与受邀手机号，完成经办人账号激活。"}
+              </p>
             </div>
 
-            {/* 短信验证码 */}
-            <div className={FIELD_GROUP_CLASS}>
-              <label className={FIELD_LABEL_CLASS}>短信验证码</label>
-              <div className="relative">
-                <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input value={smsCode} onChange={(e) => setSmsCode(e.target.value)} placeholder="请输入短信验证码" className={FIELD_INPUT_CLASS} />
-              </div>
-            </div>
-
-            {view === "login" && <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox checked={remember} onCheckedChange={(v) => setRemember(!!v)} />
-                <span className="text-muted-foreground">记住本机登录</span>
-              </label>
-              <button type="button" className="text-primary hover:underline" onClick={() => toast("请联系小区管理员或街道办重置")}>
-                收不到验证码？
+            <div className="mb-7 grid grid-cols-2 rounded-md bg-[#e8edeb] p-1" role="tablist" aria-label="账号访问方式">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "login"}
+                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "login" ? "bg-white text-[#174f47] shadow-[0_1px_3px_rgba(23,52,45,0.12)]" : "text-[#65736e] hover:text-[#24312d]"}`}
+                onClick={() => setView("login")}
+              >
+                工作身份登录
               </button>
-            </div>}
-
-            <Button type="submit" className="w-full h-11" disabled={loading}>
-              {loading ? (view === "login" ? "登录中…" : "激活中…") : (view === "login" ? "登录工作台" : "激活账号")}
-            </Button>
-          </form>
-
-          <div className="mt-5 border-t pt-5">
-            <Button type="button" variant="outline" className="h-11 w-full" onClick={onCommunityRegistration}>
-              <Building2 className="mr-2 size-4" />
-              申请注册小区
-            </Button>
-          </div>
-
-          {view === "login" && <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
-            <div className="mb-1.5"><span style={{ fontWeight: 600 }}>开发环境提示：</span>短信验证码统一为 <code className="font-mono-num">123456</code>，可点选以下种子账号：</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
-              {SEED_ACCOUNTS.map((a) => (
-                <button
-                  key={a.phone}
-                  type="button"
-                  onClick={() => setPhone(a.phone)}
-                  className="text-left hover:text-primary transition-colors"
-                  title="点击填入手机号"
-                >
-                  <code className="font-mono-num">{a.phone}</code> · {a.role}
-                </button>
-              ))}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "activation"}
+                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "activation" ? "bg-white text-[#174f47] shadow-[0_1px_3px_rgba(23,52,45,0.12)]" : "text-[#65736e] hover:text-[#24312d]"}`}
+                onClick={() => setView("activation")}
+              >
+                供应商激活
+              </button>
             </div>
-          </div>}
+
+            <form onSubmit={view === "login" ? submit : activate} className="space-y-5">
+              {view === "activation" && (
+                <>
+                  <div className={FIELD_GROUP_CLASS}>
+                    <label htmlFor="invitation-id" className={FIELD_LABEL_CLASS}>邀请编号</label>
+                    <div className="relative">
+                      <Hash className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                      <Input
+                        id="invitation-id"
+                        value={invitationId}
+                        onChange={(e) => setInvitationId(e.target.value)}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="请输入邀请编号"
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </div>
+                  </div>
+                  <div className={FIELD_GROUP_CLASS}>
+                    <label htmlFor="operator-name" className={FIELD_LABEL_CLASS}>经办人姓名</label>
+                    <div className="relative">
+                      <UserPlus className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                      <Input
+                        id="operator-name"
+                        value={operatorName}
+                        onChange={(e) => setOperatorName(e.target.value)}
+                        autoComplete="name"
+                        placeholder="请输入本人姓名"
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className={FIELD_GROUP_CLASS}>
+                <label htmlFor="login-phone" className={FIELD_LABEL_CLASS}>手机号</label>
+                <div className="relative">
+                  <Smartphone className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                  <Input
+                    id="login-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    maxLength={11}
+                    placeholder="请输入登录手机号"
+                    className={FIELD_INPUT_CLASS}
+                  />
+                </div>
+              </div>
+
+              <div className={FIELD_GROUP_CLASS}>
+                <label htmlFor="sms-code" className={FIELD_LABEL_CLASS}>短信验证码</label>
+                <div className="relative">
+                  <ShieldCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#7d8985]" />
+                  <Input
+                    id="sms-code"
+                    value={smsCode}
+                    onChange={(e) => setSmsCode(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="请输入 6 位验证码"
+                    className={FIELD_INPUT_CLASS}
+                  />
+                </div>
+              </div>
+
+              {view === "login" && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-[13px] text-[#2e665d] hover:text-[#174f47] hover:underline"
+                    onClick={() => toast("请联系小区管理员或街道办重置登录信息")}
+                  >
+                    登录遇到问题？
+                  </button>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="h-12 w-full rounded-md bg-[#174f47] text-[14px] text-white shadow-none hover:bg-[#103f39] focus-visible:ring-[#174f47]/25"
+                disabled={loading}
+                aria-busy={loading}
+              >
+                {loading ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="mr-2 size-4" />
+                )}
+                {loading
+                  ? (view === "login" ? "正在进入工作台" : "正在激活账号")
+                  : (view === "login" ? "进入工作台" : "激活账号")}
+              </Button>
+            </form>
+
+            <div className="mt-6 border-t border-[#dfe5e2] pt-6">
+              <div className="mb-3 text-center text-[12px] text-[#7a8782]">尚未开通小区工作区</div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full rounded-md border-[#cfd8d4] bg-transparent text-[13px] text-[#2f4942] shadow-none hover:bg-[#edf2f0]"
+                onClick={onCommunityRegistration}
+              >
+                <Building2 className="mr-2 size-4" />
+                申请注册小区
+              </Button>
+            </div>
+
+            {import.meta.env.DEV && view === "login" && (
+              <details className="group mt-6 rounded-md border border-dashed border-[#cfd8d4] bg-white/60 text-[12px] text-[#66736f]">
+                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-3 font-medium text-[#4c5b56]">
+                  <KeyRound className="size-4" />
+                  开发账号
+                  <code className="ml-1 font-mono-num text-[#71807b]">验证码 123456</code>
+                  <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="grid grid-cols-1 gap-1 border-t border-dashed border-[#d9dfdc] p-3 sm:grid-cols-2">
+                  {SEED_ACCOUNTS.map((account) => (
+                    <button
+                      key={account.phone}
+                      type="button"
+                      onClick={() => setPhone(account.phone)}
+                      className="min-w-0 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-[#eaf0ed] hover:text-[#174f47]"
+                      title="点击填入手机号"
+                    >
+                      <code className="font-mono-num">{account.phone}</code>
+                      <span className="ml-1 text-[#89938f]">{account.role}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )}
+          </section>
         </div>
-      </div>
+
+        <footer className="px-5 pb-6 text-center text-[11px] text-[#96a09c] sm:px-10 lg:px-12 xl:px-16">
+          © 2026 盘古社区治理平台
+        </footer>
+      </main>
     </div>
   );
 }
