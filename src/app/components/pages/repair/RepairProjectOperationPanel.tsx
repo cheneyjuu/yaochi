@@ -82,12 +82,14 @@ export function RepairProjectOperationPanel({
   suppliers,
   hasPermission,
   onChanged,
+  onOpenSupplierDirectory,
 }: {
   details: RepairProjectDetails;
   execution: RepairProjectExecutionDetails | null;
   suppliers: RepairSupplierOrganization[];
   hasPermission: (permission: string) => boolean;
   onChanged: () => Promise<void>;
+  onOpenSupplierDirectory: () => void;
 }) {
   const project = details.project;
   const draftPlan = details.plans.find((item) => item.status === "DRAFT");
@@ -176,6 +178,7 @@ export function RepairProjectOperationPanel({
             busy={busy}
             run={run}
             onReload={reloadSourcing}
+            onOpenSupplierDirectory={onOpenSupplierDirectory}
           />
           <PlanLockOperation
             details={details}

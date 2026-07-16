@@ -303,7 +303,17 @@ export function Engineering() {
 
                 <TabsContent value="actions" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
                   <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
-                    <RepairProjectOperationPanel details={details} execution={execution} suppliers={suppliers} hasPermission={hasPermission} onChanged={refreshSelected} />
+                    <RepairProjectOperationPanel
+                      details={details}
+                      execution={execution}
+                      suppliers={suppliers}
+                      hasPermission={hasPermission}
+                      onChanged={refreshSelected}
+                      onOpenSupplierDirectory={() => {
+                        setSheetOpen(false);
+                        setPage("repair-suppliers");
+                      }}
+                    />
                   </div>
                 </TabsContent>
               </Tabs>

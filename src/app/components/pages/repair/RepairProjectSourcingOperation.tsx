@@ -1,6 +1,6 @@
 // 关联业务：物业在维修工程方案内完成供应商邀价、报价原件核验、横向比价、修订和中选建议。
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, FileCheck2, FileText, Loader2, RefreshCw, Send } from "lucide-react";
+import { Building2, CheckCircle2, FileCheck2, FileText, Loader2, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { listRepairFrameworkRelations, type RepairFrameworkRelation, type RepairSupplierOrganization } from "../../../lib/repair";
 import {
@@ -52,6 +52,7 @@ export function RepairProjectSourcingOperation({
   busy,
   run,
   onReload,
+  onOpenSupplierDirectory,
 }: {
   details: RepairProjectDetails;
   sourcing: RepairProjectSourcingDetails | null;
@@ -60,6 +61,7 @@ export function RepairProjectSourcingOperation({
   busy: string | null;
   run: <T>(key: string, action: () => Promise<T>, success: string) => Promise<boolean>;
   onReload: () => Promise<void>;
+  onOpenSupplierDirectory: () => void;
 }) {
   const project = details.project;
   const [inviteSupplierIds, setInviteSupplierIds] = useState<number[]>([]);
@@ -211,11 +213,16 @@ export function RepairProjectSourcingOperation({
               ))}
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground">
-              {verifiedSuppliers.length === 0
-                ? "暂无可邀请的已核验供应商，请先在维修工单中完成供应商准入与主体核验。"
-                : "当前已核验企业均已邀请。"}
-            </div>
+            verifiedSuppliers.length === 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-y px-3 py-3 text-sm">
+                <span className="text-muted-foreground">暂无可邀请的已核验供应商，请先完成供应商登记与企业主体核验。</span>
+                <Button type="button" size="sm" variant="outline" onClick={onOpenSupplierDirectory}>
+                  <Building2 className="mr-1 size-4" />前往供应商库
+                </Button>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">当前已核验企业均已邀请。</div>
+            )
           )}
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(16rem,22rem)_1fr]">
             <div className="min-w-64"><Label>报价截止时间</Label><Input type="datetime-local" value={inviteDeadline} onChange={(event) => setInviteDeadline(event.target.value)} /></div>

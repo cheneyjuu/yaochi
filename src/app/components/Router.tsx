@@ -38,6 +38,7 @@ import { PropertyBindingReview } from "./pages/PropertyBindingReview";
 import { SupplierWorkbench } from "./pages/SupplierWorkbench";
 import { CommunityRegistrationReview } from "./pages/CommunityRegistrationReview";
 import { PropertyServiceOrganization } from "./pages/PropertyServiceOrganization";
+import { RepairSuppliers } from "./pages/RepairSuppliers";
 
 const PAGES: Record<string, () => JSX.Element> = {
   overview: Overview,
@@ -78,6 +79,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "supplier-workbench": SupplierWorkbench,
   "community-registration-review": CommunityRegistrationReview,
   "property-service-organization": PropertyServiceOrganization,
+  "repair-suppliers": RepairSuppliers,
 };
 
 export function Router() {

@@ -101,7 +101,6 @@ import {
   listRepairQuoteInvitations,
   pageRepairWorkOrders,
   createSupplierActivationInvitation,
-  registerSupplierOrganization,
   verifySupplierEnterpriseManually,
   verifySupplierEnterpriseWithPlatform,
   repairAction,
@@ -785,6 +784,7 @@ export function WorkOrders() {
               acting={acting}
               canManage={canManage}
               canVerifySuppliers={canVerifySuppliers}
+              openSupplierDirectory={() => setPage("repair-suppliers")}
               canField={canField}
               canGovernance={canGovernance}
               canSealGovernance={canSealGovernance}
@@ -1491,6 +1491,8 @@ function ActionPanel(props: {
   selected: RepairWorkOrder;
   acting: boolean;
   canManage: boolean;
+  canVerifySuppliers: boolean;
+  openSupplierDirectory: () => void;
   canField: boolean;
   canGovernance: boolean;
   canSealGovernance: boolean;
@@ -1529,11 +1531,6 @@ function ActionPanel(props: {
   const roomOptions = selectedBuilding ? flattenRooms(selectedBuilding) : [];
   const selectedRoom = roomOptions.find((item) => String(item.roomId) === props.locationRoomId);
   const canCorrectLocation = s === "NEED_MANUAL_LOCATION" && props.canField;
-  const [supplierLegalName, setSupplierLegalName] = useState("");
-  const [supplierUscc, setSupplierUscc] = useState("");
-  const [supplierContactName, setSupplierContactName] = useState("");
-  const [supplierContactPhone, setSupplierContactPhone] = useState("");
-  const [supplierRegistrationOpen, setSupplierRegistrationOpen] = useState(false);
   const [supplierOrganizations, setSupplierOrganizations] = useState<RepairSupplierOrganization[]>([]);
   const [verificationDialogOpen, setVerificationDialogOpen] = useState(false);
   const [verificationSupplier, setVerificationSupplier] = useState<RepairSupplierOrganization | null>(null);
@@ -1781,28 +1778,6 @@ function ActionPanel(props: {
       else setApprovalSolitaireScreenshot(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除报审附件失败");
-    }
-  }
-
-  async function createSupplierOrganization() {
-    try {
-      const supplierDeptId = await registerSupplierOrganization({
-        legalName: supplierLegalName.trim(),
-        unifiedSocialCreditCode: supplierUscc.trim() || undefined,
-        contactName: supplierContactName.trim() || undefined,
-        contactPhone: supplierContactPhone.trim() || undefined,
-      });
-      setQuoteSupplierDeptId(String(supplierDeptId));
-      setInvitedSupplierDeptIds((current) => Array.from(new Set([...current, supplierDeptId])));
-      setSupplierOrganizations(await listRepairSupplierOrganizations());
-      setSupplierLegalName("");
-      setSupplierUscc("");
-      setSupplierContactName("");
-      setSupplierContactPhone("");
-      setSupplierRegistrationOpen(false);
-      toast.success("供应商已登记，企业资料可稍后补充");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "供应商登记失败");
     }
   }
 
@@ -2424,9 +2399,9 @@ function ActionPanel(props: {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setSupplierRegistrationOpen(true)}
+                onClick={props.openSupplierDirectory}
               >
-                <Plus className="mr-1 size-4" />登记新供应商
+                <Building2 className="mr-1 size-4" />维护维修供应商库
               </Button>
             )}
             {s === "PLAN_SUBMITTED" && !(props.hasPreviousRecommendation && availableQuotes.length > 0) && (
@@ -3570,38 +3545,6 @@ function ActionPanel(props: {
               {verificationActing && <Loader2 className="mr-1 size-4 animate-spin" />}
               <ShieldCheck className="mr-1 size-4" />
               {verificationMode === "PROPERTY_MANUAL" ? "记录核验结论" : "发起平台核验"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={supplierRegistrationOpen} onOpenChange={setSupplierRegistrationOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>登记新供应商</DialogTitle>
-            <DialogDescription>先登记企业名称即可参与邀价，其余主体资料可稍后补齐。</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="supplier-legal-name">企业名称</Label>
-              <Input id="supplier-legal-name" value={supplierLegalName} onChange={(e) => setSupplierLegalName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="supplier-uscc">统一社会信用代码（选填）</Label>
-              <Input id="supplier-uscc" value={supplierUscc} onChange={(e) => setSupplierUscc(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="supplier-contact-name">企业联系人（选填）</Label>
-              <Input id="supplier-contact-name" value={supplierContactName} onChange={(e) => setSupplierContactName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="supplier-contact-phone">联系人手机号（选填）</Label>
-              <Input id="supplier-contact-phone" value={supplierContactPhone} onChange={(e) => setSupplierContactPhone(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSupplierRegistrationOpen(false)}>取消</Button>
-            <Button onClick={() => void createSupplierOrganization()} disabled={!supplierLegalName.trim()}>
-              <Building2 className="mr-1 size-4" />确认登记
             </Button>
           </DialogFooter>
         </DialogContent>
