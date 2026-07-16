@@ -13,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
@@ -114,6 +115,7 @@ export function Engineering() {
   const [status, setStatus] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState("overview");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [details, setDetails] = useState<RepairProjectDetails | null>(null);
   const [execution, setExecution] = useState<RepairProjectExecutionDetails | null>(null);
@@ -176,8 +178,9 @@ export function Engineering() {
     acceptance: projects.filter((project) => project.status === "PENDING_ACCEPTANCE").length,
   }), [projects]);
 
-  function openProject(project: RepairProject) {
+  function openProject(project: RepairProject, tab = "overview") {
     setSelectedId(project.projectId);
+    setDetailTab(tab);
     setDetails(null);
     setExecution(null);
     setSourcing(null);
@@ -231,7 +234,7 @@ export function Engineering() {
           <div className="flex flex-col items-center justify-center py-16 text-center"><Inbox className="mb-3 size-9 text-muted-foreground/50" /><div className="text-sm font-medium">没有符合条件的维修工程项目</div></div>
         ) : (
           <Table>
-            <TableHeader><TableRow><TableHead>项目</TableHead><TableHead>治理流程</TableHead><TableHead>资金范围</TableHead><TableHead>工程范围</TableHead><TableHead>状态</TableHead><TableHead>更新时间</TableHead><TableHead /></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>项目</TableHead><TableHead>治理流程</TableHead><TableHead>资金范围</TableHead><TableHead>工程范围</TableHead><TableHead>状态</TableHead><TableHead>更新时间</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
             <TableBody>{projects.map((project) => (
               <TableRow key={project.projectId} className="hover:bg-muted/40">
                 <TableCell><div className="font-medium">{project.projectName}</div><div className="mt-1 font-mono-num text-xs text-muted-foreground">{project.projectNo}</div></TableCell>
@@ -240,7 +243,14 @@ export function Engineering() {
                 <TableCell className="text-sm">{project.scopeType === "COMMUNITY" ? "全小区公共区域" : `${project.buildingId ?? "-"} 号楼${project.unitName ? ` · ${project.unitName}` : ""}`}</TableCell>
                 <TableCell><StatusChip tone={STATUS_TONE[project.status]} dot>{STATUS_LABEL[project.status]}</StatusChip></TableCell>
                 <TableCell className="text-xs text-muted-foreground">{formatDate(project.updateTime)}</TableCell>
-                <TableCell><Button size="sm" variant="ghost" onClick={() => openProject(project)}>详情</Button></TableCell>
+                <TableCell>
+                  <div className="flex justify-end gap-2">
+                    {project.status === "DRAFT" && hasPermission("repair:workorder:manage") && (
+                      <Button size="sm" onClick={() => openProject(project, "actions")}><Send className="mr-1 size-4" />邀请供应商</Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => openProject(project)}>详情</Button>
+                  </div>
+                </TableCell>
               </TableRow>
             ))}</TableBody>
           </Table>
@@ -264,8 +274,8 @@ export function Engineering() {
                 <SheetDescription className="flex flex-wrap items-center gap-2"><span className="font-mono-num">{details.project.projectNo}</span><StatusChip tone={STATUS_TONE[details.project.status]} dot>{STATUS_LABEL[details.project.status]}</StatusChip><StatusChip tone={details.project.workflowType === "BUILDING_REPAIR" ? "warning" : "tech"}>{details.project.workflowType === "BUILDING_REPAIR" ? "楼栋维修" : "全小区公共维修"}</StatusChip></SheetDescription>
               </SheetHeader>
 
-              <Tabs defaultValue="overview" className="mt-5">
-                <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">项目方案</TabsTrigger><TabsTrigger value="execution">工程档案</TabsTrigger><TabsTrigger value="acceptance">验收付款</TabsTrigger><TabsTrigger value="actions">办理操作</TabsTrigger></TabsList>
+              <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-5">
+                <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">项目方案</TabsTrigger><TabsTrigger value="execution">工程档案</TabsTrigger><TabsTrigger value="acceptance">验收付款</TabsTrigger><TabsTrigger value="actions">{details.plans.some((plan) => plan.status === "DRAFT") ? "供应商邀价" : "办理操作"}</TabsTrigger></TabsList>
 
                 <TabsContent value="overview" className="mt-5 space-y-5">
                   <ProjectOverview details={details} sourcing={sourcing} openAttachment={openAttachment} />
