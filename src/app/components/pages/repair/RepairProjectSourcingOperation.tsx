@@ -1,6 +1,6 @@
 // 关联业务：物业在维修工程方案内完成供应商邀价、报价原件核验、横向比价、修订和中选建议。
 import { useEffect, useMemo, useState } from "react";
-import { Building2, CheckCircle2, FileCheck2, FileText, Loader2, RefreshCw, Send } from "lucide-react";
+import { Building2, CheckCircle2, FileCheck2, FileText, Loader2, ReceiptText, RefreshCw, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { listRepairFrameworkRelations, type RepairFrameworkRelation, type RepairSupplierOrganization } from "../../../lib/repair";
 import {
@@ -22,6 +22,15 @@ import { Label } from "../../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Textarea } from "../../ui/textarea";
 import { RepairProjectFileUpload } from "./RepairProjectFileUpload";
+import {
+  calculateRepairQuoteTotal,
+  createRepairQuoteDraftLines,
+  RepairProjectQuoteDetail,
+  RepairProjectQuoteEditor,
+  toRepairQuoteLineInputs,
+  validateRepairQuoteDraft,
+  type RepairQuoteLineDraft,
+} from "./RepairProjectQuoteEditor";
 
 const METHOD_LABEL = {
   COMPETITIVE_QUOTATION: "竞争性询价",
@@ -42,6 +51,14 @@ function localDateTimeAfter(days: number): string {
 
 function money(value: number): string {
   return `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+}
+
+function plannedPeriodDays(start?: string, completion?: string): number {
+  if (!start || !completion) return 1;
+  const startAt = new Date(`${start}T00:00:00`).getTime();
+  const completionAt = new Date(`${completion}T00:00:00`).getTime();
+  if (!Number.isFinite(startAt) || !Number.isFinite(completionAt)) return 1;
+  return Math.max(1, Math.round((completionAt - startAt) / 86_400_000) + 1);
 }
 
 export function RepairProjectSourcingOperation({
@@ -67,7 +84,10 @@ export function RepairProjectSourcingOperation({
   const [inviteSupplierIds, setInviteSupplierIds] = useState<number[]>([]);
   const [inviteDeadline, setInviteDeadline] = useState(localDateTimeAfter(3));
   const [quoteSupplierId, setQuoteSupplierId] = useState("");
-  const [quoteAmount, setQuoteAmount] = useState("");
+  const [quoteLines, setQuoteLines] = useState<RepairQuoteLineDraft[]>([]);
+  const [quoteConstructionPeriodDays, setQuoteConstructionPeriodDays] = useState("");
+  const [quoteWarrantyDays, setQuoteWarrantyDays] = useState("");
+  const [quoteOriginalAmountConfirmed, setQuoteOriginalAmountConfirmed] = useState(false);
   const [quoteSummary, setQuoteSummary] = useState("");
   const [quoteSource, setQuoteSource] = useState("PAPER");
   const [quoteFile, setQuoteFile] = useState<RepairProjectAttachment | null>(null);
@@ -79,6 +99,7 @@ export function RepairProjectSourcingOperation({
   const [insufficientQuoteReason, setInsufficientQuoteReason] = useState("");
   const [frameworkRelationId, setFrameworkRelationId] = useState("");
   const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
+  const [detailQuoteId, setDetailQuoteId] = useState<number | null>(null);
 
   const verifiedSuppliers = useMemo(
     () => suppliers.filter((supplier) => supplier.verificationStatus === "VERIFIED"),
@@ -104,6 +125,16 @@ export function RepairProjectSourcingOperation({
   const relevantFrameworkRelations = frameworkRelations.filter(
     (relation) => !selectedQuote || relation.supplierDeptId === selectedQuote.supplierDeptId,
   );
+  const currentPlan = details.plans.find((plan) => plan.planId === sourcing?.planId) ?? details.plans[0];
+  const quoteDraftError = validateRepairQuoteDraft(quoteLines, details.currentPlanItems);
+  const quoteTotal = calculateRepairQuoteTotal(quoteLines);
+  const quotePeriodValid = quoteConstructionPeriodDays.trim() !== "" && Number.isInteger(Number(quoteConstructionPeriodDays))
+    && Number(quoteConstructionPeriodDays) > 0
+    && Number(quoteConstructionPeriodDays) <= 3650;
+  const quoteWarrantyValid = quoteWarrantyDays.trim() !== "" && Number.isInteger(Number(quoteWarrantyDays))
+    && Number(quoteWarrantyDays) >= 0
+    && Number(quoteWarrantyDays) <= 3650;
+  const detailQuote = sourcing?.quotes.find((quote) => quote.quoteId === detailQuoteId) ?? null;
 
   useEffect(() => {
     if (!sourcing) return;
@@ -130,6 +161,17 @@ export function RepairProjectSourcingOperation({
       .catch(() => setFrameworkRelations([]));
   }, [sourcing?.planId, sourcing?.selectionMethod]);
 
+  useEffect(() => {
+    setQuoteLines(createRepairQuoteDraftLines(details.currentPlanItems));
+    setQuoteConstructionPeriodDays(String(plannedPeriodDays(
+      currentPlan?.plannedStartDate,
+      currentPlan?.plannedCompletionDate,
+    )));
+    setQuoteWarrantyDays(String(currentPlan?.warrantyDays ?? 0));
+    setQuoteOriginalAmountConfirmed(false);
+    setDetailQuoteId(null);
+  }, [sourcing?.planId]);
+
   if (!sourcing) {
     return (
       <section className="border-t py-5 first:border-t-0 first:pt-0">
@@ -151,7 +193,8 @@ export function RepairProjectSourcingOperation({
     && !frameworkRelationId;
 
   async function submitQuote() {
-    if (!quoteFile || !quoteSupplierId) return;
+    if (!quoteFile || !quoteSupplierId || quoteDraftError
+      || !quotePeriodValid || !quoteWarrantyValid || !quoteOriginalAmountConfirmed) return;
     const supplierId = Number(quoteSupplierId);
     const invitation = [...sourcing.invitations]
       .filter((item) => item.supplierDeptId === supplierId && item.status === "PENDING")
@@ -159,14 +202,19 @@ export function RepairProjectSourcingOperation({
     const successful = await run("project-quote", () => submitPropertyRepairProjectQuote(project.projectId, {
       supplierDeptId: supplierId,
       invitationId: invitation?.invitationId,
-      quoteAmount: Number(quoteAmount),
+      quoteAmount: quoteTotal,
       quoteSummary: quoteSummary.trim() || undefined,
       attachmentId: quoteFile.attachmentId,
       confirmationStatus: "OFFLINE_EVIDENCE_VERIFIED",
       originalSource: quoteSource,
+      constructionPeriodDays: Number(quoteConstructionPeriodDays),
+      warrantyDays: Number(quoteWarrantyDays),
+      originalAmountConfirmed: quoteOriginalAmountConfirmed,
+      quoteLines: toRepairQuoteLineInputs(quoteLines),
     }), "供应商报价原件已核验并录入");
     if (!successful) return;
-    setQuoteAmount("");
+    setQuoteLines(createRepairQuoteDraftLines(details.currentPlanItems));
+    setQuoteOriginalAmountConfirmed(false);
     setQuoteSummary("");
     setQuoteFile(null);
   }
@@ -236,15 +284,24 @@ export function RepairProjectSourcingOperation({
 
       <div className="border-b py-5">
         <div className="mb-3"><div className="text-sm font-medium">{competitive ? "2" : "1"}. 收集报价原件</div><div className="mt-1 text-xs text-muted-foreground">供应商可在线提交；物业仅在核验纸质、微信或邮件原件后代录，不填写内部估算替代供应商报价。</div></div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div><Label>供应商</Label><Select value={quoteSupplierId} onValueChange={setQuoteSupplierId}><SelectTrigger><SelectValue placeholder={competitive ? "先邀请供应商" : "选择已核验供应商"} /></SelectTrigger><SelectContent>{quoteSuppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>含税报价总额</Label><Input type="number" min="0.01" step="0.01" value={quoteAmount} onChange={(event) => setQuoteAmount(event.target.value)} /></div>
           <div><Label>原件来源</Label><Select value={quoteSource} onValueChange={setQuoteSource}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER">纸质报价</SelectItem><SelectItem value="WECHAT">微信送达</SelectItem><SelectItem value="EMAIL">电子邮件</SelectItem><SelectItem value="OTHER">其他可核验来源</SelectItem></SelectContent></Select></div>
-          <div className="lg:col-span-2"><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写工期、税费、主要材料或其他报价边界" /></div>
+          <div><Label>施工工期（天）</Label><Input type="number" min="1" max="3650" step="1" value={quoteConstructionPeriodDays} onChange={(event) => setQuoteConstructionPeriodDays(event.target.value)} /></div>
+          <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={quoteWarrantyDays} onChange={(event) => setQuoteWarrantyDays(event.target.value)} /></div>
+        </div>
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between gap-3"><Label>报价明细</Label><span className="text-sm font-semibold tabular-nums">含税合计 {money(quoteTotal)}</span></div>
+          <RepairProjectQuoteEditor items={details.currentPlanItems} lines={quoteLines} onChange={setQuoteLines} />
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写材料、施工组织或其他报价边界" /></div>
           <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
         </div>
-        <div className="mt-4 flex justify-end">
-          <Button disabled={busy !== null || !quoteSupplierId || Number(quoteAmount) <= 0 || !quoteFile} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
+        <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细含税合计与供应商报价原件总额一致。</span></label>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className={`text-sm ${quoteDraftError || !quotePeriodValid || !quoteWarrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{quoteDraftError ?? (!quotePeriodValid ? "施工工期应为 1 至 3650 天" : !quoteWarrantyValid ? "质保期应为 0 至 3650 天" : `待录入含税总额 ${money(quoteTotal)}`)}</div>
+          <Button disabled={busy !== null || !quoteSupplierId || Boolean(quoteDraftError) || !quotePeriodValid || !quoteWarrantyValid || !quoteFile || !quoteOriginalAmountConfirmed} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
         </div>
       </div>
 
@@ -252,9 +309,16 @@ export function RepairProjectSourcingOperation({
         <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-sm font-medium">{competitive ? "3" : "2"}. 比较有效报价</div><div className="mt-1 text-xs text-muted-foreground">历史版本保留只读；只有当前有效且已在线确认或线下核验的报价可以中选。</div></div><StatusChip tone={activeConfirmedQuotes.length >= 3 || !competitive ? "success" : "warning"}>有效 {activeConfirmedQuotes.length} 家</StatusChip></div>
         {sourcing.quotes.length === 0 ? <div className="py-6 text-center text-sm text-muted-foreground">尚未收到报价</div> : (
           <div className="overflow-x-auto border-y">
-            <table className="w-full min-w-[820px] text-sm"><thead className="bg-muted/40"><tr><th className="p-2 text-left">选择</th><th className="p-2 text-left">供应商</th><th className="p-2 text-left">版本</th><th className="p-2 text-left">提交方式</th><th className="p-2 text-right">含税报价</th><th className="p-2 text-left">状态</th><th className="p-2 text-right">原件</th></tr></thead><tbody>{sourcing.quotes.map((quote) => { const selectable = activeConfirmedQuotes.some((item) => item.quoteId === quote.quoteId); return <tr key={quote.quoteId} className="border-t"><td className="p-2"><Checkbox checked={selectedQuoteId === String(quote.quoteId)} disabled={!selectable} onCheckedChange={(checked) => setSelectedQuoteId(checked ? String(quote.quoteId) : "")} /></td><td className="p-2"><div className="font-medium">{quote.supplierName}</div><div className="mt-1 max-w-72 truncate text-xs text-muted-foreground">{quote.quoteSummary || "无补充说明"}</div></td><td className="p-2">第 {quote.revisionNo} 版</td><td className="p-2">{SOURCE_LABEL[quote.submissionSource]}</td><td className="p-2 text-right font-medium">{money(quote.quoteAmount)}</td><td className="p-2"><StatusChip tone={selectable ? "success" : quote.quoteStatus === "REVISION_REQUESTED" ? "warning" : "neutral"}>{quote.quoteStatus === "ACTIVE" ? quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "待确认" : "有效" : quote.quoteStatus === "REVISION_REQUESTED" ? "待修订" : "历史版"}</StatusChip></td><td className="p-2 text-right"><Button size="icon" variant="ghost" title="查看报价原件" onClick={() => void openQuote(quote)}><FileText className="size-4" /></Button></td></tr>; })}</tbody></table>
+            <table className="w-full min-w-[1080px] text-sm">
+              <thead className="bg-muted/40"><tr><th className="p-2 text-left">选择</th><th className="p-2 text-left">供应商</th><th className="p-2 text-left">版本</th><th className="p-2 text-left">提交方式</th><th className="p-2 text-right">工期 / 质保</th><th className="p-2 text-right">含税报价</th><th className="p-2 text-left">状态</th><th className="p-2 text-right">资料</th></tr></thead>
+              <tbody>{sourcing.quotes.map((quote) => {
+                const selectable = activeConfirmedQuotes.some((item) => item.quoteId === quote.quoteId);
+                return <tr key={quote.quoteId} className="border-t"><td className="p-2"><Checkbox checked={selectedQuoteId === String(quote.quoteId)} disabled={!selectable} onCheckedChange={(checked) => setSelectedQuoteId(checked ? String(quote.quoteId) : "")} /></td><td className="p-2"><div className="font-medium">{quote.supplierName}</div><div className="mt-1 max-w-72 truncate text-xs text-muted-foreground">{quote.quoteSummary || "无补充说明"}</div></td><td className="p-2">第 {quote.revisionNo} 版</td><td className="p-2">{SOURCE_LABEL[quote.submissionSource]}</td><td className="p-2 text-right">{quote.constructionPeriodDays ?? "-"} / {quote.warrantyDays ?? "-"} 天</td><td className="p-2 text-right font-medium">{money(quote.quoteAmount)}</td><td className="p-2"><StatusChip tone={selectable ? "success" : quote.quoteStatus === "REVISION_REQUESTED" ? "warning" : "neutral"}>{quote.quoteStatus === "ACTIVE" ? quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "待确认" : "有效" : quote.quoteStatus === "REVISION_REQUESTED" ? "待修订" : "历史版"}</StatusChip></td><td className="p-2 text-right"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="查看报价明细" onClick={() => setDetailQuoteId(quote.quoteId)}><ReceiptText className="mr-1 size-4" />明细</Button><Button size="icon" variant="ghost" title="查看报价原件" onClick={() => void openQuote(quote)}><FileText className="size-4" /></Button></div></td></tr>;
+              })}</tbody>
+            </table>
           </div>
         )}
+        {detailQuote && <div className="mt-4 border-y px-3 py-4"><div className="mb-4 flex items-start justify-between gap-3"><div><div className="text-sm font-medium">{detailQuote.supplierName} · 第 {detailQuote.revisionNo} 版报价明细</div><div className="mt-1 text-xs text-muted-foreground">提交时间 {new Date(detailQuote.createTime).toLocaleString("zh-CN", { hour12: false })}</div></div><Button size="icon" variant="ghost" title="关闭报价明细" onClick={() => setDetailQuoteId(null)}><X className="size-4" /></Button></div><RepairProjectQuoteDetail quote={detailQuote} /></div>}
         {activeConfirmedQuotes.length > 0 && (
           <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <div><Label>要求修订的供应商</Label><div className="mt-1 flex min-h-10 flex-wrap gap-2 border-y py-2">{activeConfirmedQuotes.map((quote) => <label key={quote.supplierDeptId} className="flex items-center gap-2 text-sm"><Checkbox checked={revisionSupplierIds.includes(quote.supplierDeptId)} onCheckedChange={(checked) => setRevisionSupplierIds((current) => checked ? [...new Set([...current, quote.supplierDeptId])] : current.filter((id) => id !== quote.supplierDeptId))} />{quote.supplierName}</label>)}</div></div>

@@ -120,6 +120,35 @@ export interface RepairProjectQuoteInvitation {
   respondedAt?: string | null;
 }
 
+export interface RepairProjectQuoteLine {
+  quoteLineId: number;
+  quoteId: number;
+  projectItemId: number;
+  projectItemNo: string;
+  lineNo: number;
+  itemName: string;
+  specificationModel?: string | null;
+  brand?: string | null;
+  quantity: number;
+  unit: string;
+  taxIncludedUnitPrice: number;
+  taxRate: number;
+  taxIncludedAmount: number;
+  remark?: string | null;
+}
+
+export interface RepairProjectQuoteLineInput {
+  projectItemId: number;
+  itemName: string;
+  specificationModel?: string;
+  brand?: string;
+  quantity: number;
+  unit: string;
+  taxIncludedUnitPrice: number;
+  taxRate: number;
+  remark?: string;
+}
+
 export interface RepairProjectSupplierQuote {
   quoteId: number;
   projectId: number;
@@ -138,10 +167,14 @@ export interface RepairProjectSupplierQuote {
     | "OFFLINE_EVIDENCE_VERIFIED"
     | "CONTRACT_CONFIRMED";
   originalSource?: string | null;
+  constructionPeriodDays?: number | null;
+  warrantyDays?: number | null;
+  originalAmountConfirmed: boolean;
   quoteStatus: "ACTIVE" | "REVISION_REQUESTED" | "SUPERSEDED";
   revisionNo: number;
   supersededByQuoteId?: number | null;
   createTime: string;
+  quoteLines: RepairProjectQuoteLine[];
 }
 
 export interface RepairProjectSupplierSelection {
@@ -576,6 +609,10 @@ export function submitPropertyRepairProjectQuote(
     attachmentId: number;
     confirmationStatus: "PENDING_SUPPLIER_CONFIRMATION" | "OFFLINE_EVIDENCE_VERIFIED";
     originalSource: string;
+    constructionPeriodDays: number;
+    warrantyDays: number;
+    originalAmountConfirmed: boolean;
+    quoteLines: RepairProjectQuoteLineInput[];
   },
 ): Promise<RepairProjectSupplierQuote> {
   return apiPost<RepairProjectSupplierQuote>(`/admin/repair-projects/${projectId}/sourcing/quotes`, input);
@@ -604,6 +641,10 @@ export function submitSupplierRepairProjectQuote(
     quoteAmount: number;
     quoteSummary?: string;
     attachmentId: number;
+    constructionPeriodDays: number;
+    warrantyDays: number;
+    originalAmountConfirmed: boolean;
+    quoteLines: RepairProjectQuoteLineInput[];
   },
 ): Promise<RepairProjectSupplierQuote> {
   return apiPost<RepairProjectSupplierQuote>(`/supplier/repair-projects/${projectId}/quotes`, input);
