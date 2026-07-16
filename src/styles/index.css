@@ -1,3 +1,17 @@
+/* 关联业务：加载瑶池管理端全局样式，并补充 Tiptap 编辑区的占位和选中反馈。 */
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+.tiptap p.is-editor-empty:first-child::before {
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.tiptap img.ProseMirror-selectednode {
+  outline: 2px solid #2563a6;
+  outline-offset: 3px;
+}
