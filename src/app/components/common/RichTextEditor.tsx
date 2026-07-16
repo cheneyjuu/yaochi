@@ -162,7 +162,7 @@ export function RichTextEditor({
           markdown={value}
           plugins={plugins}
           placeholder={placeholder ?? "填写正文"}
-          contentEditableClassName={`${contentHeightClass} max-w-none px-5 py-4 text-sm leading-7 text-slate-900 focus:outline-none`}
+          contentEditableClassName={`${contentHeightClass} max-w-none px-5 py-4 text-sm leading-7 text-slate-900 focus:outline-none [&_img]:h-auto [&_img]:max-h-[420px] [&_img]:max-w-full [&_img]:object-contain`}
           className="repair-rich-text-editor"
           onChange={(markdown) => {
             lastValueRef.current = markdown;
