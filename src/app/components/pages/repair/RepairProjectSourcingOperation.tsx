@@ -1,6 +1,6 @@
 // 关联业务：物业在维修工程方案内完成供应商邀价、报价原件核验、横向比价、修订和中选建议。
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, FileText, Loader2, RefreshCw, Send } from "lucide-react";
+import { CheckCircle2, FileCheck2, FileText, Loader2, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { listRepairFrameworkRelations, type RepairFrameworkRelation, type RepairSupplierOrganization } from "../../../lib/repair";
 import {
@@ -217,9 +217,11 @@ export function RepairProjectSourcingOperation({
                 : "当前已核验企业均已邀请。"}
             </div>
           )}
-          <div className="mt-3 flex flex-wrap items-end gap-3">
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(16rem,22rem)_1fr]">
             <div className="min-w-64"><Label>报价截止时间</Label><Input type="datetime-local" value={inviteDeadline} onChange={(event) => setInviteDeadline(event.target.value)} /></div>
-            <Button disabled={busy !== null || inviteSupplierIds.length === 0} onClick={() => void run("project-invite", () => inviteRepairProjectSuppliers(project.projectId, { supplierDeptIds: inviteSupplierIds, deadline: inviteDeadline }), "维修工程邀价已发出").then((successful) => { if (successful) setInviteSupplierIds([]); })}><Send className="mr-1 size-4" />发出邀价</Button>
+            <div className="flex items-end justify-end">
+              <Button disabled={busy !== null || inviteSupplierIds.length === 0} onClick={() => void run("project-invite", () => inviteRepairProjectSuppliers(project.projectId, { supplierDeptIds: inviteSupplierIds, deadline: inviteDeadline }), "维修工程邀价已发出").then((successful) => { if (successful) setInviteSupplierIds([]); })}><Send className="mr-1 size-4" />发出邀价</Button>
+            </div>
           </div>
           {sourcing.invitations.length > 0 && <div className="mt-4 divide-y border-y text-sm">{sourcing.invitations.map((invitation) => <div key={invitation.invitationId} className="flex flex-wrap items-center justify-between gap-2 py-2"><span>{invitation.supplierName} · 第 {invitation.invitationRound} 轮{invitation.invitationType === "REVISION" ? "修订" : "邀价"}</span><span className="text-xs text-muted-foreground">{invitation.status} · 截止 {invitation.deadline ? new Date(invitation.deadline).toLocaleString("zh-CN", { hour12: false }) : "未设置"}</span></div>)}</div>}
         </div>
@@ -234,7 +236,9 @@ export function RepairProjectSourcingOperation({
           <div className="lg:col-span-2"><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写工期、税费、主要材料或其他报价边界" /></div>
           <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
         </div>
-        <Button className="mt-3" disabled={busy !== null || !quoteSupplierId || Number(quoteAmount) <= 0 || !quoteFile} onClick={() => void submitQuote()}>录入已核验报价</Button>
+        <div className="mt-4 flex justify-end">
+          <Button disabled={busy !== null || !quoteSupplierId || Number(quoteAmount) <= 0 || !quoteFile} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
+        </div>
       </div>
 
       <div className="border-b py-5">
@@ -249,7 +253,9 @@ export function RepairProjectSourcingOperation({
             <div><Label>要求修订的供应商</Label><div className="mt-1 flex min-h-10 flex-wrap gap-2 border-y py-2">{activeConfirmedQuotes.map((quote) => <label key={quote.supplierDeptId} className="flex items-center gap-2 text-sm"><Checkbox checked={revisionSupplierIds.includes(quote.supplierDeptId)} onCheckedChange={(checked) => setRevisionSupplierIds((current) => checked ? [...new Set([...current, quote.supplierDeptId])] : current.filter((id) => id !== quote.supplierDeptId))} />{quote.supplierName}</label>)}</div></div>
             <div><Label>修订原因</Label><Input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} /></div>
             <div><Label>修订截止</Label><Input type="datetime-local" value={revisionDeadline} onChange={(event) => setRevisionDeadline(event.target.value)} /></div>
-            <Button variant="outline" disabled={busy !== null || revisionSupplierIds.length === 0 || !revisionReason.trim()} onClick={() => void run("quote-revision", () => requestRepairProjectQuoteRevisions(project.projectId, { supplierDeptIds: revisionSupplierIds, deadline: revisionDeadline, revisionReason: revisionReason.trim() }), "报价修订要求已发出").then((successful) => { if (successful) { setRevisionSupplierIds([]); setRevisionReason(""); } })}>要求修订</Button>
+            <div className="flex justify-end md:col-span-3">
+              <Button variant="outline" disabled={busy !== null || revisionSupplierIds.length === 0 || !revisionReason.trim()} onClick={() => void run("quote-revision", () => requestRepairProjectQuoteRevisions(project.projectId, { supplierDeptIds: revisionSupplierIds, deadline: revisionDeadline, revisionReason: revisionReason.trim() }), "报价修订要求已发出").then((successful) => { if (successful) { setRevisionSupplierIds([]); setRevisionReason(""); } })}><RefreshCw className="mr-1 size-4" />要求修订</Button>
+            </div>
           </div>
         )}
       </div>
@@ -260,7 +266,7 @@ export function RepairProjectSourcingOperation({
           <div className="md:col-span-2"><Label>{competitive ? "推荐说明（选填）" : "选择依据"}</Label><Textarea value={recommendationReason} onChange={(event) => setRecommendationReason(event.target.value)} placeholder={competitive ? "可填写施工组织、工期、材料等非价格比较结论" : "说明适用框架、直接委托或紧急指定的依据"} /></div>
           {competitive && activeConfirmedQuotes.length < 3 && <div className="md:col-span-2"><Label>有效报价不足 3 家说明</Label><Textarea value={insufficientQuoteReason} onChange={(event) => setInsufficientQuoteReason(event.target.value)} placeholder="说明未响应、退出或其他客观原因" /></div>}
           {sourcing.selectionMethod === "FRAMEWORK_SUPPLIER" && <div><Label>有效长期合作关系</Label><Select value={frameworkRelationId} onValueChange={setFrameworkRelationId}><SelectTrigger><SelectValue placeholder="选择与中选企业匹配的合作关系" /></SelectTrigger><SelectContent>{relevantFrameworkRelations.map((relation) => <SelectItem key={relation.relationId} value={String(relation.relationId)}>{relation.supplierLegalName}{relation.validUntil ? ` · 至 ${relation.validUntil}` : ""}</SelectItem>)}</SelectContent></Select></div>}
-          <div className="flex items-end justify-end"><Button disabled={busy !== null || !selectedQuote || (competitive && initialInvitationCount < 3) || selectionNeedsReason || selectionNeedsInsufficientReason || selectionNeedsFramework} onClick={() => void run("supplier-selection", () => selectRepairProjectSupplier(project.projectId, { quoteId: Number(selectedQuoteId), recommendationReason: recommendationReason.trim() || undefined, insufficientQuoteReason: insufficientQuoteReason.trim() || undefined, frameworkRelationId: frameworkRelationId ? Number(frameworkRelationId) : undefined }), "中选供应商建议已形成")}><CheckCircle2 className="mr-1 size-4" />确认中选供应商</Button></div>
+          <div className="flex justify-end md:col-span-2"><Button disabled={busy !== null || !selectedQuote || (competitive && initialInvitationCount < 3) || selectionNeedsReason || selectionNeedsInsufficientReason || selectionNeedsFramework} onClick={() => void run("supplier-selection", () => selectRepairProjectSupplier(project.projectId, { quoteId: Number(selectedQuoteId), recommendationReason: recommendationReason.trim() || undefined, insufficientQuoteReason: insufficientQuoteReason.trim() || undefined, frameworkRelationId: frameworkRelationId ? Number(frameworkRelationId) : undefined }), "中选供应商建议已形成")}><CheckCircle2 className="mr-1 size-4" />确认中选供应商</Button></div>
         </div>
       </div>
     </section>
