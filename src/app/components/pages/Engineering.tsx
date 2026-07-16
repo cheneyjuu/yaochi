@@ -137,11 +137,13 @@ export function Engineering() {
   async function loadDetail(projectId: number) {
     setDetailLoading(true);
     try {
-      const [projectDetails, executionDetails, sourcingDetails] = await Promise.all([
+      const [projectDetails, sourcingDetails] = await Promise.all([
         getRepairProject(projectId),
-        getRepairProjectExecution(projectId),
         getRepairProjectSourcing(projectId),
       ]);
+      const executionDetails = projectDetails.project.status === "DRAFT"
+        ? null
+        : await getRepairProjectExecution(projectId);
       setDetails(projectDetails);
       setExecution(executionDetails);
       setSourcing(sourcingDetails);
@@ -247,8 +249,14 @@ export function Engineering() {
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="w-[min(96vw,1080px)] overflow-y-auto sm:max-w-[1080px]">
-          {detailLoading || !details || !execution ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取工程档案</div>
+          {detailLoading || !details ? (
+            <>
+              <SheetHeader className="sr-only">
+                <SheetTitle>正在读取工程档案</SheetTitle>
+                <SheetDescription>请稍候，系统正在读取维修工程项目及供应商邀价记录。</SheetDescription>
+              </SheetHeader>
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取工程档案</div>
+            </>
           ) : (
             <>
               <SheetHeader className="border-b pb-4">
@@ -264,11 +272,15 @@ export function Engineering() {
                 </TabsContent>
 
                 <TabsContent value="execution" className="mt-5">
-                  <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
+                  {execution
+                    ? <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
+                    : <Empty text="方案锁定并生成工程档案后，可在这里查看合同、施工与结算记录" />}
                 </TabsContent>
 
                 <TabsContent value="acceptance" className="mt-5">
-                  <AcceptanceAndPayments execution={execution} />
+                  {execution
+                    ? <AcceptanceAndPayments execution={execution} />
+                    : <Empty text="方案锁定并进入实施阶段后，可在这里查看验收与付款记录" />}
                 </TabsContent>
 
                 <TabsContent value="actions" className="mt-5">

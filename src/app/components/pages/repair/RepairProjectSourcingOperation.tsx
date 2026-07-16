@@ -210,7 +210,13 @@ export function RepairProjectSourcingOperation({
                 </label>
               ))}
             </div>
-          ) : <div className="text-sm text-muted-foreground">当前已核验企业均已邀请。</div>}
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              {verifiedSuppliers.length === 0
+                ? "暂无可邀请的已核验供应商，请先在维修工单中完成供应商准入与主体核验。"
+                : "当前已核验企业均已邀请。"}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="min-w-64"><Label>报价截止时间</Label><Input type="datetime-local" value={inviteDeadline} onChange={(event) => setInviteDeadline(event.target.value)} /></div>
             <Button disabled={busy !== null || inviteSupplierIds.length === 0} onClick={() => void run("project-invite", () => inviteRepairProjectSuppliers(project.projectId, { supplierDeptIds: inviteSupplierIds, deadline: inviteDeadline }), "维修工程邀价已发出").then((successful) => { if (successful) setInviteSupplierIds([]); })}><Send className="mr-1 size-4" />发出邀价</Button>

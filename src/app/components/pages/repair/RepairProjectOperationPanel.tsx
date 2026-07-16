@@ -84,7 +84,7 @@ export function RepairProjectOperationPanel({
   onChanged,
 }: {
   details: RepairProjectDetails;
-  execution: RepairProjectExecutionDetails;
+  execution: RepairProjectExecutionDetails | null;
   suppliers: RepairSupplierOrganization[];
   hasPermission: (permission: string) => boolean;
   onChanged: () => Promise<void>;
@@ -136,6 +136,11 @@ export function RepairProjectOperationPanel({
   }
 
   async function reloadGovernance() {
+    if (project.status !== "GOVERNANCE_IN_PROGRESS") {
+      setBuildingGovernance(null);
+      setAssemblyLink(null);
+      return;
+    }
     if (project.workflowType === "BUILDING_REPAIR") {
       try {
         setBuildingGovernance(await getBuildingRepairGovernance(project.projectId));
@@ -204,7 +209,7 @@ export function RepairProjectOperationPanel({
         )
       )}
 
-      {project.status === "AUTHORIZED" && (
+      {project.status === "AUTHORIZED" && execution && (
         <ContractOperation
           details={details}
           execution={execution}
@@ -227,11 +232,11 @@ export function RepairProjectOperationPanel({
         </OperationSection>
       )}
 
-      {project.status === "IN_PROGRESS" && (
+      {project.status === "IN_PROGRESS" && execution && (
         <ExecutionOperation details={details} execution={execution} remember={remember} busy={busy} run={run} />
       )}
 
-      {project.status === "PENDING_ACCEPTANCE" && (
+      {project.status === "PENDING_ACCEPTANCE" && execution && (
         <AcceptanceOperation
           details={details}
           execution={execution}
@@ -251,7 +256,7 @@ export function RepairProjectOperationPanel({
         <DisclosureOperation details={details} remember={remember} busy={busy} run={run} />
       )}
 
-      {project.status === "WARRANTY" && hasPermission("repair:workorder:manage") && (
+      {project.status === "WARRANTY" && execution && hasPermission("repair:workorder:manage") && (
         <OperationSection title="质保期满归档" desc={`质保期满日：${execution.completionDisclosure?.warrantyEndDate ?? "尚未生成"}。后端会同时校验告示、物业书面报告和质保责任期。`}>
           <Button variant="outline" disabled={busy !== null} onClick={() => void run(
             "archive",
