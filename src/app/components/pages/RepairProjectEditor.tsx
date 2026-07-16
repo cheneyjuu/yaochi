@@ -121,6 +121,36 @@ function emptyItem(index: number): DraftItem {
   };
 }
 
+function firstNonBlank(...values: Array<string | null | undefined>): string {
+  return values.find((value) => value?.trim())?.trim() ?? "";
+}
+
+// 首次关联已勘验报修事项时只补充空白或默认字段，避免覆盖物业已编辑的工程清单。
+function hydrateItemFromSurveyedWorkOrder(item: DraftItem, workOrder: RepairWorkOrder): DraftItem {
+  const planBudget = Number(workOrder.planBudget);
+  const quantity = Number(item.quantity);
+  const canUsePlanBudgetAsUnitPrice = Number.isFinite(planBudget)
+    && planBudget > 0
+    && (!item.estimatedUnitPrice.trim() || Number(item.estimatedUnitPrice) === 0)
+    && (!item.quantity.trim() || quantity === 1)
+    && (!item.unit.trim() || item.unit.trim() === "项");
+
+  return {
+    ...item,
+    locationText: item.locationText.trim()
+      ? item.locationText
+      : firstNonBlank(workOrder.locationText),
+    workContent: item.workContent.trim()
+      ? item.workContent
+      : firstNonBlank(workOrder.surveySummary, workOrder.description, workOrder.title),
+    quantity: item.quantity.trim() || "1",
+    unit: item.unit.trim() || "项",
+    estimatedUnitPrice: canUsePlanBudgetAsUnitPrice
+      ? String(planBudget)
+      : item.estimatedUnitPrice,
+  };
+}
+
 function percentageToRatio(percentage: number): number {
   return Number((percentage / 100).toFixed(6));
 }
@@ -350,13 +380,17 @@ export function RepairProjectEditor() {
     )));
   }
 
-  function toggleLinkedWorkOrder(index: number, workOrderId: number, checked: boolean) {
+  function toggleLinkedWorkOrder(index: number, workOrder: RepairWorkOrder, checked: boolean) {
     setItems((current) => current.map((item, itemIndex) => {
       if (itemIndex !== index) return item;
+      const workOrderId = workOrder.workOrderId;
       const linkedWorkOrderIds = checked
         ? Array.from(new Set([...item.linkedWorkOrderIds, workOrderId]))
         : item.linkedWorkOrderIds.filter((id) => id !== workOrderId);
-      return { ...item, linkedWorkOrderIds };
+      const nextItem = checked && item.linkedWorkOrderIds.length === 0
+        ? hydrateItemFromSurveyedWorkOrder(item, workOrder)
+        : item;
+      return { ...nextItem, linkedWorkOrderIds };
     }));
   }
 
@@ -713,7 +747,7 @@ export function RepairProjectEditor() {
                             <Checkbox
                               className="mt-0.5"
                               checked={item.linkedWorkOrderIds.includes(workOrder.workOrderId)}
-                              onCheckedChange={(checked) => toggleLinkedWorkOrder(index, workOrder.workOrderId, checked === true)}
+                              onCheckedChange={(checked) => toggleLinkedWorkOrder(index, workOrder, checked === true)}
                             />
                             <span className="min-w-0 text-sm">
                               <span className="block truncate font-medium">{workOrder.title}</span>
