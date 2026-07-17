@@ -1,5 +1,5 @@
 // 关联业务：物业在维修工程方案内完成供应商邀价、报价原件核验、横向比价、修订和中选建议。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Building2, CheckCircle2, FileCheck2, FilePlus2, FileText, Loader2, ReceiptText, RefreshCw, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { listRepairFrameworkRelations, type RepairFrameworkRelation, type RepairSupplierOrganization } from "../../../lib/repair";
@@ -73,6 +73,43 @@ function plannedPeriodDays(start?: string, completion?: string): number {
   const completionAt = new Date(`${completion}T00:00:00`).getTime();
   if (!Number.isFinite(startAt) || !Number.isFinite(completionAt)) return 1;
   return Math.max(1, Math.round((completionAt - startAt) / 86_400_000) + 1);
+}
+
+function SourcingStep({
+  step,
+  title,
+  description,
+  status,
+  last = false,
+  children,
+}: {
+  step: number;
+  title: string;
+  description: string;
+  status?: ReactNode;
+  last?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4 pt-6 first:pt-0">
+      <div className="flex flex-col items-center" aria-hidden="true">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground shadow-sm">
+          {step}
+        </span>
+        {!last && <span className="my-2 w-px flex-1 bg-border" />}
+      </div>
+      <div className={last ? "min-w-0" : "min-w-0 border-b pb-6"}>
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h5 className="text-base font-semibold leading-5 text-foreground">{title}</h5>
+            <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">{description}</p>
+          </div>
+          {status && <div className="shrink-0">{status}</div>}
+        </header>
+        <div className="mt-4">{children}</div>
+      </div>
+    </section>
+  );
 }
 
 export function RepairProjectSourcingOperation({
@@ -298,8 +335,8 @@ export function RepairProjectSourcingOperation({
     <section className="border-t py-5 first:border-t-0 first:pt-0">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-semibold">供应商邀价与比价</h4>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">报价原件、修订版本和中选建议均绑定当前方案，锁定后只能查看。</p>
+          <h4 className="text-base font-semibold">供应商邀价与比价</h4>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">按顺序完成邀价、报价响应、比价和定商，所有材料均绑定当前方案。</p>
         </div>
         <div className="flex items-center gap-2">
           <StatusChip tone="info">{METHOD_LABEL[sourcing.selectionMethod]}</StatusChip>
@@ -314,9 +351,14 @@ export function RepairProjectSourcingOperation({
         </div>
       )}
 
-      {competitive && (
-        <div className="border-b pb-5">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-sm font-medium">1. 发出邀价</div><div className="mt-1 text-xs text-muted-foreground">至少邀请 3 家已核验企业；邀请和供应商账号激活是两个独立事实。</div></div><StatusChip tone={initialInvitationCount >= 3 ? "success" : "warning"}>已邀 {initialInvitationCount} 家</StatusChip></div>
+      <div>
+        {competitive && (
+          <SourcingStep
+            step={1}
+            title="发出邀价"
+            description="至少邀请 3 家已核验企业；邀请和供应商账号激活是两个独立事实。"
+            status={<StatusChip tone={initialInvitationCount >= 3 ? "success" : "warning"}>已邀 {initialInvitationCount} 家</StatusChip>}
+          >
           {availableInviteSuppliers.length > 0 ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {availableInviteSuppliers.map((supplier) => (
@@ -344,22 +386,21 @@ export function RepairProjectSourcingOperation({
               <Button disabled={busy !== null || inviteSupplierIds.length === 0} onClick={() => void run("project-invite", () => inviteRepairProjectSuppliers(project.projectId, { supplierDeptIds: inviteSupplierIds, deadline: inviteDeadline }), "维修工程邀价已发出").then((successful) => { if (successful) setInviteSupplierIds([]); })}><Send className="mr-1 size-4" />发出邀价</Button>
             </div>
           </div>
-        </div>
-      )}
+          </SourcingStep>
+        )}
 
-      <div className="border-b py-5">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">{competitive ? "2" : "1"}. 报价响应</div>
-            <div className="mt-1 text-xs text-muted-foreground">供应商在线提交后自动进入有效报价；物业不再重复收集或录入。</div>
-          </div>
-          <StatusChip tone={activeConfirmedSupplierIds.size > 0 ? "success" : "warning"}>
-            {competitive
-              ? `已收 ${activeConfirmedSupplierIds.size} / 已邀 ${initialInvitationCount}`
-              : `有效 ${activeConfirmedSupplierIds.size} 家`}
-          </StatusChip>
-        </div>
-
+        <SourcingStep
+          step={competitive ? 2 : 1}
+          title="报价响应"
+          description="供应商在线提交后自动进入有效报价；物业不再重复收集或录入。"
+          status={(
+            <StatusChip tone={activeConfirmedSupplierIds.size > 0 ? "success" : "warning"}>
+              {competitive
+                ? `已收 ${activeConfirmedSupplierIds.size} / 已邀 ${initialInvitationCount}`
+                : `有效 ${activeConfirmedSupplierIds.size} 家`}
+            </StatusChip>
+          )}
+        >
         {responseRows.length === 0 ? (
           <div className="border-y px-3 py-6 text-center text-sm text-muted-foreground">尚未收到供应商报价响应</div>
         ) : (
@@ -443,10 +484,14 @@ export function RepairProjectSourcingOperation({
             </div>
           </CollapsibleContent>
         </Collapsible>
-      </div>
+        </SourcingStep>
 
-      <div className="border-b py-5">
-        <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-sm font-medium">{competitive ? "3" : "2"}. 比较有效报价</div><div className="mt-1 text-xs text-muted-foreground">历史版本保留只读；只有当前有效且已在线确认或线下核验的报价可以中选。</div></div><StatusChip tone={activeConfirmedQuotes.length >= 3 || !competitive ? "success" : "warning"}>有效 {activeConfirmedQuotes.length} 家</StatusChip></div>
+        <SourcingStep
+          step={competitive ? 3 : 2}
+          title="比较有效报价"
+          description="历史版本保留只读；只有当前有效且已在线确认或线下核验的报价可以中选。"
+          status={<StatusChip tone={activeConfirmedQuotes.length >= 3 || !competitive ? "success" : "warning"}>有效 {activeConfirmedQuotes.length} 家</StatusChip>}
+        >
         {sourcing.quotes.length === 0 ? <div className="py-6 text-center text-sm text-muted-foreground">尚未收到报价</div> : (
           <div className="overflow-x-auto border-y">
             <table className="w-full min-w-[1080px] text-sm">
@@ -469,16 +514,26 @@ export function RepairProjectSourcingOperation({
             </div>
           </div>
         )}
-      </div>
+        </SourcingStep>
 
-      <div className="pt-5">
-        <div className="mb-3"><div className="text-sm font-medium">{competitive ? "4" : "3"}. 确认中选供应商</div><div className="mt-1 text-xs text-muted-foreground">中选结果进入方案快照、业主披露和合同，后续合同不能另选企业或提高金额。</div></div>
+        <SourcingStep
+          step={competitive ? 4 : 3}
+          title="确认中选供应商"
+          description="中选结果进入方案快照、业主披露和合同，后续合同不能另选企业或提高金额。"
+          status={(
+            <StatusChip tone={sourcing.selection ? "success" : selectedQuote ? "info" : "neutral"}>
+              {sourcing.selection ? "已形成建议" : selectedQuote ? "待确认" : "待选择"}
+            </StatusChip>
+          )}
+          last
+        >
         <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2"><Label>{competitive ? "推荐说明（选填）" : "选择依据"}</Label><Textarea value={recommendationReason} onChange={(event) => setRecommendationReason(event.target.value)} placeholder={competitive ? "可填写施工组织、工期、材料等非价格比较结论" : "说明适用框架、直接委托或紧急指定的依据"} /></div>
           {competitive && activeConfirmedQuotes.length < 3 && <div className="md:col-span-2"><Label>有效报价不足 3 家说明</Label><Textarea value={insufficientQuoteReason} onChange={(event) => setInsufficientQuoteReason(event.target.value)} placeholder="说明未响应、退出或其他客观原因" /></div>}
           {sourcing.selectionMethod === "FRAMEWORK_SUPPLIER" && <div><Label>有效长期合作关系</Label><Select value={frameworkRelationId} onValueChange={setFrameworkRelationId}><SelectTrigger><SelectValue placeholder="选择与中选企业匹配的合作关系" /></SelectTrigger><SelectContent>{relevantFrameworkRelations.map((relation) => <SelectItem key={relation.relationId} value={String(relation.relationId)}>{relation.supplierLegalName}{relation.validUntil ? ` · 至 ${relation.validUntil}` : ""}</SelectItem>)}</SelectContent></Select></div>}
           <div className="flex justify-end md:col-span-2"><Button disabled={busy !== null || !selectedQuote || (competitive && initialInvitationCount < 3) || selectionNeedsReason || selectionNeedsInsufficientReason || selectionNeedsFramework} onClick={() => void run("supplier-selection", () => selectRepairProjectSupplier(project.projectId, { quoteId: Number(selectedQuoteId), recommendationReason: recommendationReason.trim() || undefined, insufficientQuoteReason: insufficientQuoteReason.trim() || undefined, frameworkRelationId: frameworkRelationId ? Number(frameworkRelationId) : undefined }), "中选供应商建议已形成")}><CheckCircle2 className="mr-1 size-4" />确认中选供应商</Button></div>
         </div>
+        </SourcingStep>
       </div>
     </section>
   );

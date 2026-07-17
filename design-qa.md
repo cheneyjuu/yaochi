@@ -124,4 +124,23 @@
 - Desktop and mobile layouts reported no horizontal overflow; the dialog remained within the `390 px` viewport.
 - Browser console verification reported zero application errors and zero warnings.
 
+## Repair Quote Step Hierarchy QA
+
+- Final desktop workflow: `/tmp/yaochi-step-hierarchy-desktop.png`
+- Final mobile workflow: `/tmp/yaochi-step-hierarchy-mobile.png`
+- Final mobile lower steps: `/tmp/yaochi-step-hierarchy-mobile-lower.png`
+- Viewports: `1440 x 900` desktop and `390 x 844` mobile
+
+**Findings**
+
+- The four operational stages now share one visual system: a prominent numbered marker, vertical process rail, stronger title, supporting rule, and right-aligned stage status.
+- Content remains unframed and work-focused; section borders and the process rail provide hierarchy without adding nested cards.
+- The page introduction now states the workflow order, while stage titles and descriptions are visually distinct from supplier rows and form labels.
+
+**Interaction And Responsive Checks**
+
+- All existing invite, response, comparison, revision, and selection controls remain in their original business stage.
+- At `390 x 844`, step markers, descriptions, statuses, and controls wrap without horizontal overflow; the dialog width remained within the viewport.
+- Browser console verification reported zero application errors and zero warnings.
+
 final result: passed
