@@ -175,7 +175,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 className="pointer-events-none absolute inset-0 size-full"
                 aria-hidden="true"
               >
-                <g transform="translate(785 620) rotate(15)">
+                <g transform="translate(785 647)">
                   <rect width="210" height="42" rx="3" fill="#1f5fa8" />
                   <text
                     x="105"
