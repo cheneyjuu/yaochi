@@ -258,22 +258,21 @@ body {
   background-image: linear-gradient(135deg, #143c78 0%, #1b4f9c 60%, #3a6fbf 100%);
 }
 
-/* 登录页只让实景照片缓慢漂移，避免动画干扰身份验证。 */
-@keyframes login-photo-drift {
-  from { transform: scale(1.035) translate3d(-0.35%, 0, 0); }
-  to { transform: scale(1.075) translate3d(0.55%, -0.45%, 0); }
+/* 登录页只让社区矢量插画轻微浮动，避免动画干扰身份验证。 */
+@keyframes login-illustration-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -8px, 0); }
 }
 
-.login-photo-motion {
-  animation: login-photo-drift 22s ease-in-out infinite alternate;
-  transform-origin: 56% 48%;
+.login-illustration-motion {
+  animation: login-illustration-float 9s ease-in-out infinite;
   will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-photo-motion {
+  .login-illustration-motion {
     animation: none;
-    transform: scale(1.035);
+    transform: none;
   }
 }
 

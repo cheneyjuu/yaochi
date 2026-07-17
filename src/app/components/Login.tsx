@@ -5,27 +5,25 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
   ArrowRight,
-  BriefcaseBusiness,
   Building2,
   ChevronDown,
   CircleHelp,
   Hash,
   KeyRound,
-  Landmark,
   LoaderCircle,
   ShieldCheck,
   Smartphone,
   UserPlus,
-  UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { activateSupplierAccount } from "../lib/auth";
-import communityImage from "../../assets/community-login.webp";
+import communityIllustration from "../../assets/community-governance.svg";
+import communityRail from "../../assets/community-rail.webp";
 
 const COLLABORATION_AREAS = [
-  { icon: UsersRound, title: "业主自治", desc: "议题、会议与表决" },
-  { icon: BriefcaseBusiness, title: "物业协同", desc: "服务、维修与资金" },
-  { icon: Landmark, title: "属地监管", desc: "辖区、流程与留痕" },
+  "业主自治",
+  "物业协同",
+  "属地监管",
 ];
 
 const SEED_ACCOUNTS = [
@@ -44,7 +42,7 @@ const SEED_ACCOUNTS = [
 
 const FIELD_GROUP_CLASS = "space-y-2";
 const FIELD_LABEL_CLASS = "block text-[13px] font-medium leading-5 text-foreground";
-const FIELD_INPUT_CLASS = "h-12 rounded-md border-border bg-white pl-10 text-[14px] shadow-none transition-colors placeholder:text-[var(--gov-placeholder)] hover:border-primary/40 focus-visible:border-primary focus-visible:ring-primary/15";
+const FIELD_INPUT_CLASS = "h-14 rounded-md border-[#d8e0ec] bg-white pl-11 text-[14px] shadow-none transition-colors placeholder:text-[var(--gov-placeholder)] hover:border-primary/40 focus-visible:border-primary focus-visible:ring-primary/15";
 
 function BrandMark({ inverse = false }: { inverse?: boolean }) {
   return (
@@ -57,6 +55,28 @@ function BrandMark({ inverse = false }: { inverse?: boolean }) {
         <div className={`mt-0.5 text-[11px] leading-4 ${inverse ? "text-white/70" : "text-[#6f7d78]"}`}>社区治理工作台</div>
       </div>
     </div>
+  );
+}
+
+function BrandRail() {
+  return (
+    <aside className="relative hidden min-h-[100dvh] overflow-hidden bg-[#0f4b99] lg:flex" aria-label="盘古品牌标识">
+      <img
+        src={communityRail}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 size-full object-cover opacity-50"
+      />
+      <div className="relative z-10 flex w-full flex-col items-center py-12 text-white">
+        <div className="relative grid size-12 place-items-center text-[26px] font-semibold">
+          <span className="absolute -left-1 h-10 w-1 bg-[#e88932]" aria-hidden="true" />
+          盘
+        </div>
+        <div className="mt-auto pb-6 text-[12px] font-medium leading-none text-white/88 [writing-mode:vertical-rl]">
+          盘古社区治理
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -112,54 +132,49 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
   };
 
   return (
-    <div className="h-[100dvh] w-full overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,0.92fr)]">
-      <aside className="relative hidden min-h-[100dvh] overflow-hidden lg:flex" aria-label="盘古社区治理平台简介">
-        <img
-          src={communityImage}
-          alt=""
-          aria-hidden="true"
-          className="login-photo-motion absolute inset-0 size-full object-cover object-center"
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,29,58,0.18)_0%,rgba(9,31,64,0.3)_42%,rgba(8,27,57,0.94)_100%)]" />
+    <div className="h-[100dvh] w-full overflow-y-auto bg-white lg:grid lg:grid-cols-[96px_minmax(600px,1.08fr)_minmax(460px,0.92fr)]">
+      <BrandRail />
 
-        <div className="relative z-10 flex w-full flex-col p-10 text-white xl:p-14 2xl:p-16">
-          <BrandMark inverse />
+      <aside className="hidden min-h-[100dvh] overflow-hidden border-r border-[#dce3ed] bg-white lg:flex" aria-label="盘古社区治理平台简介">
+        <div className="flex w-full flex-col px-12 pb-8 pt-[clamp(72px,16vh,176px)] xl:px-20 xl:pb-10 2xl:px-24">
+          <div className="flex items-center gap-4 text-[#5d6b82]">
+            <span className="text-[24px] font-semibold text-[#101827]">盘古</span>
+            <span className="h-6 w-px bg-[#9aa8ba]" aria-hidden="true" />
+            <span className="text-[16px]">社区治理工作台</span>
+          </div>
 
-          <div className="mt-auto max-w-[640px]">
-            <div className="mb-4 flex items-center gap-3 text-[13px] text-white/78">
-              <span className="h-px w-9 bg-[#e7a666]" />
-              多方协同的社区事务工作区
-            </div>
-            <h1 className="max-w-[620px] text-[42px] font-semibold leading-[1.16] text-white xl:text-[50px]">
+          <div className="mt-8 xl:mt-10">
+            <h1 className="text-[40px] font-semibold leading-[1.18] text-[#101827] xl:text-[46px]">
               盘古社区治理平台
             </h1>
-            <p className="mt-5 max-w-[560px] text-[16px] leading-7 text-white/80">
-              让业主自治、物业服务与属地监管，在统一身份、清晰权限和可追溯流程中协同。
+            <p className="mt-4 max-w-[620px] text-[15px] leading-7 text-[#526178]">
+              让社区事务在统一身份、清晰权限和可追溯流程中协同。
             </p>
 
-            <div className="mt-10 grid grid-cols-3 border-y border-white/25 py-5">
-              {COLLABORATION_AREAS.map((area, index) => {
-                const Icon = area.icon;
-                return (
-                  <div key={area.title} className={`min-w-0 px-5 first:pl-0 ${index > 0 ? "border-l border-white/20" : ""}`}>
-                    <Icon className="mb-3 size-5 text-[#f0b273]" strokeWidth={1.8} />
-                    <div className="text-[14px] font-medium text-white">{area.title}</div>
-                    <div className="mt-1 text-[12px] leading-5 text-white/62">{area.desc}</div>
-                  </div>
-                );
-              })}
+            <div className="mt-7 flex max-w-[590px] items-center text-[15px] text-[#4a5970]">
+              {COLLABORATION_AREAS.map((area, index) => (
+                <div
+                  key={area}
+                  className={`flex-1 text-center first:text-left last:text-right ${index > 0 ? "border-l border-[#d5deea]" : ""}`}
+                >
+                  {area}
+                </div>
+              ))}
             </div>
+          </div>
 
-            <div className="mt-6 flex items-center gap-2 text-[12px] text-white/58">
-              <ShieldCheck className="size-4" />
-              多租户工作区，访问范围由当前登录身份确定
-            </div>
+          <div className="-mx-8 flex min-h-[360px] flex-1 items-start justify-center pt-24 xl:-mx-14 xl:min-h-[430px]">
+            <img
+              src={communityIllustration}
+              alt="现代社区住宅、服务中心与公共空间的等距插画"
+              className="login-illustration-motion h-auto w-full max-w-[820px] object-contain"
+            />
           </div>
         </div>
       </aside>
 
-      <main className="flex min-h-[100dvh] flex-col bg-background">
-        <header className="flex min-h-20 items-center justify-between px-5 sm:px-10 lg:px-12 xl:px-16">
+      <main className="flex min-h-[100dvh] flex-col bg-white">
+        <header className="flex min-h-20 items-center justify-between px-5 sm:px-10 lg:min-h-24 lg:px-12 xl:px-16">
           <div className="lg:hidden">
             <BrandMark />
           </div>
@@ -173,14 +188,14 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
           </button>
         </header>
 
-        <div className="flex flex-1 items-center px-5 py-8 sm:px-10 lg:px-12 xl:px-16">
-          <section className="mx-auto w-full max-w-[420px] py-4" aria-labelledby="login-title">
+        <div className="flex flex-1 items-center px-5 py-8 sm:px-10 lg:items-start lg:px-12 lg:pt-20 xl:px-16 xl:pt-24">
+          <section className="mx-auto w-full max-w-[520px] py-4" aria-labelledby="login-title">
             <div className="mb-7">
               <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
-                <span className="size-2 rounded-full bg-[#d9793d]" />
+                <span className="size-2 rounded-full bg-[#e88932]" />
                 身份验证
               </div>
-              <h2 id="login-title" className="text-[30px] font-semibold leading-[1.25] text-foreground">
+              <h2 id="login-title" className="text-[30px] font-semibold leading-[1.25] text-foreground sm:text-[34px]">
                 {view === "login" ? "欢迎回来" : "激活供应商账号"}
               </h2>
               <p className="mt-2 text-[14px] leading-6 text-muted-foreground">
@@ -195,7 +210,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 type="button"
                 role="tab"
                 aria-selected={view === "login"}
-                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "login" ? "bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
+                className={`h-11 rounded-[5px] text-[13px] font-medium transition-colors ${view === "login" ? "border border-primary bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setView("login")}
               >
                 工作身份登录
@@ -204,7 +219,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 type="button"
                 role="tab"
                 aria-selected={view === "activation"}
-                className={`h-10 rounded-[5px] text-[13px] font-medium transition-colors ${view === "activation" ? "bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
+                className={`h-11 rounded-[5px] text-[13px] font-medium transition-colors ${view === "activation" ? "border border-primary bg-white text-primary shadow-[0_1px_3px_rgba(20,60,120,0.12)]" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setView("activation")}
               >
                 供应商激活
@@ -295,7 +310,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
 
               <Button
                 type="submit"
-                className="h-12 w-full rounded-md bg-primary text-[14px] text-white shadow-none hover:bg-[var(--gov-primary-dark)] focus-visible:ring-primary/25"
+                className="h-14 w-full rounded-md bg-primary text-[14px] text-white shadow-none hover:bg-[var(--gov-primary-dark)] focus-visible:ring-primary/25"
                 disabled={loading}
                 aria-busy={loading}
               >
@@ -315,7 +330,7 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
               <Button
                 type="button"
                 variant="outline"
-                className="h-11 w-full rounded-md border-border bg-transparent text-[13px] text-foreground shadow-none hover:bg-accent"
+                className="h-[52px] w-full rounded-md border-primary bg-transparent text-[13px] text-primary shadow-none hover:bg-accent"
                 onClick={onCommunityRegistration}
               >
                 <Building2 className="mr-2 size-4" />
