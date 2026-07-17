@@ -104,4 +104,24 @@
 - Engineering ledger was checked at `390 x 844` with no horizontal overflow, overlap, clipping, or inaccessible controls.
 - Browser console verification reported zero application errors and zero warnings.
 
+## Repair Quote Response QA
+
+- Final desktop workflow: `/tmp/yaochi-quote-response-desktop.png`
+- Expanded offline fallback: `/tmp/yaochi-quote-response-manual.png`
+- Final mobile workflow: `/tmp/yaochi-quote-response-mobile.png`
+- Viewports: `1440 x 900` desktop and `390 x 844` mobile
+
+**Findings**
+
+- Supplier online submissions now appear directly in the response list instead of creating a second property-side collection task.
+- Response states use explicit Chinese labels for pending, online-submitted, and property-entered quotes.
+- Offline quote entry is a collapsed fallback for paper, WeChat, or email evidence, and suppliers with an active quote are excluded to prevent duplicate entry.
+- The four-step workflow remains visible and ordered: invite, response, comparison, and supplier selection.
+
+**Interaction And Responsive Checks**
+
+- The offline-entry fallback expands and collapses without changing the surrounding workflow state.
+- Desktop and mobile layouts reported no horizontal overflow; the dialog remained within the `390 px` viewport.
+- Browser console verification reported zero application errors and zero warnings.
+
 final result: passed

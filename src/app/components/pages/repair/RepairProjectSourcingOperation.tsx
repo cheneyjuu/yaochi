@@ -1,6 +1,6 @@
 // 关联业务：物业在维修工程方案内完成供应商邀价、报价原件核验、横向比价、修订和中选建议。
 import { useEffect, useMemo, useState } from "react";
-import { Building2, CheckCircle2, FileCheck2, FileText, Loader2, ReceiptText, RefreshCw, Send, X } from "lucide-react";
+import { Building2, CheckCircle2, FileCheck2, FilePlus2, FileText, Loader2, ReceiptText, RefreshCw, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { listRepairFrameworkRelations, type RepairFrameworkRelation, type RepairSupplierOrganization } from "../../../lib/repair";
 import {
@@ -11,12 +11,14 @@ import {
   submitPropertyRepairProjectQuote,
   type RepairProjectAttachment,
   type RepairProjectDetails,
+  type RepairProjectQuoteInvitation,
   type RepairProjectSourcingDetails,
   type RepairProjectSupplierQuote,
 } from "../../../lib/repair-project";
-import { StatusChip } from "../../gov/common";
+import { StatusChip, type Tone } from "../../gov/common";
 import { Button } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
@@ -44,6 +46,14 @@ const SOURCE_LABEL: Record<RepairProjectSupplierQuote["submissionSource"], strin
   PROPERTY_ENTRY: "物业核验原件后录入",
 };
 
+const INVITATION_STATUS_META: Record<RepairProjectQuoteInvitation["status"], { label: string; tone: Tone }> = {
+  PENDING: { label: "等待报价", tone: "warning" },
+  SUBMITTED: { label: "已提交", tone: "success" },
+  DECLINED: { label: "已拒绝", tone: "neutral" },
+  EXPIRED: { label: "已逾期", tone: "warning" },
+  CANCELLED: { label: "已取消", tone: "neutral" },
+};
+
 function localDateTimeAfter(days: number): string {
   const date = new Date(Date.now() + days * 86_400_000 - new Date().getTimezoneOffset() * 60_000);
   return date.toISOString().slice(0, 16);
@@ -51,6 +61,10 @@ function localDateTimeAfter(days: number): string {
 
 function money(value: number): string {
   return `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+}
+
+function formatDateTime(value?: string | null): string {
+  return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "未设置";
 }
 
 function plannedPeriodDays(start?: string, completion?: string): number {
@@ -101,6 +115,7 @@ export function RepairProjectSourcingOperation({
   const [frameworkRelationId, setFrameworkRelationId] = useState("");
   const [frameworkRelations, setFrameworkRelations] = useState<RepairFrameworkRelation[]>([]);
   const [detailQuoteId, setDetailQuoteId] = useState<number | null>(null);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
 
   const verifiedSuppliers = useMemo(
     () => suppliers.filter((supplier) => supplier.verificationStatus === "VERIFIED"),
@@ -110,12 +125,56 @@ export function RepairProjectSourcingOperation({
     () => new Set(sourcing?.invitations.map((item) => item.supplierDeptId) ?? []),
     [sourcing?.invitations],
   );
-  const quoteSuppliers = sourcing?.selectionMethod === "COMPETITIVE_QUOTATION"
-    ? verifiedSuppliers.filter((supplier) => invitedSupplierIds.has(supplier.supplierDeptId))
-    : verifiedSuppliers;
-  const activeConfirmedQuotes = (sourcing?.quotes ?? []).filter((quote) =>
-    quote.quoteStatus === "ACTIVE"
-    && ["ONLINE_CONFIRMED", "OFFLINE_EVIDENCE_VERIFIED", "CONTRACT_CONFIRMED"].includes(quote.confirmationStatus));
+  const quoteSuppliers = useMemo(
+    () => sourcing?.selectionMethod === "COMPETITIVE_QUOTATION"
+      ? verifiedSuppliers.filter((supplier) => invitedSupplierIds.has(supplier.supplierDeptId))
+      : verifiedSuppliers,
+    [invitedSupplierIds, sourcing?.selectionMethod, verifiedSuppliers],
+  );
+  const activeQuotes = useMemo(
+    () => (sourcing?.quotes ?? []).filter((quote) => quote.quoteStatus === "ACTIVE"),
+    [sourcing?.quotes],
+  );
+  const activeConfirmedQuotes = useMemo(
+    () => activeQuotes.filter((quote) =>
+      ["ONLINE_CONFIRMED", "OFFLINE_EVIDENCE_VERIFIED", "CONTRACT_CONFIRMED"].includes(quote.confirmationStatus)),
+    [activeQuotes],
+  );
+  const activeConfirmedSupplierIds = useMemo(
+    () => new Set(activeConfirmedQuotes.map((quote) => quote.supplierDeptId)),
+    [activeConfirmedQuotes],
+  );
+  const activeQuoteSupplierIds = useMemo(
+    () => new Set(activeQuotes.map((quote) => quote.supplierDeptId)),
+    [activeQuotes],
+  );
+  const manualEntrySuppliers = useMemo(
+    () => quoteSuppliers.filter((supplier) => !activeQuoteSupplierIds.has(supplier.supplierDeptId)),
+    [activeQuoteSupplierIds, quoteSuppliers],
+  );
+  const responseRows = useMemo(() => {
+    const rows = new Map<number, {
+      supplierDeptId: number;
+      supplierName: string;
+      invitation?: RepairProjectQuoteInvitation;
+      quote?: RepairProjectSupplierQuote;
+    }>();
+    const currentInvitations = [...(sourcing?.invitations ?? [])]
+      .filter((invitation) => invitation.status !== "CANCELLED")
+      .sort((left, right) => left.invitationRound - right.invitationRound);
+    currentInvitations.forEach((invitation) => rows.set(invitation.supplierDeptId, {
+      supplierDeptId: invitation.supplierDeptId,
+      supplierName: invitation.supplierName,
+      invitation,
+    }));
+    activeQuotes.forEach((quote) => rows.set(quote.supplierDeptId, {
+      ...rows.get(quote.supplierDeptId),
+      supplierDeptId: quote.supplierDeptId,
+      supplierName: quote.supplierName,
+      quote,
+    }));
+    return [...rows.values()];
+  }, [activeQuotes, sourcing?.invitations]);
   const selectedQuote = activeConfirmedQuotes.find((quote) => String(quote.quoteId) === selectedQuoteId);
   const initialInvitationCount = new Set((sourcing?.invitations ?? [])
     .filter((item) => item.invitationType === "INITIAL" && item.status !== "CANCELLED")
@@ -148,9 +207,10 @@ export function RepairProjectSourcingOperation({
   }, [sourcing?.planId, sourcing?.selection?.selectionId]);
 
   useEffect(() => {
-    if (quoteSuppliers.some((supplier) => String(supplier.supplierDeptId) === quoteSupplierId)) return;
-    setQuoteSupplierId(quoteSuppliers[0] ? String(quoteSuppliers[0].supplierDeptId) : "");
-  }, [sourcing?.planId, quoteSuppliers.length]);
+    if (manualEntrySuppliers.some((supplier) => String(supplier.supplierDeptId) === quoteSupplierId)) return;
+    setQuoteSupplierId(manualEntrySuppliers[0] ? String(manualEntrySuppliers[0].supplierDeptId) : "");
+    if (manualEntrySuppliers.length === 0) setManualEntryOpen(false);
+  }, [manualEntrySuppliers, quoteSupplierId]);
 
   useEffect(() => {
     if (sourcing?.selectionMethod !== "FRAMEWORK_SUPPLIER") {
@@ -172,6 +232,7 @@ export function RepairProjectSourcingOperation({
     setQuoteWarrantyDays(String(currentPlan?.warrantyDays ?? 0));
     setQuoteOriginalAmountConfirmed(false);
     setDetailQuoteId(null);
+    setManualEntryOpen(false);
   }, [sourcing?.planId]);
 
   if (!sourcing) {
@@ -221,6 +282,7 @@ export function RepairProjectSourcingOperation({
     setQuoteOriginalAmountConfirmed(false);
     setQuoteSummary("");
     setQuoteFile(null);
+    setManualEntryOpen(false);
   }
 
   async function openQuote(quote: RepairProjectSupplierQuote) {
@@ -282,31 +344,105 @@ export function RepairProjectSourcingOperation({
               <Button disabled={busy !== null || inviteSupplierIds.length === 0} onClick={() => void run("project-invite", () => inviteRepairProjectSuppliers(project.projectId, { supplierDeptIds: inviteSupplierIds, deadline: inviteDeadline }), "维修工程邀价已发出").then((successful) => { if (successful) setInviteSupplierIds([]); })}><Send className="mr-1 size-4" />发出邀价</Button>
             </div>
           </div>
-          {sourcing.invitations.length > 0 && <div className="mt-4 divide-y border-y text-sm">{sourcing.invitations.map((invitation) => <div key={invitation.invitationId} className="flex flex-wrap items-center justify-between gap-2 py-2"><span>{invitation.supplierName} · 第 {invitation.invitationRound} 轮{invitation.invitationType === "REVISION" ? "修订" : "邀价"}</span><span className="text-xs text-muted-foreground">{invitation.status} · 截止 {invitation.deadline ? new Date(invitation.deadline).toLocaleString("zh-CN", { hour12: false }) : "未设置"}</span></div>)}</div>}
         </div>
       )}
 
       <div className="border-b py-5">
-        <div className="mb-3"><div className="text-sm font-medium">{competitive ? "2" : "1"}. 收集报价原件</div><div className="mt-1 text-xs text-muted-foreground">供应商可在线提交；物业仅在核验纸质、微信或邮件原件后代录，不填写内部估算替代供应商报价。</div></div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div><Label>供应商</Label><Select value={quoteSupplierId} onValueChange={setQuoteSupplierId}><SelectTrigger><SelectValue placeholder={competitive ? "先邀请供应商" : "选择已核验供应商"} /></SelectTrigger><SelectContent>{quoteSuppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>原件来源</Label><Select value={quoteSource} onValueChange={setQuoteSource}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER">纸质报价</SelectItem><SelectItem value="WECHAT">微信送达</SelectItem><SelectItem value="EMAIL">电子邮件</SelectItem><SelectItem value="OTHER">其他可核验来源</SelectItem></SelectContent></Select></div>
-          <div><Label>施工工期（天）</Label><Input type="number" min="1" max="3650" step="1" value={quoteConstructionPeriodDays} onChange={(event) => setQuoteConstructionPeriodDays(event.target.value)} /></div>
-          <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={quoteWarrantyDays} onChange={(event) => setQuoteWarrantyDays(event.target.value)} /></div>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">{competitive ? "2" : "1"}. 报价响应</div>
+            <div className="mt-1 text-xs text-muted-foreground">供应商在线提交后自动进入有效报价；物业不再重复收集或录入。</div>
+          </div>
+          <StatusChip tone={activeConfirmedSupplierIds.size > 0 ? "success" : "warning"}>
+            {competitive
+              ? `已收 ${activeConfirmedSupplierIds.size} / 已邀 ${initialInvitationCount}`
+              : `有效 ${activeConfirmedSupplierIds.size} 家`}
+          </StatusChip>
         </div>
-        <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between gap-3"><Label>报价明细</Label><span className="text-sm font-semibold tabular-nums">含税总额 {money(quoteTotal)}</span></div>
-          <RepairProjectQuoteEditor items={details.currentPlanItems} lines={quoteLines} taxRate={quoteTaxRate} onChange={setQuoteLines} onTaxRateChange={setQuoteTaxRate} />
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写材料、施工组织或其他报价边界" /></div>
-          <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
-        </div>
-        <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与供应商报价原件一致。</span></label>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className={`text-sm ${quoteDraftError || !quotePeriodValid || !quoteWarrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{quoteDraftError ?? (!quotePeriodValid ? "施工工期应为 1 至 3650 天" : !quoteWarrantyValid ? "质保期应为 0 至 3650 天" : `待录入含税总额 ${money(quoteTotal)}`)}</div>
-          <Button disabled={busy !== null || !quoteSupplierId || Boolean(quoteDraftError) || !quotePeriodValid || !quoteWarrantyValid || !quoteFile || !quoteOriginalAmountConfirmed} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
-        </div>
+
+        {responseRows.length === 0 ? (
+          <div className="border-y px-3 py-6 text-center text-sm text-muted-foreground">尚未收到供应商报价响应</div>
+        ) : (
+          <div className="divide-y border-y">
+            {responseRows.map((response) => {
+              const responseMeta = response.quote
+                ? response.quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION"
+                  ? { label: "待供应商确认", tone: "warning" as Tone }
+                  : {
+                      label: response.quote.submissionSource === "SUPPLIER_ONLINE" ? "已在线提交" : "物业已代录",
+                      tone: "success" as Tone,
+                    }
+                : response.invitation
+                  ? INVITATION_STATUS_META[response.invitation.status]
+                  : { label: "待处理", tone: "neutral" as Tone };
+              return (
+                <div key={response.supplierDeptId} className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{response.supplierName}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {response.quote
+                        ? `${SOURCE_LABEL[response.quote.submissionSource]} · 第 ${response.quote.revisionNo} 版`
+                        : `${response.invitation?.invitationType === "REVISION" ? "修订" : "邀价"}第 ${response.invitation?.invitationRound ?? 1} 轮 · 截止 ${formatDateTime(response.invitation?.deadline)}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 sm:justify-end">
+                    <StatusChip tone={responseMeta.tone}>{responseMeta.label}</StatusChip>
+                    {response.quote && <span className="text-sm font-semibold tabular-nums">{money(response.quote.quoteAmount)}</span>}
+                  </div>
+                  <div className="flex justify-end">
+                    {response.quote ? (
+                      <Button size="sm" variant="ghost" onClick={() => void openQuote(response.quote!)}><FileText className="mr-1 size-4" />查看原件</Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">等待供应商提交</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Collapsible open={manualEntryOpen} onOpenChange={setManualEntryOpen}>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <div>
+              <div className="text-sm font-medium">线下报价代录</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {manualEntrySuppliers.length === 0 && quoteSuppliers.length > 0
+                  ? "当前供应商均已有报价记录，无需重复代录。"
+                  : "仅在收到纸质、微信或邮件报价，且供应商未在线提交时使用。"}
+              </div>
+            </div>
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="outline" disabled={manualEntrySuppliers.length === 0}>
+                <FilePlus2 className="mr-1 size-4" />{manualEntryOpen ? "收起代录" : "代录线下报价"}
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+
+          <CollapsibleContent>
+            <div className="mt-4 border-y bg-muted/20 px-3 py-4">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div><Label>供应商</Label><Select value={quoteSupplierId} onValueChange={setQuoteSupplierId}><SelectTrigger><SelectValue placeholder={competitive ? "先邀请供应商" : "选择已核验供应商"} /></SelectTrigger><SelectContent>{manualEntrySuppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
+                <div><Label>原件来源</Label><Select value={quoteSource} onValueChange={setQuoteSource}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER">纸质报价</SelectItem><SelectItem value="WECHAT">微信送达</SelectItem><SelectItem value="EMAIL">电子邮件</SelectItem><SelectItem value="OTHER">其他可核验来源</SelectItem></SelectContent></Select></div>
+                <div><Label>施工工期（天）</Label><Input type="number" min="1" max="3650" step="1" value={quoteConstructionPeriodDays} onChange={(event) => setQuoteConstructionPeriodDays(event.target.value)} /></div>
+                <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={quoteWarrantyDays} onChange={(event) => setQuoteWarrantyDays(event.target.value)} /></div>
+              </div>
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between gap-3"><Label>报价明细</Label><span className="text-sm font-semibold tabular-nums">含税总额 {money(quoteTotal)}</span></div>
+                <RepairProjectQuoteEditor items={details.currentPlanItems} lines={quoteLines} taxRate={quoteTaxRate} onChange={setQuoteLines} onTaxRateChange={setQuoteTaxRate} />
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写材料、施工组织或其他报价边界" /></div>
+                <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
+              </div>
+              <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与供应商报价原件一致。</span></label>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className={`text-sm ${quoteDraftError || !quotePeriodValid || !quoteWarrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{quoteDraftError ?? (!quotePeriodValid ? "施工工期应为 1 至 3650 天" : !quoteWarrantyValid ? "质保期应为 0 至 3650 天" : `待录入含税总额 ${money(quoteTotal)}`)}</div>
+                <Button disabled={busy !== null || !quoteSupplierId || Boolean(quoteDraftError) || !quotePeriodValid || !quoteWarrantyValid || !quoteFile || !quoteOriginalAmountConfirmed} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       <div className="border-b py-5">
