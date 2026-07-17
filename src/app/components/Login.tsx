@@ -175,8 +175,8 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 className="pointer-events-none absolute inset-0 size-full"
                 aria-hidden="true"
               >
-                {/* 门头与服务中心正立面的斜率一致，并以主入口中线为中心。 */}
-                <g transform="matrix(1 0.36 0 0.82 654 573)">
+                {/* 小尺寸下保留轻微透视，并以主入口中线为中心，避免门头过度倾斜。 */}
+                <g transform="matrix(1 0.08 0 0.92 654 596)">
                   <rect width="182" height="42" rx="2" fill="#1f5fa8" />
                   <text
                     x="91"
