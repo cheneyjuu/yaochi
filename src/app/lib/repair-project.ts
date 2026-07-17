@@ -30,6 +30,13 @@ export type RepairProjectSupplierSelectionMethod =
   | "DIRECT_AWARD"
   | "EMERGENCY_APPOINTMENT";
 
+export type RepairProjectQuoteLineType =
+  | "MATERIAL_EQUIPMENT"
+  | "LABOR_SERVICE"
+  | "CONSTRUCTION_MEASURE"
+  | "TRANSPORT_CLEANUP"
+  | "OTHER";
+
 export interface RepairProject {
   projectId: number;
   projectNo: string;
@@ -127,25 +134,29 @@ export interface RepairProjectQuoteLine {
   projectItemNo: string;
   lineNo: number;
   itemName: string;
+  lineType: RepairProjectQuoteLineType;
+  workDescription?: string | null;
   specificationModel?: string | null;
   brand?: string | null;
+  procurementMethod?: string | null;
   quantity: number;
   unit: string;
-  taxIncludedUnitPrice: number;
-  taxRate: number;
-  taxIncludedAmount: number;
+  unitPriceExcludingTax: number;
+  amountExcludingTax: number;
   remark?: string | null;
 }
 
 export interface RepairProjectQuoteLineInput {
   projectItemId: number;
   itemName: string;
+  lineType: RepairProjectQuoteLineType;
+  workDescription?: string;
   specificationModel?: string;
   brand?: string;
+  procurementMethod?: string;
   quantity: number;
   unit: string;
-  taxIncludedUnitPrice: number;
-  taxRate: number;
+  unitPriceExcludingTax: number;
   remark?: string;
 }
 
@@ -155,6 +166,9 @@ export interface RepairProjectSupplierQuote {
   planId: number;
   supplierDeptId: number;
   supplierName: string;
+  amountExcludingTax: number;
+  taxRate: number;
+  taxAmount: number;
   quoteAmount: number;
   quoteSummary?: string | null;
   attachmentId: number;
@@ -605,6 +619,7 @@ export function submitPropertyRepairProjectQuote(
     supplierDeptId: number;
     invitationId?: number;
     quoteAmount: number;
+    taxRate: number;
     quoteSummary?: string;
     attachmentId: number;
     confirmationStatus: "PENDING_SUPPLIER_CONFIRMATION" | "OFFLINE_EVIDENCE_VERIFIED";
@@ -639,6 +654,7 @@ export function submitSupplierRepairProjectQuote(
   input: {
     invitationId: number;
     quoteAmount: number;
+    taxRate: number;
     quoteSummary?: string;
     attachmentId: number;
     constructionPeriodDays: number;

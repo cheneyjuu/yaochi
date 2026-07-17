@@ -37,6 +37,7 @@ export function SupplierProjectQuoteWorkbench() {
   const [opportunities, setOpportunities] = useState<RepairSupplierQuoteOpportunity[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [lines, setLines] = useState<RepairQuoteLineDraft[]>([]);
+  const [taxRate, setTaxRate] = useState("9");
   const [constructionPeriodDays, setConstructionPeriodDays] = useState("");
   const [warrantyDays, setWarrantyDays] = useState("");
   const [summary, setSummary] = useState("");
@@ -68,11 +69,13 @@ export function SupplierProjectQuoteWorkbench() {
   useEffect(() => {
     if (!selected) {
       setLines([]);
+      setTaxRate("9");
       setConstructionPeriodDays("");
       setWarrantyDays("");
       return;
     }
     setLines(createRepairQuoteDraftLines(selected.items));
+    setTaxRate("9");
     setConstructionPeriodDays(String(plannedPeriodDays(selected.plannedStartDate, selected.plannedCompletionDate)));
     setWarrantyDays(String(selected.warrantyDays ?? 0));
     setSummary("");
@@ -81,10 +84,10 @@ export function SupplierProjectQuoteWorkbench() {
   }, [selectedId, selected?.planId]);
 
   const draftError = useMemo(
-    () => selected ? validateRepairQuoteDraft(lines, selected.items) : "请选择工程邀价",
-    [lines, selected],
+    () => selected ? validateRepairQuoteDraft(lines, selected.items, taxRate) : "请选择工程邀价",
+    [lines, selected, taxRate],
   );
-  const total = useMemo(() => calculateRepairQuoteTotal(lines), [lines]);
+  const total = useMemo(() => calculateRepairQuoteTotal(lines, taxRate), [lines, taxRate]);
   const periodValid = constructionPeriodDays.trim() !== "" && Number.isInteger(Number(constructionPeriodDays))
     && Number(constructionPeriodDays) > 0
     && Number(constructionPeriodDays) <= 3650;
@@ -100,6 +103,7 @@ export function SupplierProjectQuoteWorkbench() {
       await submitSupplierRepairProjectQuote(selected.projectId, {
         invitationId: selected.invitation.invitationId,
         quoteAmount: total,
+        taxRate: Number(taxRate),
         quoteSummary: summary.trim() || undefined,
         attachmentId: attachment.attachmentId,
         constructionPeriodDays: Number(constructionPeriodDays),
@@ -154,12 +158,12 @@ export function SupplierProjectQuoteWorkbench() {
                   <div><Label>施工工期（天）</Label><Input type="number" min="1" max="3650" step="1" value={constructionPeriodDays} onChange={(event) => setConstructionPeriodDays(event.target.value)} /></div>
                   <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={warrantyDays} onChange={(event) => setWarrantyDays(event.target.value)} /></div>
                 </div>
-                <div><div className="mb-2 text-sm font-medium">报价明细</div><RepairProjectQuoteEditor items={selected.items} lines={lines} onChange={setLines} /></div>
+                <div><div className="mb-2 text-sm font-medium">报价明细</div><RepairProjectQuoteEditor items={selected.items} lines={lines} taxRate={taxRate} onChange={setLines} onTaxRateChange={setTaxRate} /></div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <RepairProjectFileUpload projectId={selected.projectId} label="盖章报价原件" value={attachment} onUploaded={setAttachment} />
                   <div><Label>报价说明</Label><Textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="填写工期、税费、主要材料及报价边界" /></div>
                 </div>
-                <label className="flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={originalAmountConfirmed} onCheckedChange={(checked) => setOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细含税合计与上传的盖章报价原件总额一致。</span></label>
+                <label className="flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={originalAmountConfirmed} onCheckedChange={(checked) => setOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与上传的盖章报价原件一致。</span></label>
                 <div className="flex flex-wrap items-center justify-between gap-3"><div className={`text-sm ${draftError || !periodValid || !warrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{draftError ?? (!periodValid ? "施工工期应为 1 至 3650 天" : !warrantyValid ? "质保期应为 0 至 3650 天" : `待提交含税总额 ¥${total.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`)}</div><Button disabled={submitting || Boolean(draftError) || !periodValid || !warrantyValid || !attachment || !originalAmountConfirmed} onClick={() => void submitQuote()}>{submitting ? <Loader2 className="mr-1 size-4 animate-spin" /> : <FileCheck2 className="mr-1 size-4" />}提交并确认报价</Button></div>
               </div>
             ) : <div className="py-5 text-center text-sm text-muted-foreground">本轮报价已提交，等待物业比价；如需修订，物业会发出新的修订轮次。</div>}

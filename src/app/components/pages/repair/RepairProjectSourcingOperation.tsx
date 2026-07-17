@@ -85,6 +85,7 @@ export function RepairProjectSourcingOperation({
   const [inviteDeadline, setInviteDeadline] = useState(localDateTimeAfter(3));
   const [quoteSupplierId, setQuoteSupplierId] = useState("");
   const [quoteLines, setQuoteLines] = useState<RepairQuoteLineDraft[]>([]);
+  const [quoteTaxRate, setQuoteTaxRate] = useState("9");
   const [quoteConstructionPeriodDays, setQuoteConstructionPeriodDays] = useState("");
   const [quoteWarrantyDays, setQuoteWarrantyDays] = useState("");
   const [quoteOriginalAmountConfirmed, setQuoteOriginalAmountConfirmed] = useState(false);
@@ -126,8 +127,8 @@ export function RepairProjectSourcingOperation({
     (relation) => !selectedQuote || relation.supplierDeptId === selectedQuote.supplierDeptId,
   );
   const currentPlan = details.plans.find((plan) => plan.planId === sourcing?.planId) ?? details.plans[0];
-  const quoteDraftError = validateRepairQuoteDraft(quoteLines, details.currentPlanItems);
-  const quoteTotal = calculateRepairQuoteTotal(quoteLines);
+  const quoteDraftError = validateRepairQuoteDraft(quoteLines, details.currentPlanItems, quoteTaxRate);
+  const quoteTotal = calculateRepairQuoteTotal(quoteLines, quoteTaxRate);
   const quotePeriodValid = quoteConstructionPeriodDays.trim() !== "" && Number.isInteger(Number(quoteConstructionPeriodDays))
     && Number(quoteConstructionPeriodDays) > 0
     && Number(quoteConstructionPeriodDays) <= 3650;
@@ -163,6 +164,7 @@ export function RepairProjectSourcingOperation({
 
   useEffect(() => {
     setQuoteLines(createRepairQuoteDraftLines(details.currentPlanItems));
+    setQuoteTaxRate("9");
     setQuoteConstructionPeriodDays(String(plannedPeriodDays(
       currentPlan?.plannedStartDate,
       currentPlan?.plannedCompletionDate,
@@ -203,6 +205,7 @@ export function RepairProjectSourcingOperation({
       supplierDeptId: supplierId,
       invitationId: invitation?.invitationId,
       quoteAmount: quoteTotal,
+      taxRate: Number(quoteTaxRate),
       quoteSummary: quoteSummary.trim() || undefined,
       attachmentId: quoteFile.attachmentId,
       confirmationStatus: "OFFLINE_EVIDENCE_VERIFIED",
@@ -214,6 +217,7 @@ export function RepairProjectSourcingOperation({
     }), "供应商报价原件已核验并录入");
     if (!successful) return;
     setQuoteLines(createRepairQuoteDraftLines(details.currentPlanItems));
+    setQuoteTaxRate("9");
     setQuoteOriginalAmountConfirmed(false);
     setQuoteSummary("");
     setQuoteFile(null);
@@ -291,14 +295,14 @@ export function RepairProjectSourcingOperation({
           <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={quoteWarrantyDays} onChange={(event) => setQuoteWarrantyDays(event.target.value)} /></div>
         </div>
         <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between gap-3"><Label>报价明细</Label><span className="text-sm font-semibold tabular-nums">含税合计 {money(quoteTotal)}</span></div>
-          <RepairProjectQuoteEditor items={details.currentPlanItems} lines={quoteLines} onChange={setQuoteLines} />
+          <div className="mb-2 flex items-center justify-between gap-3"><Label>报价明细</Label><span className="text-sm font-semibold tabular-nums">含税总额 {money(quoteTotal)}</span></div>
+          <RepairProjectQuoteEditor items={details.currentPlanItems} lines={quoteLines} taxRate={quoteTaxRate} onChange={setQuoteLines} onTaxRateChange={setQuoteTaxRate} />
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写材料、施工组织或其他报价边界" /></div>
           <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
         </div>
-        <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细含税合计与供应商报价原件总额一致。</span></label>
+        <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与供应商报价原件一致。</span></label>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className={`text-sm ${quoteDraftError || !quotePeriodValid || !quoteWarrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{quoteDraftError ?? (!quotePeriodValid ? "施工工期应为 1 至 3650 天" : !quoteWarrantyValid ? "质保期应为 0 至 3650 天" : `待录入含税总额 ${money(quoteTotal)}`)}</div>
           <Button disabled={busy !== null || !quoteSupplierId || Boolean(quoteDraftError) || !quotePeriodValid || !quoteWarrantyValid || !quoteFile || !quoteOriginalAmountConfirmed} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
