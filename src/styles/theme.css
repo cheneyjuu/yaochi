@@ -14,19 +14,20 @@
   /* 科技点缀 */
   --gov-accent: #19a0c4;
   --gov-accent-2: #2dd4bf;
+  --gov-brand-warm: #e8784f;
   /* 功能色 */
   --gov-success: #2e9e5b;
   --gov-warning: #e0a310;
   --gov-danger: #d14343;
   --gov-info: #3a6fbf;
   /* 中性 */
-  --gov-bg: #f4f6fa;
+  --gov-bg: #f5f7fa;
   --gov-line: #e3e8f0;
   --gov-text: #1f2733;
   --gov-text-2: #5a6677;
   --gov-placeholder: #9aa5b5;
 
-  --background: #f4f6fa;
+  --background: #f5f7fa;
   --foreground: #1f2733;
   --card: #ffffff;
   --card-foreground: #1f2733;
@@ -56,13 +57,13 @@
   --chart-4: #e0a310;
   --chart-5: #3a6fbf;
   --radius: 0.5rem;
-  --sidebar: #fcfdff;
-  --sidebar-foreground: #1f2733;
-  --sidebar-primary: #1b4f9c;
+  --sidebar: #122a45;
+  --sidebar-foreground: #e8eef6;
+  --sidebar-primary: #f09a73;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e8f0fb;
-  --sidebar-accent-foreground: #143c78;
-  --sidebar-border: #e6ebf2;
+  --sidebar-accent: #213e5d;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #28445f;
   --sidebar-ring: #3a6fbf;
 }
 

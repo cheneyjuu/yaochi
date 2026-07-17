@@ -1,7 +1,18 @@
 import type { ReactNode } from "react";
 import { cn } from "../ui/utils";
 import { Card } from "../ui/card";
-import { CheckCircle2, FileText, Inbox, Link2, LockKeyhole, ShieldCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  FileText,
+  Globe2,
+  Home,
+  Inbox,
+  Link2,
+  LockKeyhole,
+  ShieldCheck,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import type { PropertyMode } from "../../lib/types";
 import { MODE_META } from "../../lib/types";
 
@@ -60,9 +71,9 @@ export function ModeChip({ mode, className }: { mode: PropertyMode; className?: 
 /* ---------------- 范围 Chip（局部 vs 公共） ---------------- */
 export function ScopeChip({ scope, building }: { scope: "local" | "global"; building?: string }) {
   return scope === "local" ? (
-    <StatusChip tone="warning">🏠 局部 · {building ?? "楼栋"}</StatusChip>
+    <StatusChip tone="warning"><Home className="size-3" />局部 · {building ?? "楼栋"}</StatusChip>
   ) : (
-    <StatusChip tone="tech">🌐 公共 · 全局</StatusChip>
+    <StatusChip tone="tech"><Globe2 className="size-3" />公共 · 全局</StatusChip>
   );
 }
 
@@ -191,8 +202,9 @@ export function KpiCard({
         {unit && <span className="text-sm text-muted-foreground mb-1">{unit}</span>}
       </div>
       {trend && (
-        <div className="text-xs" style={{ color: trend.up ? "#2e9e5b" : "#d14343" }}>
-          {trend.up ? "▲" : "▼"} {trend.value}
+        <div className="flex items-center gap-1 text-xs" style={{ color: trend.up ? "#2e9e5b" : "#d14343" }}>
+          {trend.up ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
+          {trend.value}
         </div>
       )}
     </Card>
@@ -314,7 +326,7 @@ export function SectionCard({
   return (
     <Card className={cn("p-0 overflow-hidden", className)}>
       {(title || extra) && (
-        <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3 border-b border-border">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3.5 sm:px-5">
           <div>
             {title && <h3 style={{ fontWeight: 600 }}>{title}</h3>}
             {desc && <p className="text-sm text-muted-foreground mt-0.5">{desc}</p>}
@@ -322,7 +334,7 @@ export function SectionCard({
           {extra && <div className="shrink-0">{extra}</div>}
         </div>
       )}
-      <div className={cn("p-5", bodyClassName)}>{children}</div>
+      <div className={cn("p-4 sm:p-5", bodyClassName)}>{children}</div>
     </Card>
   );
 }
@@ -338,10 +350,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
       <div className="min-w-0">
-        <h1 style={{ fontSize: 24, fontWeight: 600, lineHeight: "32px" }}>{title}</h1>
-        {desc && <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{desc}</p>}
+        <h1 style={{ fontSize: 23, fontWeight: 600, lineHeight: "31px" }}>{title}</h1>
+        {desc && <p className="mt-1 max-w-4xl text-sm leading-5 text-muted-foreground">{desc}</p>}
       </div>
       {actions && <div className="flex max-w-full flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
     </div>
@@ -365,7 +377,7 @@ export function EmptyState({ title, desc }: { title: string; desc?: string }) {
 export function ReadonlyNotice({ children }: { children?: ReactNode }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-[#e0a310]/40 bg-[#fcf3da] px-3 py-2 text-xs" style={{ color: "#8a6406" }}>
-      <span>🔒</span>
+      <LockKeyhole className="size-3.5 shrink-0" />
       {children ?? "当前角色对本模块为只读权限，操作按钮已禁用。"}
     </div>
   );

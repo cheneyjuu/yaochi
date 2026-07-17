@@ -4,7 +4,7 @@ import { Button } from "../ui/button";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from "recharts";
-import { AlertTriangle, Vote, FileCheck2, Wrench, Megaphone } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Vote, FileCheck2, Wrench, Megaphone } from "lucide-react";
 
 const trend = [
   { m: "1月", 参与率: 58, 收益: 12 },
@@ -16,18 +16,19 @@ const trend = [
 ];
 
 const todos = [
-  { id: 1, icon: Vote, text: "“主干道翻修 15 万元”议题投票中，当前专有面积通过率 64%", tone: "primary" as const, tag: "议题" },
-  { id: 2, icon: FileCheck2, text: "信托资金核销待您第二签：保安公司月度劳务费 ¥86,400", tone: "danger" as const, tag: "待双签" },
-  { id: 3, icon: Wrench, text: "1 号楼顶层漏水维修工单待投票（局部 · 仅本楼栋）", tone: "warning" as const, tag: "工单" },
-  { id: 4, icon: Megaphone, text: "二季度公共收益分配公示已发布，触达 1240 户", tone: "info" as const, tag: "公示" },
+  { id: 1, icon: Vote, text: "“主干道翻修 15 万元”议题投票中，当前专有面积通过率 64%", tone: "primary" as const, tag: "议题", page: "voting" },
+  { id: 2, icon: FileCheck2, text: "信托资金核销待您第二签：保安公司月度劳务费 ¥86,400", tone: "danger" as const, tag: "待双签", page: "dual-sign" },
+  { id: 3, icon: Wrench, text: "1 号楼顶层漏水维修工单待投票（局部 · 仅本楼栋）", tone: "warning" as const, tag: "工单", page: "work-orders" },
+  { id: 4, icon: Megaphone, text: "二季度公共收益分配公示已发布，触达 1240 户", tone: "info" as const, tag: "公示", page: "announcements" },
 ];
 
 export function Overview() {
-  const { role, community, lockdown, setLockdown, setPage } = useStore();
+  const { role, community, lockdown, menus, setLockdown, setPage } = useStore();
   const roleMeta = ROLES.find((r) => r.id === role)!;
+  const canOpenPage = (pageId: string) => menus.some((module) => module.pages.some((candidate) => candidate.id === pageId));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader
         title={`${roleMeta.name}工作台`}
         desc={`欢迎回来 · 当前${community.name} · 数据范围：${roleMeta.scope}。以下为角色自适应的待办、关键指标与最新公示。`}
@@ -51,26 +52,33 @@ export function Overview() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="进行中议题" value="3" unit="项" tone="primary" icon={<Vote className="size-4" />} trend={{ value: "较上月 +1", up: true }} />
         <KpiCard label="待我审批" value="5" unit="项" tone="danger" icon={<FileCheck2 className="size-4" />} />
         <KpiCard label="本期公共收益" value="38.6" unit="万元" tone="tech" icon={<Megaphone className="size-4" />} trend={{ value: "同比 +12.4%", up: true }} />
         <KpiCard label="未结维修工单" value="8" unit="单" tone="warning" icon={<Wrench className="size-4" />} trend={{ value: "较上月 -3", up: false }} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <SectionCard title="我的待办" desc="按角色与数据范围过滤" className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+        <SectionCard title="我的待办" desc="按角色与数据范围过滤">
           <div className="space-y-2.5">
             {todos.map((t) => {
               const Icon = t.icon;
               return (
-                <div key={t.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:border-primary/40 transition-colors">
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={!canOpenPage(t.page)}
+                  onClick={() => setPage(t.page)}
+                  className="group flex w-full items-center gap-3 rounded-md border border-border p-3 text-left transition-colors hover:border-primary/35 hover:bg-accent/35 disabled:cursor-default disabled:hover:border-border disabled:hover:bg-transparent"
+                >
                   <span className="grid place-items-center size-9 rounded-md bg-muted text-primary shrink-0">
                     <Icon className="size-4.5" />
                   </span>
                   <span className="flex-1 text-sm">{t.text}</span>
                   <StatusChip tone={t.tone}>{t.tag}</StatusChip>
-                </div>
+                  {canOpenPage(t.page) && <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />}
+                </button>
               );
             })}
           </div>
@@ -79,21 +87,21 @@ export function Overview() {
         <SectionCard title="换届熔断提醒" desc="HANDOVER_LOCK 全局态">
           {lockdown ? (
             <div className="rounded-lg p-4 gov-lock-stripes border border-[#d14343]/40 text-sm" style={{ color: "#a32f2f" }}>
-              <div style={{ fontWeight: 600 }}>⚠ 熔断生效中</div>
+              <div className="flex items-center gap-1.5" style={{ fontWeight: 600 }}><AlertTriangle className="size-4" />熔断生效中</div>
               <p className="mt-1">大额资金划拨已锁定，需完成换届纠纷处置后由街道办/书记解除。</p>
             </div>
           ) : (
             <div className="rounded-lg p-4 border border-[#2e9e5b]/30 bg-[#e8f6ee] text-sm" style={{ color: "#1f7a45" }}>
-              <div style={{ fontWeight: 600 }}>✓ 当前无熔断</div>
+              <div className="flex items-center gap-1.5" style={{ fontWeight: 600 }}><CheckCircle2 className="size-4" />当前无熔断</div>
               <p className="mt-1">委员会运行正常，资金通道开放。</p>
             </div>
           )}
         </SectionCard>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard title="投票参与率趋势" desc="近 6 个月（%）">
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={trend} margin={{ left: -16, right: 8, top: 8 }}>
               <defs>
                 <linearGradient id="gPart" x1="0" y1="0" x2="0" y2="1">
@@ -111,7 +119,7 @@ export function Overview() {
         </SectionCard>
 
         <SectionCard title="公共收益（万元/月）" desc="近 6 个月">
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={220}>
             <BarChart data={trend} margin={{ left: -16, right: 8, top: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e3e8f0" vertical={false} />
               <XAxis dataKey="m" tickLine={false} axisLine={false} fontSize={12} />

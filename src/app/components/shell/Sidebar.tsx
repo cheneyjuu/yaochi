@@ -154,13 +154,13 @@ export function Sidebar({
       )}
       <aside
         className={cn(
-          "fixed bottom-0 left-0 top-14 z-40 flex w-[248px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-[1px_0_0_rgba(16,42,86,0.02)] transition-[transform,width] duration-200 lg:static lg:z-auto lg:h-full lg:translate-x-0",
+          "fixed bottom-0 left-0 top-14 z-40 flex w-[248px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-[4px_0_16px_rgba(16,42,70,0.08)] transition-[transform,width] duration-200 lg:static lg:z-auto lg:h-full lg:translate-x-0",
           collapsed ? "lg:w-[72px]" : "lg:w-60",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div className="flex justify-end border-b border-sidebar-border p-2 lg:hidden">
-          <button type="button" className="grid size-8 place-items-center rounded-md hover:bg-sidebar-accent" onClick={onMobileClose} aria-label="关闭导航">
+          <button type="button" className="grid size-8 place-items-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent" onClick={onMobileClose} aria-label="关闭导航">
             <X className="size-4" />
           </button>
         </div>
@@ -176,7 +176,7 @@ export function Sidebar({
             )}
           >
             {!iconOnly && (
-              <div className="mb-1.5 px-3 text-[11px] font-normal leading-4 tracking-[0.1em] text-[#7b8799]">
+              <div className="mb-1.5 px-3 text-[11px] font-normal leading-4 text-sidebar-foreground/50">
                 {group.label}
               </div>
             )}
@@ -203,15 +203,15 @@ export function Sidebar({
               aria-expanded={iconOnly ? undefined : open}
               aria-label={iconOnly ? `展开${mod.label}导航` : undefined}
               className={cn(
-                "flex h-10 w-full items-center gap-2.5 rounded-md px-3 text-[14px] font-normal tracking-[0.01em] text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                "flex h-10 w-full items-center gap-2.5 rounded-md px-3 text-[14px] font-normal text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 iconOnly && "justify-center px-2",
-                containsActivePage && "text-sidebar-accent-foreground",
+                containsActivePage && "bg-white/[0.06] text-sidebar-accent-foreground",
                 iconOnly && containsActivePage && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
-              <Icon className={cn("size-4 shrink-0 text-muted-foreground", containsActivePage && "text-sidebar-primary")} />
+              <Icon className={cn("size-4 shrink-0 text-sidebar-foreground/55", containsActivePage && "text-sidebar-primary")} />
               {!iconOnly && <span className="flex-1 text-left">{mod.label}</span>}
-              {!iconOnly && <ChevronDown className={cn("size-3.5 text-muted-foreground/75 transition-transform", !open && "-rotate-90")} />}
+              {!iconOnly && <ChevronDown className={cn("size-3.5 text-sidebar-foreground/45 transition-transform", !open && "-rotate-90")} />}
             </button>
           );
           return (
@@ -223,7 +223,7 @@ export function Sidebar({
                 </Tooltip>
               ) : moduleButton}
               {!iconOnly && open && (
-                <div className="mt-0.5 mb-1 ml-[22px] flex flex-col gap-1 border-l border-sidebar-border/80 pl-2.5">
+                <div className="mt-0.5 mb-1 ml-[22px] flex flex-col gap-1 border-l border-sidebar-border pl-2.5">
                   {pageGroups.map((pageGroup) => {
                     const pageGroupKey = `${mod.id}:${pageGroup.id}`;
                     const hasActivePage = pageGroup.pages.some((candidate) => candidate.id === page);
@@ -241,11 +241,11 @@ export function Sidebar({
                               ...current,
                               [pageGroupKey]: pageGroupOpen,
                             }))}
-                            className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] font-normal leading-5 text-[#657389] transition-colors hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground"
+                            className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] font-normal leading-5 text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           >
                             <span className="flex-1">{pageGroup.label}</span>
-                            <span className="text-[11px] font-normal text-muted-foreground">{pageGroup.pages.length}</span>
-                            <ChevronDown className={cn("size-3.5 text-muted-foreground/80 transition-transform", !pageGroupOpen && "-rotate-90")} />
+                            <span className="text-[11px] font-normal text-sidebar-foreground/40">{pageGroup.pages.length}</span>
+                            <ChevronDown className={cn("size-3.5 text-sidebar-foreground/40 transition-transform", !pageGroupOpen && "-rotate-90")} />
                           </button>
                         )}
                         {pageGroupOpen && (
@@ -259,12 +259,13 @@ export function Sidebar({
                                     setPage(p.id);
                                     onMobileClose?.();
                                   }}
+                                  aria-current={active ? "page" : undefined}
                                   className={cn(
                                     "relative min-h-9 rounded-md px-3 py-1.5 text-left text-[13px] font-normal leading-5 transition-colors",
                                     pageGroup.label && "ml-1",
                                     active
-                                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-normal shadow-[inset_3px_0_0_var(--sidebar-primary)]"
-                                      : "text-[#5f6d80] hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+                                      ? "bg-white/[0.12] text-white font-normal shadow-[inset_3px_0_0_var(--gov-brand-warm)]"
+                                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                                   )}
                                 >
                                   {p.label}
@@ -286,13 +287,13 @@ export function Sidebar({
         ))}
         </nav>
         <div className={cn("hidden h-12 items-center border-t border-sidebar-border lg:flex", iconOnly ? "justify-center px-2" : "justify-between px-3")}>
-          {!iconOnly && <span className="text-[10px] font-normal tracking-[0.04em] text-muted-foreground">盘古 · 社区治理后台 v1.0</span>}
+          {!iconOnly && <span className="text-[10px] font-normal text-sidebar-foreground/45">盘古 · 社区治理后台 v1.0</span>}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
-                className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                className="grid size-8 place-items-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 onClick={() => onCollapsedChange?.(!collapsed)}
               >
                 {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}

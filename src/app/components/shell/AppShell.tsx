@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Topbar } from "./Topbar";
 import { Sidebar } from "./Sidebar";
 import { useStore, ROLES } from "../../lib/store";
@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Layers } from "lucide-react";
 import type { DataScope } from "../../lib/types";
 
 /**
@@ -34,7 +34,7 @@ function ContentHeader() {
   const scopeOptions: DataScope[] = ["ALL_DISTRICT", "ALL_COMMUNITY", "CUSTOM_BUILDING", "ORG_ONLY"];
 
   return (
-    <div className="flex items-center justify-between gap-3 px-3 sm:px-6 h-11 border-b border-border bg-card/60">
+    <div className="flex h-12 items-center justify-between gap-3 border-b border-border bg-card px-3 sm:px-6">
       <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
         <span className="truncate">{mod?.label}</span>
         <ChevronRight className="size-3.5" />
@@ -68,7 +68,14 @@ function ContentHeader() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { lockdown } = useStore();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("yaochi-sidebar-collapsed") === "1",
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem("yaochi-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
       <Topbar onOpenNavigation={() => setMobileNavigationOpen(true)} />
@@ -83,11 +90,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ContentHeader />
           {lockdown && (
             <div className="flex items-center gap-2 px-6 py-2 text-sm gov-lock-stripes border-b border-[#d14343]/30" style={{ color: "#a32f2f" }}>
-              ⚠ 本小区已进入 <b className="mx-1">HANDOVER_LOCK 换届熔断态</b>，大额资金划拨接口已死锁，相关放行操作被锁定。
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>本小区已进入 <b className="mx-1">HANDOVER_LOCK 换届熔断态</b>，大额资金划拨接口已死锁，相关放行操作被锁定。</span>
             </div>
           )}
-          <div className="gov-scroll min-h-0 flex-1 overflow-y-auto p-3 sm:p-6">
-            <div className="mx-auto max-w-[1440px]">{children}</div>
+          <div className="gov-scroll min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="mx-auto max-w-[1408px]">{children}</div>
           </div>
         </main>
       </div>

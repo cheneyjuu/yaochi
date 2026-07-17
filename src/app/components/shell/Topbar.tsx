@@ -1,9 +1,12 @@
 // 关联业务：展示当前受后端租户上下文约束的小区、物业管理模式和工作身份。
+import { useEffect, useState } from "react";
 import { useStore, ROLES } from "../../lib/store";
+import type { NavModule } from "../../lib/nav";
 import { ModeChip } from "../gov/common";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -11,8 +14,88 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { AlertTriangle, Bell, ChevronDown, LoaderCircle, LogOut, MapPin, Menu, Search } from "lucide-react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../ui/command";
+import { AlertTriangle, Bell, Check, ChevronDown, LoaderCircle, LogOut, MapPin, Menu, Search } from "lucide-react";
 import { toast } from "sonner";
+
+function NavigationSearch({
+  menus,
+  currentPage,
+  onNavigate,
+}: {
+  menus: NavModule[];
+  currentPage: string;
+  onNavigate: (pageId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const target = event.target;
+      const isEditing = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || (target instanceof HTMLElement && target.isContentEditable);
+      const commandShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+      const directShortcut = event.key === "/" && !isEditing;
+      if (!commandShortcut && !directShortcut) return;
+      event.preventDefault();
+      setOpen((current) => !current);
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+  const navigate = (pageId: string) => {
+    onNavigate(pageId);
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="hidden h-9 w-56 items-center gap-2 rounded-md border border-border bg-input-background px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-card lg:flex"
+        aria-label="搜索功能与页面"
+      >
+        <Search className="size-3.5 shrink-0" />
+        <span>搜索功能与页面</span>
+      </button>
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="搜索功能与页面"
+        description="在当前工作身份已授权的菜单中查找页面"
+      >
+        <CommandInput placeholder="输入页面名称" />
+        <CommandList>
+          <CommandEmpty>未找到匹配页面</CommandEmpty>
+          {menus.map((module) => (
+            <CommandGroup key={module.id} heading={module.label}>
+              {module.pages.map((candidate) => (
+                <CommandItem
+                  key={candidate.id}
+                  value={`${module.label} ${candidate.label}`}
+                  onSelect={() => navigate(candidate.id)}
+                >
+                  <span className="flex-1">{candidate.label}</span>
+                  {candidate.id === currentPage && <Check className="size-4 text-primary" />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ))}
+        </CommandList>
+      </CommandDialog>
+    </>
+  );
+}
 
 export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) {
   const {
@@ -24,6 +107,8 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
     communitySwitching,
     mode,
     lockdown,
+    menus,
+    page,
     setPage,
     logout,
   } = useStore();
@@ -39,7 +124,7 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
         <div className="h-1.5" style={{ backgroundColor: "var(--gov-g-deep)" }} />
       )}
       <div
-        className="h-14 flex items-center gap-2 px-3 border-b border-border bg-card sm:gap-4 sm:px-5"
+        className="h-14 flex items-center gap-2 border-b border-border bg-card px-3 shadow-[0_1px_2px_rgba(16,42,70,0.04)] sm:gap-4 sm:px-5"
         style={isG ? { boxShadow: "inset 0 2px 0 0 var(--gov-g-deep)" } : undefined}
       >
         <button
@@ -55,7 +140,10 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
           <div className="grid place-items-center size-8 rounded-md gov-primary-gradient text-white" style={{ fontWeight: 700 }}>
             盘
           </div>
-          <span className="hidden sm:inline" style={{ fontWeight: 700, fontSize: 16 }}>盘古</span>
+          <span className="hidden sm:block leading-tight">
+            <span className="block text-[15px]" style={{ fontWeight: 700 }}>盘古</span>
+            <span className="block text-[10px] text-muted-foreground">社区治理工作台</span>
+          </span>
           {isG && (
             <span className="ml-1 rounded px-1.5 py-0.5 text-[11px] text-white" style={{ backgroundColor: "var(--gov-g-deep)" }}>
               G端监管
@@ -125,40 +213,49 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation?: () => void }) 
         )}
 
         <div className={lockdown ? "flex items-center gap-3" : "ml-auto flex items-center gap-3"}>
-          {/* 搜索 */}
-          <div className="relative hidden lg:block">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-            <input
-              placeholder="搜索议题 / 业主 / 工单…"
-              className="h-9 w-52 rounded-md border border-border bg-input-background pl-8 pr-3 text-sm outline-none focus:border-primary"
-            />
-          </div>
+          <NavigationSearch menus={menus} currentPage={page} onNavigate={setPage} />
           {/* 消息 */}
-          <button className="relative hidden place-items-center size-9 rounded-md hover:bg-accent sm:grid">
+          <button
+            type="button"
+            className="hidden place-items-center size-9 rounded-md hover:bg-accent sm:grid"
+            aria-label="通知"
+            title="通知"
+          >
             <Bell className="size-4.5 text-muted-foreground" />
-            <span className="absolute top-1.5 right-1.5 size-2 rounded-full" style={{ backgroundColor: "var(--gov-danger)" }} />
           </button>
 
           {/* 当前登录用户 */}
-          <div className="flex items-center gap-2 rounded-md pl-1 pr-2 h-9">
-            <Avatar className="size-7">
-              <AvatarFallback className="text-xs gov-primary-gradient text-white">
-                {roleMeta.name.slice(0, 1)}
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-sm text-left hidden md:block leading-tight">
-              <span className="block" style={{ fontWeight: 500 }}>{roleMeta.name}</span>
-              <span className="block text-[11px] text-muted-foreground">{roleMeta.scope}</span>
-            </span>
-          </div>
-          <button
-            onClick={logout}
-            className="grid place-items-center size-9 rounded-md text-muted-foreground hover:bg-accent hover:text-destructive transition-colors"
-            title="退出登录"
-            aria-label="退出登录"
-          >
-            <LogOut className="size-4" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex h-9 items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left transition-colors hover:bg-accent">
+              <Avatar className="size-7">
+                <AvatarFallback className="text-xs gov-primary-gradient text-white">
+                  {roleMeta.name.slice(0, 1)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="hidden text-sm leading-tight md:block">
+                <span className="block" style={{ fontWeight: 500 }}>{roleMeta.name}</span>
+                <span className="block text-[11px] text-muted-foreground">{roleMeta.scope}</span>
+              </span>
+              <ChevronDown className="hidden size-3.5 text-muted-foreground md:block" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuLabel className="space-y-1">
+                <span className="block text-sm text-foreground">当前工作身份</span>
+                <span className="block text-xs font-normal text-muted-foreground">{roleMeta.name} · {roleMeta.scope}</span>
+              </DropdownMenuLabel>
+              {!isSupplier && (
+                <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-muted/65 px-2.5 py-2 text-xs text-muted-foreground">
+                  <MapPin className="size-3.5 shrink-0" />
+                  <span className="truncate">{community.name}</span>
+                </div>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={logout} className="text-destructive focus:text-destructive">
+                <LogOut className="size-4" />
+                退出登录
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>

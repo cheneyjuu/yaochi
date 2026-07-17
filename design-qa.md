@@ -43,4 +43,42 @@
 
 - P3: production naturally omits the development-account disclosure shown in the local capture.
 
+## Admin Workspace Design QA
+
+- Baseline dashboard: `/Users/juchen/Documents/workspace/yaochi/.playwright-cli/page-2026-07-17T00-23-01-576Z.png`
+- Final dashboard: `/Users/juchen/Documents/workspace/yaochi/.playwright-cli/page-2026-07-17T00-34-56-494Z.png`
+- Final dense table: `/Users/juchen/Documents/workspace/yaochi/.playwright-cli/page-2026-07-17T00-33-31-920Z.png`
+- Final mobile navigation: `/Users/juchen/Documents/workspace/yaochi/.playwright-cli/page-2026-07-17T00-35-59-053Z.png`
+- Reference patterns: Mobbin results for ClickUp and Asana dashboards, plus Airbnb, Slite, and Attio data-list screens
+- Viewports: `1200 x 720`, `1024 x 768`, and `390 x 844`
+
+**Findings**
+
+- No actionable P0, P1, or P2 issue remains.
+- The dark brand navigation creates a stable workspace anchor without reducing the readability of the light data surface.
+- Active module and page states remain distinct in expanded, collapsed, and mobile-drawer navigation.
+- Dense tables use a quieter header band and clearer row hover state; controls and content keep their original business meaning.
+- Dashboard density remains appropriate at 1200 px with four KPI columns, a two-column task/status row, and charts visible in the next viewport band.
+- Cards use an 8 px-or-smaller rendered radius and restrained borders/shadows rather than nested decorative surfaces.
+
+**Full-view Comparison Evidence**
+
+- The baseline and final dashboard captures were opened together at the same `1200 x 720` viewport and authenticated role state.
+- The final design preserves the existing information architecture while improving navigation contrast, brand continuity, task affordance, table scanning, and top-bar hierarchy.
+
+**Interaction And Responsive Checks**
+
+- Authorized-page search opens from the top bar, filters by Chinese page name, and navigates to the selected page.
+- Dashboard task rows navigate only when the current role has the target page.
+- The work-identity menu exposes current identity, community, and logout without crowding the top bar.
+- Sidebar collapse and expansion work and the preference persists after reload.
+- The `390 x 844` mobile shell keeps titles and controls within the viewport; the navigation drawer opens, closes, and preserves active-page context.
+- Browser console verification reported zero application errors and zero warnings.
+
+**Comparison History**
+
+1. The first dashboard pass moved KPI cards and the task/status layout to the `xl` breakpoint, which reduced density at 1200 px.
+2. The breakpoint was corrected to `lg`, and a stale two-column span was removed from the task section.
+3. The final desktop and mobile captures showed the intended density with no overlap, clipping, or inaccessible primary controls.
+
 final result: passed
