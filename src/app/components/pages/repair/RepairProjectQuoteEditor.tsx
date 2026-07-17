@@ -121,7 +121,8 @@ export function validateRepairQuoteDraft(
     if (!line.lineType) return "每条报价明细都要选择类别";
     if (!line.unit.trim()) return "每条报价明细都要填写单位";
     if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) return "报价明细数量必须大于 0";
-    if (line.unitPriceExcludingTax === "" || !Number.isFinite(Number(line.unitPriceExcludingTax)) || Number(line.unitPriceExcludingTax) < 0) {
+    if (line.unitPriceExcludingTax.trim() === "") return "请填写不含税单价";
+    if (!Number.isFinite(Number(line.unitPriceExcludingTax)) || Number(line.unitPriceExcludingTax) < 0) {
       return "不含税单价不能小于 0";
     }
   }
@@ -214,63 +215,70 @@ export function RepairProjectQuoteEditor({
             </div>
             <div className="divide-y">
               {itemLines.map((line) => (
-                <div key={line.clientId} className="grid gap-3 px-3 py-4 md:grid-cols-4 xl:grid-cols-8">
-                  <div className="md:col-span-2 xl:col-span-2">
-                    <Label>明细名称</Label>
-                    <Input value={line.itemName} onChange={(event) => updateLine(line.clientId, "itemName", event.target.value)} placeholder="材料、人工、运输或施工项目" />
-                  </div>
-                  <div className="md:col-span-2 xl:col-span-2">
-                    <Label>明细类别</Label>
-                    <Select value={line.lineType} onValueChange={(value) => updateLine(line.clientId, "lineType", value as RepairProjectQuoteLineType)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{LINE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-                    </Select>
+                <div key={line.clientId} className="px-4 py-4">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                    <div className="xl:col-span-2">
+                      <Label>明细名称</Label>
+                      <Input value={line.itemName} onChange={(event) => updateLine(line.clientId, "itemName", event.target.value)} placeholder="材料、人工、运输或施工项目" />
+                    </div>
+                    <div className="xl:col-span-2">
+                      <Label>明细类别</Label>
+                      <Select value={line.lineType} onValueChange={(value) => updateLine(line.clientId, "lineType", value as RepairProjectQuoteLineType)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{LINE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+
+                    {showsWorkDescription(line.lineType) && (
+                      <div className="xl:col-span-2">
+                        <Label>{workDescriptionLabel(line.lineType)}</Label>
+                        <Input value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="按报价原件填写，没有可不填" />
+                      </div>
+                    )}
+                    {showsMaterialFields(line.lineType) && (
+                      <>
+                        <div className="xl:col-span-2">
+                          <Label>规格型号</Label>
+                          <Input value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
+                        </div>
+                        <div className="xl:col-span-2">
+                          <Label>品牌 / 厂家</Label>
+                          <Input value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
+                        </div>
+                      </>
+                    )}
+                    {showsProcurementMethod(line.lineType) && (
+                      <div className="xl:col-span-2">
+                        <Label>采购 / 实施方式</Label>
+                        <Input value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
+                      </div>
+                    )}
+                    <div className="xl:col-span-2">
+                      <Label>备注</Label>
+                      <Input value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
+                    </div>
                   </div>
 
-                  {showsWorkDescription(line.lineType) && (
-                    <div className="md:col-span-4 xl:col-span-4">
-                      <Label>{workDescriptionLabel(line.lineType)}</Label>
-                      <Input value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="按报价原件填写，没有可不填" />
+                  <div className="mt-4 grid items-end gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[minmax(6rem,0.7fr)_minmax(5rem,0.6fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_2.5rem]">
+                    <div>
+                      <Label>数量</Label>
+                      <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.clientId, "quantity", event.target.value)} />
                     </div>
-                  )}
-                  {showsMaterialFields(line.lineType) && (
-                    <>
-                      <div className="md:col-span-2 xl:col-span-2">
-                        <Label>规格型号</Label>
-                        <Input value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
-                      </div>
-                      <div className="md:col-span-2 xl:col-span-2">
-                        <Label>品牌 / 厂家</Label>
-                        <Input value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
-                      </div>
-                    </>
-                  )}
-                  {showsProcurementMethod(line.lineType) && (
-                    <div className="md:col-span-2 xl:col-span-2">
-                      <Label>采购 / 实施方式</Label>
-                      <Input value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
+                    <div>
+                      <Label>单位</Label>
+                      <Input value={line.unit} onChange={(event) => updateLine(line.clientId, "unit", event.target.value)} />
                     </div>
-                  )}
-
-                  <div>
-                    <Label>数量</Label>
-                    <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.clientId, "quantity", event.target.value)} />
-                  </div>
-                  <div>
-                    <Label>单位</Label>
-                    <Input value={line.unit} onChange={(event) => updateLine(line.clientId, "unit", event.target.value)} />
-                  </div>
-                  <div className="md:col-span-2 xl:col-span-2">
-                    <Label>不含税单价</Label>
-                    <Input type="number" min="0" step="0.01" value={line.unitPriceExcludingTax} onChange={(event) => updateLine(line.clientId, "unitPriceExcludingTax", event.target.value)} placeholder="0.00" />
-                  </div>
-                  <div className="md:col-span-2 xl:col-span-3">
-                    <Label>备注</Label>
-                    <Input value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
-                  </div>
-                  <div className="flex items-end justify-between gap-2 md:col-span-2 xl:col-span-2">
-                    <div><div className="text-xs text-muted-foreground">不含税金额</div><div className="mt-2 text-sm font-semibold tabular-nums">{money(lineAmountExcludingTax(line))}</div></div>
-                    <Button type="button" size="icon" variant="ghost" title="删除本条明细" disabled={itemLines.length <= 1} onClick={() => removeLine(line.clientId, item.itemId)}><Trash2 className="size-4" /></Button>
+                    <div>
+                      <Label>不含税单价</Label>
+                      <Input type="number" min="0" step="0.01" value={line.unitPriceExcludingTax} onChange={(event) => updateLine(line.clientId, "unitPriceExcludingTax", event.target.value)} placeholder="0.00" />
+                    </div>
+                    <div className="min-h-10">
+                      <div className="text-xs text-muted-foreground">不含税金额</div>
+                      <div className="mt-2 text-sm font-semibold tabular-nums">{money(lineAmountExcludingTax(line))}</div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="button" size="icon" variant="ghost" title="删除本条明细" disabled={itemLines.length <= 1} onClick={() => removeLine(line.clientId, item.itemId)}><Trash2 className="size-4" /></Button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -278,18 +286,21 @@ export function RepairProjectQuoteEditor({
           </section>
         );
       })}
-      <div className="grid items-end gap-3 border-t bg-muted/20 px-3 py-3 text-sm sm:grid-cols-[minmax(10rem,16rem)_1fr]">
-        <div>
-          <Label>整份报价单税率</Label>
-          <div className="relative">
-            <Input className="pr-8" type="number" min="0" max="100" step="0.001" value={taxRate} onChange={(event) => onTaxRateChange(event.target.value)} />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+      <div className="border-t bg-muted/20 px-4 py-4 text-sm">
+        <div className="mb-3 font-semibold">报价汇总</div>
+        <div className="grid items-end gap-4 sm:grid-cols-[minmax(10rem,16rem)_1fr]">
+          <div>
+            <Label>整份报价单税率</Label>
+            <div className="relative">
+              <Input className="pr-8" type="number" min="0" max="100" step="0.001" value={taxRate} onChange={(event) => onTaxRateChange(event.target.value)} />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+            </div>
           </div>
-        </div>
-        <div className="grid grid-cols-3 gap-3 text-right">
-          <div><div className="text-xs text-muted-foreground">不含税合计</div><div className="mt-1 font-medium tabular-nums">{money(subtotal)}</div></div>
-          <div><div className="text-xs text-muted-foreground">税额</div><div className="mt-1 font-medium tabular-nums">{money(tax)}</div></div>
-          <div><div className="text-xs text-muted-foreground">含税总额</div><div className="mt-1 text-base font-semibold tabular-nums">{money(total)}</div></div>
+          <div className="grid grid-cols-3 gap-3 text-right">
+            <div><div className="text-xs text-muted-foreground">不含税合计</div><div className="mt-1 font-medium tabular-nums">{money(subtotal)}</div></div>
+            <div><div className="text-xs text-muted-foreground">税额</div><div className="mt-1 font-medium tabular-nums">{money(tax)}</div></div>
+            <div><div className="text-xs text-muted-foreground">含税总额</div><div className="mt-1 text-base font-semibold tabular-nums">{money(total)}</div></div>
+          </div>
         </div>
       </div>
     </div>
