@@ -81,4 +81,27 @@
 2. The breakpoint was corrected to `lg`, and a stale two-column span was removed from the task section.
 3. The final desktop and mobile captures showed the intended density with no overlap, clipping, or inaccessible primary controls.
 
+## Admin Typography QA
+
+- Source supplier photo: `/tmp/codex-remote-attachments/019f6b8b-3926-70b3-9492-73120a47a79c/29496A74-E091-460F-9344-8AFE404F6031/1-照片-1.jpg`
+- Source engineering photo: `/tmp/codex-remote-attachments/019f6b8b-3926-70b3-9492-73120a47a79c/29496A74-E091-460F-9344-8AFE404F6031/2-照片-2.jpg`
+- Final supplier page: `/tmp/yaochi-font-supplier-desktop.png`
+- Final engineering page: `/tmp/yaochi-font-engineering-desktop.png`
+- Final mobile page: `/tmp/yaochi-font-engineering-mobile.png`
+- Viewports: `1440 x 900` desktop and `390 x 844` mobile
+
+**Findings**
+
+- The real-screen photos showed that the 13 px layout root reduced `text-sm` body copy to about 11.4 px and `text-xs` metadata to 9.75 px.
+- Typography is now independent from the compact rem layout scale: body copy, tables, labels, inputs, and buttons render at 14 px; secondary metadata renders at 12 px.
+- Section headings render at 16 px while page headings retain their established 23 px hierarchy.
+- The source photos and final desktop captures were reviewed together; the revised text is materially easier to scan without enlarging the sidebar or overall workspace geometry.
+- The mobile section header now stacks its filters below the title, preventing the larger type from squeezing the title into a vertical column.
+
+**Interaction And Responsive Checks**
+
+- Supplier directory and engineering ledger were checked at desktop size with no horizontal overflow.
+- Engineering ledger was checked at `390 x 844` with no horizontal overflow, overlap, clipping, or inaccessible controls.
+- Browser console verification reported zero application errors and zero warnings.
+
 final result: passed

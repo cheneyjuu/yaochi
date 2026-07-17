@@ -2,8 +2,17 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* 参考企业管理后台的紧凑阅读密度：正文默认 13px，页面显式层级保持不变。 */
+  /* 布局继续采用紧凑 rem 基准；文字使用独立像素级，避免正文随布局一起缩小。 */
   --font-size: 13px;
+  --font-body: 14px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
 
   /* 盘古社区治理 · 政务严肃蓝 + 数据看板科技感 */
   /* 主色 */
@@ -217,6 +226,8 @@
 /* 盘古 · 全局基础与工具类 */
 body {
   font-family: "Noto Sans SC", "PingFang SC", "Inter", system-ui, sans-serif;
+  font-size: var(--font-body);
+  line-height: 1.6;
   color: var(--gov-text);
 }
 

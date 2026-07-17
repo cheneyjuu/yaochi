@@ -1,3 +1,4 @@
+// 关联业务：提供社区治理后台共用的状态、数据、区块和页面层级组件。
 import type { ReactNode } from "react";
 import { cn } from "../ui/utils";
 import { Card } from "../ui/card";
@@ -326,12 +327,12 @@ export function SectionCard({
   return (
     <Card className={cn("p-0 overflow-hidden", className)}>
       {(title || extra) && (
-        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3.5 sm:px-5">
+        <div className="flex flex-col items-stretch justify-between gap-3 border-b border-border px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
           <div>
             {title && <h3 style={{ fontWeight: 600 }}>{title}</h3>}
             {desc && <p className="text-sm text-muted-foreground mt-0.5">{desc}</p>}
           </div>
-          {extra && <div className="shrink-0">{extra}</div>}
+          {extra && <div className="min-w-0 sm:shrink-0">{extra}</div>}
         </div>
       )}
       <div className={cn("p-4 sm:p-5", bodyClassName)}>{children}</div>
