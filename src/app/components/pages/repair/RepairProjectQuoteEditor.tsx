@@ -1,9 +1,12 @@
 // 关联业务：供应商与物业按锁定工程项填写差异化维修报价明细，并按整份报价单统一计税。
-import { Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Copy, Plus, Trash2 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Switch } from "../../ui/switch";
+import { Textarea } from "../../ui/textarea";
 import type {
   RepairProjectQuoteLineInput,
   RepairProjectQuoteLineType,
@@ -168,6 +171,16 @@ function showsProcurementMethod(lineType: RepairProjectQuoteLineType): boolean {
   return lineType === "MATERIAL_EQUIPMENT" || lineType === "CONSTRUCTION_MEASURE";
 }
 
+function hasAdditionalInformation(line: RepairQuoteLineDraft): boolean {
+  return Boolean(
+    line.workDescription.trim()
+    || line.specificationModel.trim()
+    || line.brand.trim()
+    || line.procurementMethod.trim()
+    || line.remark.trim(),
+  );
+}
+
 export function RepairProjectQuoteEditor({
   items,
   lines,
@@ -181,6 +194,8 @@ export function RepairProjectQuoteEditor({
   onChange: (lines: RepairQuoteLineDraft[]) => void;
   onTaxRateChange: (value: string) => void;
 }) {
+  const [expandedLineIds, setExpandedLineIds] = useState<Set<string>>(() => new Set());
+
   function updateLine<K extends keyof RepairQuoteLineDraft>(
     clientId: string,
     field: K,
@@ -191,7 +206,43 @@ export function RepairProjectQuoteEditor({
 
   function removeLine(clientId: string, projectItemId: number) {
     if (lines.filter((line) => line.projectItemId === projectItemId).length <= 1) return;
+    setExpandedLineIds((current) => {
+      const next = new Set(current);
+      next.delete(clientId);
+      return next;
+    });
     onChange(lines.filter((line) => line.clientId !== clientId));
+  }
+
+  function duplicateLine(source: RepairQuoteLineDraft) {
+    const duplicated = { ...source, clientId: nextDraftId() };
+    const sourceIndex = lines.findIndex((line) => line.clientId === source.clientId);
+    const nextLines = [...lines];
+    nextLines.splice(sourceIndex + 1, 0, duplicated);
+    if (expandedLineIds.has(source.clientId)) {
+      setExpandedLineIds((current) => new Set(current).add(duplicated.clientId));
+    }
+    onChange(nextLines);
+  }
+
+  function toggleLineDetails(clientId: string) {
+    setExpandedLineIds((current) => {
+      const next = new Set(current);
+      if (next.has(clientId)) next.delete(clientId);
+      else next.add(clientId);
+      return next;
+    });
+  }
+
+  function setItemDetailsExpanded(itemLines: RepairQuoteLineDraft[], expanded: boolean) {
+    setExpandedLineIds((current) => {
+      const next = new Set(current);
+      for (const line of itemLines) {
+        if (expanded) next.add(line.clientId);
+        else next.delete(line.clientId);
+      }
+      return next;
+    });
   }
 
   const subtotal = calculateRepairQuoteSubtotal(lines);
@@ -202,84 +253,119 @@ export function RepairProjectQuoteEditor({
     <div className="border-y">
       {items.map((item, itemIndex) => {
         const itemLines = lines.filter((line) => line.projectItemId === item.itemId);
+        const itemDetailsExpanded = itemLines.length > 0 && itemLines.every((line) => expandedLineIds.has(line.clientId));
         return (
           <section key={item.itemId} className={itemIndex > 0 ? "border-t" : undefined}>
-            <div className="flex flex-wrap items-start justify-between gap-3 bg-muted/30 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/30 px-3 py-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium">{item.itemNo} · {item.workContent}</div>
                 <div className="mt-1 text-xs text-muted-foreground">{item.locationText} · 方案数量 {item.quantity} {item.unit}</div>
               </div>
-              <Button type="button" size="sm" variant="outline" onClick={() => onChange([...lines, draftForItem(item, false)])}>
-                <Plus className="mr-1 size-4" />增加明细
-              </Button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`quote-details-${item.itemId}`}
+                    checked={itemDetailsExpanded}
+                    onCheckedChange={(expanded) => setItemDetailsExpanded(itemLines, expanded)}
+                  />
+                  <Label htmlFor={`quote-details-${item.itemId}`} className="cursor-pointer text-xs font-normal text-muted-foreground">展开补充字段</Label>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => onChange([...lines, draftForItem(item, false)])}>
+                  <Plus className="size-4" />新增明细
+                </Button>
+              </div>
+            </div>
+            <div className="hidden grid-cols-[minmax(9rem,1.8fr)_minmax(7rem,1.15fr)_minmax(4rem,0.55fr)_minmax(4rem,0.55fr)_minmax(7rem,0.85fr)_minmax(7rem,0.9fr)_8rem] gap-2 border-y bg-muted/15 px-3 py-2 text-xs font-medium text-muted-foreground xl:grid">
+              <div>明细名称</div>
+              <div>明细类别</div>
+              <div>数量</div>
+              <div>单位</div>
+              <div>不含税单价</div>
+              <div>不含税金额</div>
+              <div className="text-right">操作</div>
             </div>
             <div className="divide-y">
               {itemLines.map((line) => (
-                <div key={line.clientId} className="px-4 py-4">
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                    <div className="xl:col-span-2">
-                      <Label>明细名称</Label>
+                <div key={line.clientId} className="px-3 py-3">
+                  <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(9rem,1.8fr)_minmax(7rem,1.15fr)_minmax(4rem,0.55fr)_minmax(4rem,0.55fr)_minmax(7rem,0.85fr)_minmax(7rem,0.9fr)_8rem] xl:gap-2">
+                    <div>
+                      <Label className="xl:sr-only">明细名称</Label>
                       <Input value={line.itemName} onChange={(event) => updateLine(line.clientId, "itemName", event.target.value)} placeholder="材料、人工、运输或施工项目" />
                     </div>
-                    <div className="xl:col-span-2">
-                      <Label>明细类别</Label>
+                    <div>
+                      <Label className="xl:sr-only">明细类别</Label>
                       <Select value={line.lineType} onValueChange={(value) => updateLine(line.clientId, "lineType", value as RepairProjectQuoteLineType)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>{LINE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
-
-                    {showsWorkDescription(line.lineType) && (
-                      <div className="xl:col-span-2">
-                        <Label>{workDescriptionLabel(line.lineType)}</Label>
-                        <Input value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="按报价原件填写，没有可不填" />
-                      </div>
-                    )}
-                    {showsMaterialFields(line.lineType) && (
-                      <>
-                        <div className="xl:col-span-2">
-                          <Label>规格型号</Label>
-                          <Input value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
-                        </div>
-                        <div className="xl:col-span-2">
-                          <Label>品牌 / 厂家</Label>
-                          <Input value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
-                        </div>
-                      </>
-                    )}
-                    {showsProcurementMethod(line.lineType) && (
-                      <div className="xl:col-span-2">
-                        <Label>采购 / 实施方式</Label>
-                        <Input value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
-                      </div>
-                    )}
-                    <div className="xl:col-span-2">
-                      <Label>备注</Label>
-                      <Input value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid items-end gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[minmax(6rem,0.7fr)_minmax(5rem,0.6fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_2.5rem]">
                     <div>
-                      <Label>数量</Label>
+                      <Label className="xl:sr-only">数量</Label>
                       <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.clientId, "quantity", event.target.value)} />
                     </div>
                     <div>
-                      <Label>单位</Label>
+                      <Label className="xl:sr-only">单位</Label>
                       <Input value={line.unit} onChange={(event) => updateLine(line.clientId, "unit", event.target.value)} />
                     </div>
                     <div>
-                      <Label>不含税单价</Label>
+                      <Label className="xl:sr-only">不含税单价</Label>
                       <Input type="number" min="0" step="0.01" value={line.unitPriceExcludingTax} onChange={(event) => updateLine(line.clientId, "unitPriceExcludingTax", event.target.value)} placeholder="0.00" />
                     </div>
-                    <div className="min-h-10">
-                      <div className="text-xs text-muted-foreground">不含税金额</div>
-                      <div className="mt-2 text-sm font-semibold tabular-nums">{money(lineAmountExcludingTax(line))}</div>
+                    <div className="flex h-9 items-center">
+                      <span className="mr-2 text-xs text-muted-foreground xl:hidden">不含税金额</span>
+                      <span className="text-sm font-semibold tabular-nums">{money(lineAmountExcludingTax(line))}</span>
                     </div>
-                    <div className="flex justify-end">
-                      <Button type="button" size="icon" variant="ghost" title="删除本条明细" disabled={itemLines.length <= 1} onClick={() => removeLine(line.clientId, item.itemId)}><Trash2 className="size-4" /></Button>
+                    <div className="flex h-9 items-center justify-end gap-1 sm:col-span-2 xl:col-span-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={expandedLineIds.has(line.clientId) ? "secondary" : "ghost"}
+                        className="relative size-8"
+                        title={expandedLineIds.has(line.clientId) ? "收起补充字段" : hasAdditionalInformation(line) ? "展开已填写的补充字段" : "展开补充字段"}
+                        aria-label={expandedLineIds.has(line.clientId) ? "收起补充字段" : hasAdditionalInformation(line) ? "展开已填写的补充字段" : "展开补充字段"}
+                        aria-expanded={expandedLineIds.has(line.clientId)}
+                        onClick={() => toggleLineDetails(line.clientId)}
+                      >
+                        <ChevronDown className={`size-4 transition-transform ${expandedLineIds.has(line.clientId) ? "rotate-180" : ""}`} />
+                        {hasAdditionalInformation(line) && !expandedLineIds.has(line.clientId) && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />}
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" className="size-8" title="复制本条明细" aria-label="复制本条明细" onClick={() => duplicateLine(line)}><Copy className="size-4" /></Button>
+                      <Button type="button" size="icon" variant="ghost" className="size-8" title="删除本条明细" aria-label="删除本条明细" disabled={itemLines.length <= 1} onClick={() => removeLine(line.clientId, item.itemId)}><Trash2 className="size-4" /></Button>
                     </div>
                   </div>
+
+                  {expandedLineIds.has(line.clientId) && (
+                    <div className="mt-3 grid gap-3 border-t bg-muted/10 px-3 py-3 sm:grid-cols-2 xl:grid-cols-4">
+                      {showsWorkDescription(line.lineType) && (
+                        <div className="sm:col-span-2 xl:col-span-2">
+                          <Label>{workDescriptionLabel(line.lineType)}</Label>
+                          <Textarea rows={2} value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="没有可不填" />
+                        </div>
+                      )}
+                      {showsMaterialFields(line.lineType) && (
+                        <>
+                          <div>
+                            <Label>规格型号</Label>
+                            <Input value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
+                          </div>
+                          <div>
+                            <Label>品牌 / 厂家</Label>
+                            <Input value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
+                          </div>
+                        </>
+                      )}
+                      {showsProcurementMethod(line.lineType) && (
+                        <div>
+                          <Label>采购 / 实施方式</Label>
+                          <Input value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
+                        </div>
+                      )}
+                      <div>
+                        <Label>备注</Label>
+                        <Textarea rows={2} value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
