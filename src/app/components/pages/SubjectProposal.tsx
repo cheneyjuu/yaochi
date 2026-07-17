@@ -1,3 +1,4 @@
+// 关联业务：议题从立项、材料审查、公示到进入投票前的统一筹备工作台。
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SectionCard, StatusChip, EmptyState, type Tone } from "../gov/common";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -24,6 +25,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { RichTextView } from "../common/RichTextEditor";
 import {
   Select,
@@ -42,6 +44,8 @@ import {
   Megaphone,
   Undo2,
   FileSignature,
+  Inbox,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
@@ -122,6 +126,84 @@ const CAND_STATUS: Record<CandidateStatus, { label: string; tone: Tone }> = {
   WITHDRAWN: { label: "已退选", tone: "neutral" },
 };
 
+type PreparationFilter = "ALL" | "DRAFT" | "REVIEW" | "PUBLISHED" | "HANDOVER";
+
+const PREPARATION_STEPS = ["立项", "材料与审查", "公示", "进入投票"] as const;
+
+function preparationStage(subject: AdminSubject): number {
+  if (subject.status === "DRAFT") return 0;
+  if (subject.status === "PENDING_COMMITTEE" || subject.status === "PENDING_STREET") return 1;
+  if (subject.status === "PUBLISHED") return 2;
+  return 3;
+}
+
+function matchesPreparationFilter(subject: AdminSubject, filter: PreparationFilter): boolean {
+  if (filter === "ALL") return true;
+  if (filter === "DRAFT") return subject.status === "DRAFT";
+  if (filter === "REVIEW") {
+    return subject.status === "PENDING_COMMITTEE" || subject.status === "PENDING_STREET";
+  }
+  if (filter === "PUBLISHED") return subject.status === "PUBLISHED";
+  return subject.subjectType === "ELECTION" && subject.status === "SETTLED";
+}
+
+function preparationActionLabel(
+  subject: AdminSubject,
+  permissions: {
+    canPublish: boolean;
+    canProposeElection: boolean;
+    canCommitteeReview: boolean;
+    canStreetReview: boolean;
+  },
+): string {
+  if (subject.status === "DRAFT") {
+    if (subject.subjectType === "ELECTION" && permissions.canProposeElection) return "继续筹备";
+    if (subject.subjectType !== "ELECTION" && permissions.canPublish) return "准备公示";
+  }
+  if (subject.status === "PENDING_COMMITTEE" && permissions.canCommitteeReview) return "处理初审";
+  if (subject.status === "PENDING_STREET" && permissions.canStreetReview) return "处理终审";
+  if (subject.status === "PUBLISHED") return "查看公示";
+  if (subject.status === "SETTLED" && permissions.canStreetReview) return "办理备案";
+  return "查看详情";
+}
+
+function PreparationStageTrack({ subject }: { subject: AdminSubject }) {
+  const current = preparationStage(subject);
+  return (
+    <div className="flex min-w-[300px] items-start" aria-label={`当前阶段：${PREPARATION_STEPS[current]}`}>
+      {PREPARATION_STEPS.map((step, index) => {
+        const done = index < current;
+        const active = index === current;
+        return (
+          <div key={step} className="flex flex-1 items-start last:flex-none">
+            <div className="flex w-[60px] flex-col items-center gap-1">
+              <span
+                className={`mt-0.5 size-3 rounded-full border-2 ${
+                  done
+                    ? "border-[#2e9e5b] bg-[#2e9e5b]"
+                    : active
+                      ? "border-primary bg-background"
+                      : "border-[#cbd4e1] bg-background"
+                }`}
+              />
+              <span
+                className={`text-[11px] leading-4 ${
+                  active ? "text-primary" : done ? "text-[#237847]" : "text-muted-foreground"
+                }`}
+              >
+                {step}
+              </span>
+            </div>
+            {index < PREPARATION_STEPS.length - 1 && (
+              <span className={`mt-[7px] h-px flex-1 ${done ? "bg-[#2e9e5b]" : "bg-border"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function collectRejectEvidence(candidate: Candidate, stage: "party" | "committee"): RejectEvidenceInput | null {
   const rawCode = window.prompt("请输入驳回理由码：C1 / C2 / C3 / C4 / C5", "C1")?.trim().toUpperCase();
   if (!rawCode || !["C1", "C2", "C3", "C4", "C5"].includes(rawCode)) {
@@ -169,7 +251,9 @@ export function SubjectProposal() {
 
   const [subjects, setSubjects] = useState<AdminSubject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sel, setSel] = useState(0);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
+  const [filter, setFilter] = useState<PreparationFilter>("ALL");
+  const [keyword, setKeyword] = useState("");
 
   // 写动作（立项 / 公示 / 撤回 / 提名 / 审查）共享 acting 开关。
   const [acting, setActing] = useState(false);
@@ -226,7 +310,7 @@ export function SubjectProposal() {
         if (!alive) return;
         const items = res.items.filter(isPreparationStatus);
         setSubjects(items);
-        setSel(0);
+        setSelectedSubjectId(items[0]?.subjectId ?? null);
       })
       .catch((err) => {
         if (!alive) return;
@@ -246,16 +330,33 @@ export function SubjectProposal() {
       const res = await listVotingSubjects({ page: 1, size: 50 });
       const items = res.items.filter(isPreparationStatus);
       setSubjects(items);
-      const idx =
-        preserveSubjectId != null ? items.findIndex((x) => x.subjectId === preserveSubjectId) : -1;
-      setSel(idx >= 0 ? idx : 0);
+      const preserved = preserveSubjectId != null && items.some((x) => x.subjectId === preserveSubjectId);
+      setSelectedSubjectId(preserved ? preserveSubjectId! : (items[0]?.subjectId ?? null));
       setCandRefresh((k) => k + 1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "议题列表刷新失败");
     }
   }
 
-  const t = subjects[sel];
+  const visibleSubjects = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLocaleLowerCase("zh-CN");
+    return subjects.filter((subject) => {
+      if (!matchesPreparationFilter(subject, filter)) return false;
+      if (!normalizedKeyword) return true;
+      return subject.title.toLocaleLowerCase("zh-CN").includes(normalizedKeyword);
+    });
+  }, [filter, keyword, subjects]);
+
+  useEffect(() => {
+    setSelectedSubjectId((current) => {
+      if (visibleSubjects.length === 0) return null;
+      return current != null && visibleSubjects.some((subject) => subject.subjectId === current)
+        ? current
+        : visibleSubjects[0].subjectId;
+    });
+  }, [visibleSubjects]);
+
+  const t = subjects.find((subject) => subject.subjectId === selectedSubjectId);
   const subjectId = t?.subjectId;
   const isElection = t?.subjectType === "ELECTION";
 
@@ -328,6 +429,37 @@ export function SubjectProposal() {
   const approvedCount = useMemo(
     () => candidates.filter((c) => c.qualificationStatus === "APPROVED").length,
     [candidates],
+  );
+
+  const filterOptions = useMemo(
+    () => [
+      { value: "ALL" as const, label: "全部", count: subjects.length },
+      {
+        value: "DRAFT" as const,
+        label: "草稿",
+        count: subjects.filter((subject) => subject.status === "DRAFT").length,
+      },
+      {
+        value: "REVIEW" as const,
+        label: "审查中",
+        count: subjects.filter(
+          (subject) => subject.status === "PENDING_COMMITTEE" || subject.status === "PENDING_STREET",
+        ).length,
+      },
+      {
+        value: "PUBLISHED" as const,
+        label: "公示中",
+        count: subjects.filter((subject) => subject.status === "PUBLISHED").length,
+      },
+      {
+        value: "HANDOVER" as const,
+        label: "换届备案",
+        count: subjects.filter(
+          (subject) => subject.subjectType === "ELECTION" && subject.status === "SETTLED",
+        ).length,
+      },
+    ],
+    [subjects],
   );
 
   // 写动作门控：GENERAL/MAJOR 仍可直接公示；ELECTION 必须走双签。
@@ -494,7 +626,7 @@ export function SubjectProposal() {
     <div className="space-y-5">
       <PageHeader
         title="议题筹备"
-        desc="集中处理「立项 → 候选人提名 / 资格审查 → 公示」之前的全部筹备工作。公示后，一般/重大议题进入「议题投票看板」，选举议题进入「选举投票看板」。"
+        desc="统一查看立项、材料准备、必要审查与公示状态；公示完成后，议题进入对应投票看板。"
         actions={
           (canCreate || canProposeElection) ? (
             <div className="flex items-center gap-2">
@@ -511,61 +643,233 @@ export function SubjectProposal() {
         }
       />
 
-      {subjects.length === 0 ? (
-        <SectionCard>
-          <EmptyState
-            title="暂无筹备中的议题"
-            desc={
-              canCreate
-                ? "可点击右上角「立项议题」创建草稿；已公示/已开票的一般/重大议题请前往「议题投票看板」，选举议题请前往「选举投票看板」。"
-                : "已公示/已开票的一般/重大议题请前往「议题投票看板」，选举议题请前往「选举投票看板」。"
-            }
-          />
-        </SectionCard>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* 左：议题列表 */}
-          <SectionCard
-            title="筹备中议题"
-            desc={`${subjects.length} 项 · 草稿 / 初审 / 终审 / 公示中`}
-            className="lg:col-span-1"
-          >
-            <div className="flex flex-col gap-2">
-              {subjects.map((s, i) => {
-                const meta = TYPE_META[s.subjectType];
-                const on = i === sel;
-                return (
-                  <button
-                    key={s.subjectId}
-                    type="button"
-                    onClick={() => setSel(i)}
-                    className="text-left rounded-lg border p-3 transition-colors"
-                    style={{
-                      borderColor: on ? "var(--primary, #1B4F9C)" : "var(--border)",
-                      background: on ? "rgba(27,79,156,0.05)" : "transparent",
-                    }}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <StatusChip tone={meta.tone}>{meta.label}</StatusChip>
-                      <StatusChip tone={STATUS_TONE[s.status]}>{STATUS_LABEL[s.status]}</StatusChip>
-                    </div>
-                    <div className="text-sm" style={{ fontWeight: 600 }}>
-                      {s.title}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      截止 {fmtDeadline(s.voteEndAt)}
-                    </div>
-                  </button>
-                );
-              })}
+      <section
+        aria-labelledby="preparation-flow-title"
+        className="rounded-lg border border-border bg-card px-4 py-4 sm:px-5"
+      >
+        <div className="grid items-center gap-4 xl:grid-cols-[130px_minmax(560px,1fr)_210px]">
+          <div>
+            <h2 id="preparation-flow-title" className="text-base" style={{ fontWeight: 600 }}>
+              筹备流程
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">按议题类型适用</p>
+          </div>
+          <div className="overflow-x-auto pb-1">
+            <div className="flex min-w-[560px] items-center">
+              {PREPARATION_STEPS.map((step, index) => (
+                <div key={step} className="flex flex-1 items-center last:flex-none">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="size-5 rounded-full border-2 border-[#9aa5b5] bg-background" />
+                    <span className="text-sm whitespace-nowrap">{step}</span>
+                  </div>
+                  {index < PREPARATION_STEPS.length - 1 && (
+                    <span className="mx-4 h-px flex-1 border-t border-dashed border-[#b9c3d1]" />
+                  )}
+                </div>
+              ))}
             </div>
-          </SectionCard>
+          </div>
+          <p className="border-l border-border pl-4 text-sm leading-5 text-muted-foreground">
+            {subjects.length === 0 ? "创建议题后，在列表中显示实际进度" : "每项议题的实际进度见下方列表"}
+          </p>
+        </div>
+      </section>
 
-          {/* 右：详情面板 */}
-          <div className="lg:col-span-2 flex flex-col gap-5">
-            {/* 议题信息 + 状态机操作 */}
+      {subjects.length === 0 ? (
+        <section className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex flex-col items-center px-5 py-11 text-center sm:py-12">
+            <span className="mb-4 grid size-14 place-items-center rounded-full bg-muted text-muted-foreground">
+              <Inbox className="size-7" />
+            </span>
+            <h2 className="text-xl" style={{ fontWeight: 600 }}>暂无筹备中的议题</h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              从立项开始，系统会引导你准备材料、完成必要审查并安排公示。
+            </p>
+            {(canCreate || canProposeElection) && (
+              <Button className="mt-5" onClick={() => setPage("subject-proposal-editor")}>
+                <Plus className="size-4" /> 立项议题
+              </Button>
+            )}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-sm">
+              <Button variant="link" size="sm" onClick={() => setPage("voting")}>前往议题投票看板</Button>
+              <span className="text-border">|</span>
+              <Button variant="link" size="sm" onClick={() => setPage("election")}>前往选举投票看板</Button>
+            </div>
+          </div>
+
+          <div className="border-t border-border px-5 py-4">
+            <div className="mb-3 flex items-center gap-3">
+              <h3 className="text-sm" style={{ fontWeight: 600 }}>开始前，请准备</h3>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <div className="grid grid-cols-1 divide-y divide-border border border-border md:grid-cols-3 md:divide-x md:divide-y-0">
+              {[
+                ["01", "确定议题类型", "一般、重大或选举议题"],
+                ["02", "整理基础材料", "说明、依据与相关附件"],
+                ["03", "确认公示安排", "范围、时间与通知方式"],
+              ].map(([number, title, desc]) => (
+                <div key={number} className="flex items-center gap-3 px-4 py-4">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full border border-border bg-muted/40 text-sm text-primary" style={{ fontWeight: 600 }}>
+                    {number}
+                  </span>
+                  <div>
+                    <p className="text-sm" style={{ fontWeight: 600 }}>{title}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-start gap-2 border-t border-border bg-muted/25 px-5 py-3 text-sm text-muted-foreground">
+            <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+            选举议题会在筹备阶段增加候选人提名与资格审查。
+          </div>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          <section className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="flex flex-col gap-3 border-b border-border px-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex min-w-0 overflow-x-auto">
+                {filterOptions
+                  .filter((option) => option.value !== "HANDOVER" || option.count > 0)
+                  .map((option) => {
+                    const active = filter === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setFilter(option.value)}
+                        className={`relative shrink-0 px-3 py-3.5 text-sm transition-colors ${
+                          active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        style={{ fontWeight: active ? 600 : 400 }}
+                      >
+                        {option.label} <span className="font-mono-num">{option.count}</span>
+                        {active && <span className="absolute inset-x-3 bottom-0 h-0.5 bg-primary" />}
+                      </button>
+                    );
+                  })}
+              </div>
+              <div className="relative pb-3 sm:py-2.5">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-label="搜索议题名称"
+                  className="h-9 w-full pl-9 sm:w-64"
+                  placeholder="搜索议题名称"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <Table className="min-w-[1080px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[32%] pl-5">议题名称</TableHead>
+                  <TableHead className="w-[13%]">议题类型</TableHead>
+                  <TableHead className="w-[30%]">当前阶段</TableHead>
+                  <TableHead className="w-[15%]">投票安排</TableHead>
+                  <TableHead className="w-[10%] pr-5 text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleSubjects.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-44 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <Inbox className="size-7" />
+                        <p className="text-sm">未找到符合条件的议题</p>
+                        <Button
+                          size="sm"
+                          variant="link"
+                          onClick={() => {
+                            setFilter("ALL");
+                            setKeyword("");
+                          }}
+                        >
+                          清除筛选
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  visibleSubjects.map((subject) => {
+                    const selected = subject.subjectId === selectedSubjectId;
+                    const scopeLabel = subject.scope === "COMMUNITY"
+                      ? "全小区"
+                      : `${subject.scope === "BUILDING" ? "单栋" : "单元"} #${subject.scopeReferenceId ?? "—"}`;
+                    return (
+                      <TableRow
+                        key={subject.subjectId}
+                        data-state={selected ? "selected" : undefined}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedSubjectId(subject.subjectId)}
+                      >
+                        <TableCell className="py-4 pl-5 whitespace-normal">
+                          <p className="line-clamp-2 text-sm leading-5" style={{ fontWeight: 600 }}>{subject.title}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{scopeLabel}</p>
+                        </TableCell>
+                        <TableCell>
+                          <StatusChip tone={TYPE_META[subject.subjectType].tone}>
+                            {TYPE_META[subject.subjectType].label}
+                          </StatusChip>
+                        </TableCell>
+                        <TableCell className="py-4">
+                          <PreparationStageTrack subject={subject} />
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-mono-num text-xs">{fmtDeadline(subject.voteStartAt)}</p>
+                          <p className="mt-1 font-mono-num text-xs text-muted-foreground">
+                            至 {fmtDeadline(subject.voteEndAt)}
+                          </p>
+                        </TableCell>
+                        <TableCell className="pr-5 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedSubjectId(subject.subjectId);
+                              window.requestAnimationFrame(() => {
+                                document.getElementById("subject-preparation-detail")?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "start",
+                                });
+                              });
+                            }}
+                          >
+                            {preparationActionLabel(subject, {
+                              canPublish,
+                              canProposeElection,
+                              canCommitteeReview: canSubjectCommitteeReview,
+                              canStreetReview: canSubjectStreetReview,
+                            })}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+
+            <div className="flex flex-col gap-2 border-t border-border bg-muted/25 px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <span className="flex items-start gap-2">
+                <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+                选举议题包含候选人提名与资格审查；公示完成后进入对应投票看板。
+              </span>
+              <span className="flex shrink-0 items-center gap-1">
+                <Button variant="link" size="sm" onClick={() => setPage("voting")}>议题投票看板</Button>
+                <Button variant="link" size="sm" onClick={() => setPage("election")}>选举投票看板</Button>
+              </span>
+            </div>
+          </section>
+
+          {visibleSubjects.length > 0 && t && (
+            <div id="subject-preparation-detail" className="scroll-mt-5 space-y-5">
             <SectionCard
-              title="议题信息"
+              title="议题详情"
+              desc="从上方列表选择议题，在这里完成当前阶段的处理。"
               extra={
                 <div className="flex items-center gap-2">
                   {showSubmitReview && (
@@ -689,8 +993,7 @@ export function SubjectProposal() {
               </div>
             </SectionCard>
 
-            {/* 候选人面板（仅 ELECTION） */}
-            {isElection ? (
+            {isElection && (
               <SectionCard
                 title="候选人名册 / 资格审查"
                 desc="提名后进入「待党组审查」；在筹备阶段完成党组 → 居委会两级审查，通过后进入选举公示流程"
@@ -709,7 +1012,7 @@ export function SubjectProposal() {
                 ) : candidates.length === 0 ? (
                   <EmptyState title="暂无候选人" desc="该选举议题尚无提名候选人。" />
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {candidates.map((c) => {
                       const meta = CAND_STATUS[c.qualificationStatus];
                       const showParty =
@@ -765,14 +1068,9 @@ export function SubjectProposal() {
                   </div>
                 )}
               </SectionCard>
-            ) : (
-              <SectionCard title="无候选人流程">
-                <p className="text-sm text-muted-foreground">
-                  一般决议 / 重大决议无需候选人，可直接公示进入投票。
-                </p>
-              </SectionCard>
             )}
           </div>
+          )}
         </div>
       )}
 
