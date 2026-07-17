@@ -1,6 +1,17 @@
 // 关联业务：供应商与物业按锁定工程项填写差异化维修报价明细，并按整份报价单统一计税。
 import { useState } from "react";
 import { ChevronDown, Copy, Plus, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../../ui/alert-dialog";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
@@ -181,6 +192,47 @@ function hasAdditionalInformation(line: RepairQuoteLineDraft): boolean {
   );
 }
 
+function DeleteQuoteLineButton({
+  disabled,
+  lineName,
+  onConfirm,
+}: {
+  disabled: boolean;
+  lineName: string;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          disabled={disabled}
+          title={disabled ? "每个工程项至少保留一条明细" : "删除本条明细"}
+        >
+          <Trash2 className="size-4" />删除
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>删除「{lineName.trim() || "未命名明细"}」？</AlertDialogTitle>
+          <AlertDialogDescription>
+            本条已填写的数量、单价和补充信息都会从当前报价中移除。确认删除后，如需恢复只能重新添加并填写。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={onConfirm}>
+            确认删除
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function RepairProjectQuoteEditor({
   items,
   lines,
@@ -275,99 +327,112 @@ export function RepairProjectQuoteEditor({
                 </Button>
               </div>
             </div>
-            <div className="hidden grid-cols-[minmax(9rem,1.8fr)_minmax(7rem,1.15fr)_minmax(4rem,0.55fr)_minmax(4rem,0.55fr)_minmax(7rem,0.85fr)_minmax(7rem,0.9fr)_8rem] gap-2 border-y bg-muted/15 px-3 py-2 text-xs font-medium text-muted-foreground xl:grid">
-              <div>明细名称</div>
-              <div>明细类别</div>
-              <div>数量</div>
-              <div>单位</div>
-              <div>不含税单价</div>
-              <div>不含税金额</div>
-              <div className="text-right">操作</div>
-            </div>
-            <div className="divide-y">
-              {itemLines.map((line) => (
-                <div key={line.clientId} className="px-3 py-3">
-                  <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(9rem,1.8fr)_minmax(7rem,1.15fr)_minmax(4rem,0.55fr)_minmax(4rem,0.55fr)_minmax(7rem,0.85fr)_minmax(7rem,0.9fr)_8rem] xl:gap-2">
-                    <div>
-                      <Label className="xl:sr-only">明细名称</Label>
-                      <Input value={line.itemName} onChange={(event) => updateLine(line.clientId, "itemName", event.target.value)} placeholder="材料、人工、运输或施工项目" />
-                    </div>
-                    <div>
-                      <Label className="xl:sr-only">明细类别</Label>
-                      <Select value={line.lineType} onValueChange={(value) => updateLine(line.clientId, "lineType", value as RepairProjectQuoteLineType)}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{LINE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="xl:sr-only">数量</Label>
-                      <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.clientId, "quantity", event.target.value)} />
-                    </div>
-                    <div>
-                      <Label className="xl:sr-only">单位</Label>
-                      <Input value={line.unit} onChange={(event) => updateLine(line.clientId, "unit", event.target.value)} />
-                    </div>
-                    <div>
-                      <Label className="xl:sr-only">不含税单价</Label>
-                      <Input type="number" min="0" step="0.01" value={line.unitPriceExcludingTax} onChange={(event) => updateLine(line.clientId, "unitPriceExcludingTax", event.target.value)} placeholder="0.00" />
-                    </div>
-                    <div className="flex h-9 items-center">
-                      <span className="mr-2 text-xs text-muted-foreground xl:hidden">不含税金额</span>
-                      <span className="text-sm font-semibold tabular-nums">{money(lineAmountExcludingTax(line))}</span>
-                    </div>
-                    <div className="flex h-9 items-center justify-end gap-1 sm:col-span-2 xl:col-span-1">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant={expandedLineIds.has(line.clientId) ? "secondary" : "ghost"}
-                        className="relative size-8"
-                        title={expandedLineIds.has(line.clientId) ? "收起补充字段" : hasAdditionalInformation(line) ? "展开已填写的补充字段" : "展开补充字段"}
-                        aria-label={expandedLineIds.has(line.clientId) ? "收起补充字段" : hasAdditionalInformation(line) ? "展开已填写的补充字段" : "展开补充字段"}
-                        aria-expanded={expandedLineIds.has(line.clientId)}
-                        onClick={() => toggleLineDetails(line.clientId)}
-                      >
-                        <ChevronDown className={`size-4 transition-transform ${expandedLineIds.has(line.clientId) ? "rotate-180" : ""}`} />
-                        {hasAdditionalInformation(line) && !expandedLineIds.has(line.clientId) && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />}
-                      </Button>
-                      <Button type="button" size="icon" variant="ghost" className="size-8" title="复制本条明细" aria-label="复制本条明细" onClick={() => duplicateLine(line)}><Copy className="size-4" /></Button>
-                      <Button type="button" size="icon" variant="ghost" className="size-8" title="删除本条明细" aria-label="删除本条明细" disabled={itemLines.length <= 1} onClick={() => removeLine(line.clientId, item.itemId)}><Trash2 className="size-4" /></Button>
-                    </div>
-                  </div>
-
-                  {expandedLineIds.has(line.clientId) && (
-                    <div className="mt-3 grid gap-3 border-t bg-muted/10 px-3 py-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {showsWorkDescription(line.lineType) && (
-                        <div className="sm:col-span-2 xl:col-span-2">
-                          <Label>{workDescriptionLabel(line.lineType)}</Label>
-                          <Textarea rows={2} value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="没有可不填" />
+            <div className="divide-y border-t">
+              {itemLines.map((line, lineIndex) => {
+                const detailsExpanded = expandedLineIds.has(line.clientId);
+                const additionalInformationFilled = hasAdditionalInformation(line);
+                return (
+                  <div key={line.clientId} className="px-4 py-4">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold">报价明细 {lineIndex + 1}</span>
+                        {additionalInformationFilled && !detailsExpanded && <span className="text-xs font-medium text-primary">含补充信息</span>}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={detailsExpanded ? "secondary" : "ghost"}
+                          className="h-8 px-2"
+                          aria-expanded={detailsExpanded}
+                          onClick={() => toggleLineDetails(line.clientId)}
+                        >
+                          <ChevronDown className={`size-4 transition-transform ${detailsExpanded ? "rotate-180" : ""}`} />
+                          补充字段
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={() => duplicateLine(line)}>
+                          <Copy className="size-4" />复制
+                        </Button>
+                        <div className="ml-2 border-l pl-2">
+                          <DeleteQuoteLineButton
+                            disabled={itemLines.length <= 1}
+                            lineName={line.itemName}
+                            onConfirm={() => removeLine(line.clientId, item.itemId)}
+                          />
                         </div>
-                      )}
-                      {showsMaterialFields(line.lineType) && (
-                        <>
-                          <div>
-                            <Label>规格型号</Label>
-                            <Input value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
-                          </div>
-                          <div>
-                            <Label>品牌 / 厂家</Label>
-                            <Input value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
-                          </div>
-                        </>
-                      )}
-                      {showsProcurementMethod(line.lineType) && (
-                        <div>
-                          <Label>采购 / 实施方式</Label>
-                          <Input value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
-                        </div>
-                      )}
-                      <div>
-                        <Label>备注</Label>
-                        <Textarea rows={2} value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    <div className="grid items-end gap-x-4 gap-y-3 lg:grid-cols-[minmax(16rem,2fr)_minmax(11rem,1fr)]">
+                      <div>
+                        <Label htmlFor={`${line.clientId}-name`} className="mb-2">明细名称</Label>
+                        <Input id={`${line.clientId}-name`} value={line.itemName} onChange={(event) => updateLine(line.clientId, "itemName", event.target.value)} placeholder="材料、人工、运输或施工项目" />
+                      </div>
+                      <div>
+                        <Label htmlFor={`${line.clientId}-type`} className="mb-2">明细类别</Label>
+                        <Select value={line.lineType} onValueChange={(value) => updateLine(line.clientId, "lineType", value as RepairProjectQuoteLineType)}>
+                          <SelectTrigger id={`${line.clientId}-type`}><SelectValue /></SelectTrigger>
+                          <SelectContent>{LINE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid items-end gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-[minmax(7rem,0.7fr)_minmax(6rem,0.6fr)_minmax(10rem,1fr)_minmax(10rem,1fr)]">
+                      <div>
+                        <Label htmlFor={`${line.clientId}-quantity`} className="mb-2">数量</Label>
+                        <Input id={`${line.clientId}-quantity`} type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.clientId, "quantity", event.target.value)} />
+                      </div>
+                      <div>
+                        <Label htmlFor={`${line.clientId}-unit`} className="mb-2">单位</Label>
+                        <Input id={`${line.clientId}-unit`} value={line.unit} onChange={(event) => updateLine(line.clientId, "unit", event.target.value)} />
+                      </div>
+                      <div>
+                        <Label htmlFor={`${line.clientId}-unit-price`} className="mb-2">不含税单价</Label>
+                        <Input id={`${line.clientId}-unit-price`} type="number" min="0" step="0.01" value={line.unitPriceExcludingTax} onChange={(event) => updateLine(line.clientId, "unitPriceExcludingTax", event.target.value)} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <Label className="mb-2">不含税金额</Label>
+                        <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm font-semibold tabular-nums">
+                          {money(lineAmountExcludingTax(line))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {detailsExpanded && (
+                      <div className="mt-4 grid items-start gap-4 border-t bg-muted/10 px-3 py-4 sm:grid-cols-2 xl:grid-cols-4">
+                        {showsWorkDescription(line.lineType) && (
+                          <div className="sm:col-span-2 xl:col-span-4">
+                            <Label htmlFor={`${line.clientId}-description`} className="mb-2">{workDescriptionLabel(line.lineType)}</Label>
+                            <Textarea id={`${line.clientId}-description`} rows={2} value={line.workDescription} onChange={(event) => updateLine(line.clientId, "workDescription", event.target.value)} placeholder="没有可不填" />
+                          </div>
+                        )}
+                        {showsMaterialFields(line.lineType) && (
+                          <>
+                            <div>
+                              <Label htmlFor={`${line.clientId}-specification`} className="mb-2">规格型号</Label>
+                              <Input id={`${line.clientId}-specification`} value={line.specificationModel} onChange={(event) => updateLine(line.clientId, "specificationModel", event.target.value)} placeholder="没有可不填" />
+                            </div>
+                            <div>
+                              <Label htmlFor={`${line.clientId}-brand`} className="mb-2">品牌 / 厂家</Label>
+                              <Input id={`${line.clientId}-brand`} value={line.brand} onChange={(event) => updateLine(line.clientId, "brand", event.target.value)} placeholder="没有可不填" />
+                            </div>
+                          </>
+                        )}
+                        {showsProcurementMethod(line.lineType) && (
+                          <div>
+                            <Label htmlFor={`${line.clientId}-procurement`} className="mb-2">采购 / 实施方式</Label>
+                            <Input id={`${line.clientId}-procurement`} value={line.procurementMethod} onChange={(event) => updateLine(line.clientId, "procurementMethod", event.target.value)} placeholder="按报价原件填写" />
+                          </div>
+                        )}
+                        <div className={showsMaterialFields(line.lineType) ? undefined : showsProcurementMethod(line.lineType) ? "xl:col-span-3" : "sm:col-span-2 xl:col-span-4"}>
+                          <Label htmlFor={`${line.clientId}-remark`} className="mb-2">备注</Label>
+                          <Input id={`${line.clientId}-remark`} value={line.remark} onChange={(event) => updateLine(line.clientId, "remark", event.target.value)} placeholder="产地、施工边界等" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         );
