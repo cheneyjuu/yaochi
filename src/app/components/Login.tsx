@@ -175,14 +175,15 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
                 className="pointer-events-none absolute inset-0 size-full"
                 aria-hidden="true"
               >
-                <g transform="translate(785 647)">
-                  <rect width="210" height="42" rx="3" fill="#1f5fa8" />
+                {/* 门头与服务中心正立面的斜率一致，并以主入口中线为中心。 */}
+                <g transform="matrix(1 0.36 0 0.82 654 573)">
+                  <rect width="182" height="42" rx="2" fill="#1f5fa8" />
                   <text
-                    x="105"
-                    y="22"
+                    x="91"
+                    y="21"
                     fill="#ffffff"
                     fontFamily="Noto Sans SC, PingFang SC, sans-serif"
-                    fontSize="24"
+                    fontSize="22"
                     fontWeight="600"
                     textAnchor="middle"
                     dominantBaseline="middle"
