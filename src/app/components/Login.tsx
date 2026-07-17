@@ -167,31 +167,9 @@ export function Login({ onCommunityRegistration }: { onCommunityRegistration: ()
             <div className="login-illustration-motion relative w-full max-w-[820px]">
               <img
                 src={communityIllustration}
-                alt="现代社区住宅、社区服务中心与公共空间的等距插画"
+                alt="现代社区住宅与公共空间的等距插画"
                 className="block h-auto w-full object-contain"
               />
-              <svg
-                viewBox="0 0 1448 1086"
-                className="pointer-events-none absolute inset-0 size-full"
-                aria-hidden="true"
-              >
-                {/* 小尺寸下保留轻微透视，并以主入口中线为中心，避免门头过度倾斜。 */}
-                <g transform="matrix(1 0.08 0 0.92 654 596)">
-                  <rect width="182" height="42" rx="2" fill="#1f5fa8" />
-                  <text
-                    x="91"
-                    y="21"
-                    fill="#ffffff"
-                    fontFamily="Noto Sans SC, PingFang SC, sans-serif"
-                    fontSize="22"
-                    fontWeight="600"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                  >
-                    社区服务中心
-                  </text>
-                </g>
-              </svg>
             </div>
           </div>
         </div>
