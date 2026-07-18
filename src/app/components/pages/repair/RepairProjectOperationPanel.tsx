@@ -9,8 +9,10 @@ import {
   FileText,
   History,
   Loader2,
+  Plus,
   Play,
   ShieldCheck,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -57,9 +59,9 @@ import {
   getRepairProjectAttachmentTicket,
   getRepairProjectProcessHistory,
   getRepairProjectSourcing,
-  linkRepairPlanAttachment,
   lockRepairProjectPlan,
   postRepairProjectAction,
+  reverifyRepairProjectDecisionScope,
   type RepairBuildingGovernanceDetails,
   type RepairCommunityAssemblyLink,
   type RepairPaymentMilestone,
@@ -70,6 +72,7 @@ import {
   type RepairProjectPlan,
   type RepairProjectSourcingDetails,
   type RepairProjectStage,
+  type RepairWorkPoint,
 } from "../../../lib/repair-project";
 import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
 import { RepairProjectSourcingOperation } from "./RepairProjectSourcingOperation";
@@ -118,6 +121,13 @@ function formatRuleDate(value?: string | null): string {
 
 function formatDateTime(value?: string | null): string {
   return value ? value.replace("T", " ").slice(0, 16) : "未记录";
+}
+
+function isPercentageTaxRate(value: string): boolean {
+  const normalized = value.trim();
+  return /^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(normalized)
+    && Number(normalized) >= 0
+    && Number(normalized) <= 100;
 }
 
 function buildingProcessStatusLabel(value?: string | null): string {
@@ -334,8 +344,6 @@ export function RepairProjectOperationPanel({
           <PlanLockOperation
             details={details}
             plan={draftPlan}
-            sourcing={sourcing}
-            remember={remember}
             busy={busy}
             run={run}
           />
@@ -358,6 +366,7 @@ export function RepairProjectOperationPanel({
           <CommunityGovernanceOperation
             details={details}
             link={assemblyLink}
+            remember={remember}
             busy={busy}
             run={run}
             afterGovernance={reloadGovernance}
@@ -506,36 +515,34 @@ function RepairProjectProcessHistory({
 function PlanLockOperation({
   details,
   plan,
-  sourcing,
-  remember,
   busy,
   run,
-}: OperationProps & { plan: RepairProjectPlan; sourcing: RepairProjectSourcingDetails | null }) {
+}: Omit<OperationProps, "remember"> & { plan: RepairProjectPlan }) {
   const project = details.project;
-  const [photo, setPhoto] = useState<RepairProjectAttachment | null>(null);
-  const linked = new Set(details.currentPlanAttachments.map((item) => item.purpose));
-
-  async function link(attachment: RepairProjectAttachment) {
-    remember(attachment);
-    await run(
-      "link-SITE_PHOTO",
-      () => linkRepairPlanAttachment(project.projectId, plan.planId, { attachmentId: attachment.attachmentId, purpose: "SITE_PHOTO" }),
-      "现场照片已关联",
-    );
-  }
+  const decisionScope = details.decisionScope;
+  const decisionScopePending = decisionScope?.verificationStatus === "PENDING_VERIFICATION";
+  const fundingSlicesConfirmed = details.fundingSlices.length > 0
+    && details.fundingSlices.every((slice) => slice.verificationStatus === "CONFIRMED");
 
   return (
-    <OperationSection title="锁定当前实施方案" desc="完成定商并归档现场照片后锁定；报价原件由上方中选记录自动进入方案快照和业主披露。">
-      <div className="max-w-xl">
-        <FileUpload projectId={project.projectId} label="现场照片" value={photo} accept="image/*" onUploaded={(file) => { setPhoto(file); void link(file); }} />
-      </div>
+    <OperationSection title="请求锁定当前实施方案" desc="锁定时由后端重新核验决定范围、资金承担、验收与证据依据，并固化真实快照。本页不以定商结果或附件上传替代这些核验。">
       <div className="mt-4 flex items-center justify-between gap-4">
-        <div className="flex gap-2"><StatusChip tone={sourcing?.selection ? "success" : "warning"}>定商{sourcing?.selection ? "已完成" : "待完成"}</StatusChip><StatusChip tone={linked.has("SITE_PHOTO") ? "success" : "warning"}>现场照片{linked.has("SITE_PHOTO") ? "已归档" : "待归档"}</StatusChip></div>
-        <Button disabled={busy !== null || !sourcing?.selection || !linked.has("SITE_PHOTO")} onClick={() => void run(
-          "lock-plan",
-          () => lockRepairProjectPlan(project.projectId, plan.planId, project.version),
-          "实施方案已锁定",
-        )}><ShieldCheck className="mr-1 size-4" />锁定方案</Button>
+        <div className="flex flex-wrap gap-2">
+          <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>决定范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核验"}</StatusChip>
+          <StatusChip tone={fundingSlicesConfirmed ? "success" : "warning"}>资金承担快照{fundingSlicesConfirmed ? "已确认" : "待后端核验"}</StatusChip>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {decisionScopePending && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
+            "reverify-decision-scope",
+            () => reverifyRepairProjectDecisionScope(project.projectId, project.version),
+            "已按关联来源重新核验决定范围",
+          )}>重新核验范围</Button>}
+          <Button disabled={busy !== null} onClick={() => void run(
+            "lock-plan",
+            () => lockRepairProjectPlan(project.projectId, plan.planId, project.version),
+            "后端已核验并锁定实施方案",
+          )}><ShieldCheck className="mr-1 size-4" />请求锁定</Button>
+        </div>
       </div>
     </OperationSection>
   );
@@ -580,7 +587,8 @@ function BuildingGovernanceOperation({
   const [decisionConfirmationOpen, setDecisionConfirmationOpen] = useState(false);
   const [auditedGovernance, setAuditedGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const status = governance?.process.status;
-  const allocationBasis = details.currentPlanAllocationBasis;
+  const confirmedFundingSlices = details.fundingSlices.filter((slice) => slice.verificationStatus === "CONFIRMED");
+  const decisionScopeConfirmed = details.decisionScope?.verificationStatus === "CONFIRMED";
   const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
     && hasPermission("repair:decision:verify");
   const isCommitteePriceReviewer = ["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "")
@@ -684,15 +692,10 @@ function BuildingGovernanceOperation({
   if (!governance) {
     const unsupportedNonResponseRule = decisionRule?.nonResponseRule !== undefined
       && decisionRule.nonResponseRule !== "NOT_PARTICIPATED";
-    const canStart = Boolean(
-      decisionRule
-      && planningPolicy
-      && allocationBasis
-      && allocationBasis.roomCount > 0
-      && !unsupportedNonResponseRule,
-    );
+    // 当前后端尚未提供可用于征询的业主/面积范围快照，不能由项目范围或资金切片自动补造。
+    const canStart = false;
     return (
-      <OperationSection title="发起楼栋维修征询" desc="系统按社区配置生成微信接龙或 C 端在线表决，并锁定备案规则与费用承担范围。未回复不会被推定为同意。">
+      <OperationSection title="楼栋维修治理依据" desc="业主征询必须依赖后端已核验的决定范围、资金承担和业主范围快照。当前页面不会从项目范围或资金切片自动生成征询对象。">
         <div className="grid overflow-hidden rounded-md border bg-border md:grid-cols-2 md:gap-px">
           <div className="bg-background p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -734,21 +737,15 @@ function BuildingGovernanceOperation({
             )}
           </div>
           <div className="bg-background p-4">
-            <div className="mb-3 text-sm font-semibold">系统锁定的征询范围</div>
-            {allocationBasis && allocationBasis.roomCount > 0 ? (
-              <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">范围名称</dt><dd className="mt-1 font-medium">{allocationBasis.scopeLabel} · 费用承担范围内业主</dd></div>
-                <div><dt className="text-xs text-muted-foreground">费用承担房屋</dt><dd className="mt-1">{allocationBasis.roomCount} 套</dd></div>
-                <div><dt className="text-xs text-muted-foreground">已登记业主</dt><dd className="mt-1">{allocationBasis.ownerCount} 人</dd></div>
-                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">建筑面积合计</dt><dd className="mt-1">{Number(allocationBasis.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡</dd></div>
-              </dl>
-            ) : (
-              <div className="flex gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-900">
-                <AlertTriangle className="mt-1 size-4 shrink-0" />
-                <span>锁定方案中没有可用的费用承担房屋快照，不能发起征询。</span>
-              </div>
-            )}
-            <p className="mt-4 text-xs leading-5 text-muted-foreground">征询范围由锁定方案的费用承担房屋快照生成，项目办理人不能手工扩大或缩小。</p>
+            <div className="mb-3 text-sm font-semibold">后端核验快照</div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs text-muted-foreground">项目决定范围</dt><dd className="mt-1">{decisionScopeConfirmed ? "已确认" : "待核验"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">资金承担切片</dt><dd className="mt-1">{confirmedFundingSlices.length > 0 ? `已确认 ${confirmedFundingSlices.length} 项` : "待核验"}</dd></div>
+            </dl>
+            <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+              <AlertTriangle className="mt-1 size-4 shrink-0" />
+              <span>当前契约未提供可用于业主征询的实际业主、房屋或面积快照。该事实不能由项目范围或资金承担切片推导，待后端可信快照接入后才可发起征询。</span>
+            </div>
           </div>
         </div>
         {unsupportedNonResponseRule && (
@@ -763,7 +760,7 @@ function BuildingGovernanceOperation({
             expectedProjectVersion: project.version,
           }),
           "楼栋维修征询已发起",
-        )}>发起征询</Button>
+        )}>等待后端治理快照</Button>
       </OperationSection>
     );
   }
@@ -1268,10 +1265,59 @@ function ContractOperation({
   );
 }
 
+interface ExecutionSettlementLineDraft {
+  clientId: string;
+  workPointId: number | null;
+  actualQuantity: string;
+  unit: string;
+  actualUnitPrice: string;
+  varianceReason: string;
+}
+
+let executionSettlementLineSequence = 0;
+
+function emptyExecutionSettlementLine(): ExecutionSettlementLineDraft {
+  executionSettlementLineSequence += 1;
+  return {
+    clientId: `execution-settlement-line-${executionSettlementLineSequence}`,
+    workPointId: null,
+    actualQuantity: "",
+    unit: "",
+    actualUnitPrice: "",
+    varianceReason: "",
+  };
+}
+
+function ManagementWorkPointSelect({
+  workPoints,
+  value,
+  onValueChange,
+  compact = false,
+}: {
+  workPoints: RepairWorkPoint[];
+  value: string;
+  onValueChange: (value: string) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      {!compact && <Label>关联维修点位（可选）</Label>}
+      <Select value={value || "__PROJECT_WIDE__"} onValueChange={(nextValue) => onValueChange(nextValue === "__PROJECT_WIDE__" ? "" : nextValue)}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__PROJECT_WIDE__">项目通用事项</SelectItem>
+          {workPoints.map((point) => <SelectItem key={point.workPointId} value={String(point.workPointId)}>{point.businessName}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function ExecutionOperation({ details, execution, remember, busy, run }: OperationProps & { execution: RepairProjectExecutionDetails }) {
   const project = details.project;
+  const workPoints = details.currentPlanWorkPoints;
   const [mode, setMode] = useState<"EXECUTION" | "MATERIAL" | "SETTLEMENT">("EXECUTION");
-  const [itemId, setItemId] = useState(String(details.currentPlanItems[0]?.itemId ?? ""));
+  const [workPointId, setWorkPointId] = useState("");
   const [stage, setStage] = useState<RepairProjectStage>("BEFORE_CONSTRUCTION");
   const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState(nowLocal());
@@ -1280,55 +1326,89 @@ function ExecutionOperation({ details, execution, remember, busy, run }: Operati
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [specification, setSpecification] = useState("");
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [qualification, setQualification] = useState<RepairProjectAttachment | null>(null);
   const [materialPhoto, setMaterialPhoto] = useState<RepairProjectAttachment | null>(null);
   const [settlementFile, setSettlementFile] = useState<RepairProjectAttachment | null>(null);
-  const [settlementItems, setSettlementItems] = useState<Record<number, { quantity: string; unitPrice: string; taxRate: string; reason: string }>>({});
+  const [settlementTaxRate, setSettlementTaxRate] = useState("");
+  const [settlementLines, setSettlementLines] = useState<ExecutionSettlementLineDraft[]>([]);
+  const workPointById = useMemo(
+    () => new Map(workPoints.map((point) => [point.workPointId, point])),
+    [workPoints],
+  );
 
   useEffect(() => {
-    setSettlementItems(Object.fromEntries(details.currentPlanItems.map((item) => [item.itemId, {
-      quantity: String(item.quantity),
-      unitPrice: String(item.estimatedUnitPrice),
-      taxRate: "0",
-      reason: "",
-    }])));
+    setWorkPointId("");
+    setQuantity("");
+    setEvidenceFile(null);
+    setQualification(null);
+    setMaterialPhoto(null);
+    setSettlementFile(null);
+    setSettlementTaxRate("");
+    setSettlementLines([]);
   }, [project.projectId, project.activePlanId]);
 
+  function updateSettlementLine(clientId: string, field: keyof ExecutionSettlementLineDraft, value: string | number | null) {
+    setSettlementLines((current) => current.map((line) => line.clientId === clientId ? { ...line, [field]: value } : line));
+  }
+
+  const settlementPayload = useMemo(() => settlementLines.map((line) => ({
+    workPointId: line.workPointId ?? undefined,
+    actualQuantity: Number(line.actualQuantity),
+    unit: line.unit.trim(),
+    actualUnitPrice: Number(line.actualUnitPrice),
+    varianceReason: line.varianceReason.trim() || undefined,
+  })), [settlementLines]);
+  const settlementTaxRateNumber = Number(settlementTaxRate);
+  const settlementValid = settlementPayload.length > 0
+    && isPercentageTaxRate(settlementTaxRate)
+    && settlementPayload.every((line) =>
+      (line.workPointId == null || workPointById.has(line.workPointId))
+      && Number.isFinite(line.actualQuantity) && line.actualQuantity >= 0
+      && Boolean(line.unit)
+      && Number.isFinite(line.actualUnitPrice) && line.actualUnitPrice >= 0);
+  const workPointLabel = (value?: number | null) => value == null
+    ? "项目通用事项"
+    : workPointById.get(value)?.businessName ?? `维修点位 #${value}`;
+
   return (
-    <OperationSection title="施工、材料与结算" desc="施工单位提交原始记录，物业逐条核验；验收只能基于已核验过程证据、材料和结构化结算。">
+    <OperationSection title="施工、材料与结算" desc="施工单位提交原始记录，物业逐条核验；过程、材料和专业结算可如实关联维修点位，也可记录项目通用事项。">
       <div className="mb-4 inline-flex rounded-md border bg-muted/30 p-1">
         {(["EXECUTION", "MATERIAL", "SETTLEMENT"] as const).map((value) => <Button key={value} size="sm" variant={mode === value ? "default" : "ghost"} onClick={() => setMode(value)}>{value === "EXECUTION" ? "施工记录" : value === "MATERIAL" ? "材料进场" : "竣工结算"}</Button>)}
       </div>
 
       {mode === "EXECUTION" && <div className="grid gap-4 md:grid-cols-2">
-        <div><Label>工程项</Label><Select value={itemId} onValueChange={setItemId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{details.currentPlanItems.map((item) => <SelectItem key={item.itemId} value={String(item.itemId)}>{item.itemNo} · {item.locationText}</SelectItem>)}</SelectContent></Select></div>
+        <ManagementWorkPointSelect workPoints={workPoints} value={workPointId} onValueChange={setWorkPointId} />
         <div><Label>阶段</Label><Select value={stage} onValueChange={(value) => setStage(value as RepairProjectStage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STAGE_LABEL).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
         <div><Label>发生时间</Label><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} /></div>
         <FileUpload projectId={project.projectId} label="阶段原始证据" value={evidenceFile} onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
         <div className="md:col-span-2"><Label>现场说明</Label><Textarea value={description} onChange={(event) => setDescription(event.target.value)} /></div>
-        <Button disabled={busy !== null || !itemId || !description.trim() || !evidenceFile} onClick={() => void run("execution-record", () => postRepairProjectAction(project.projectId, "execution-records", { itemId: Number(itemId), stage, description, occurredAt, attachmentIds: [evidenceFile?.attachmentId] }), "施工记录已提交")}>提交施工记录</Button>
+        <Button disabled={busy !== null || !description.trim() || !evidenceFile} onClick={() => void run("execution-record", () => postRepairProjectAction(project.projectId, "execution-records", { workPointId: workPointId ? Number(workPointId) : undefined, stage, description, occurredAt, attachmentIds: [evidenceFile?.attachmentId] }), "施工记录已提交")}>提交施工记录</Button>
       </div>}
 
       {mode === "MATERIAL" && <div className="grid gap-4 md:grid-cols-3">
-        <div><Label>工程项</Label><Select value={itemId} onValueChange={setItemId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{details.currentPlanItems.map((item) => <SelectItem key={item.itemId} value={String(item.itemId)}>{item.itemNo}</SelectItem>)}</SelectContent></Select></div>
+        <ManagementWorkPointSelect workPoints={workPoints} value={workPointId} onValueChange={setWorkPointId} />
         <div><Label>材料名称</Label><Input value={materialName} onChange={(event) => setMaterialName(event.target.value)} /></div><div><Label>品牌</Label><Input value={brand} onChange={(event) => setBrand(event.target.value)} /></div>
         <div><Label>型号</Label><Input value={model} onChange={(event) => setModel(event.target.value)} /></div><div><Label>规格</Label><Input value={specification} onChange={(event) => setSpecification(event.target.value)} /></div><div><Label>生产厂家</Label><Input value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} /></div>
-        <div><Label>数量</Label><Input type="number" min="0" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div><div><Label>单位</Label><Input value={unit} onChange={(event) => setUnit(event.target.value)} /></div>
+        <div><Label>数量</Label><Input type="number" min="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div><div><Label>单位</Label><Input value={unit} onChange={(event) => setUnit(event.target.value)} /></div>
         <FileUpload projectId={project.projectId} label="合格证明" value={qualification} onUploaded={(file) => { remember(file); setQualification(file); }} /><FileUpload projectId={project.projectId} label="进场照片" value={materialPhoto} accept="image/*" onUploaded={(file) => { remember(file); setMaterialPhoto(file); }} />
-        <div className="flex items-end"><Button disabled={busy !== null || !itemId || !materialName || !brand || !model || !specification || !manufacturer || !unit || !qualification || !materialPhoto} onClick={() => void run("material", () => postRepairProjectAction(project.projectId, "material-inspections", { itemId: Number(itemId), materialName, brand, model, specification, quantity: Number(quantity), unit, manufacturer, qualificationAttachmentId: qualification?.attachmentId, photoAttachmentIds: [materialPhoto?.attachmentId] }), "材料进场记录已提交")}>提交材料记录</Button></div>
+        <div className="flex items-end"><Button disabled={busy !== null || !materialName.trim() || !brand.trim() || !model.trim() || !specification.trim() || !manufacturer.trim() || Number(quantity) <= 0 || !unit.trim() || !qualification || !materialPhoto} onClick={() => void run("material", () => postRepairProjectAction(project.projectId, "material-inspections", { workPointId: workPointId ? Number(workPointId) : undefined, materialName, brand, model, specification, quantity: Number(quantity), unit, manufacturer, qualificationAttachmentId: qualification?.attachmentId, photoAttachmentIds: [materialPhoto?.attachmentId] }), "材料进场记录已提交")}>提交材料记录</Button></div>
       </div>}
 
       {mode === "SETTLEMENT" && <div className="space-y-4">
-        <FileUpload projectId={project.projectId} label="竣工结算原件" value={settlementFile} onUploaded={(file) => { remember(file); setSettlementFile(file); }} />
-        <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/50"><tr><th className="p-2 text-left">工程项</th><th className="p-2 text-left">实际数量</th><th className="p-2 text-left">单位</th><th className="p-2 text-left">实际单价</th><th className="p-2 text-left">税率</th><th className="p-2 text-left">差异原因</th></tr></thead><tbody>{details.currentPlanItems.map((item) => { const value = settlementItems[item.itemId] ?? { quantity: "", unitPrice: "", taxRate: "0", reason: "" }; const update = (field: keyof typeof value, next: string) => setSettlementItems((current) => ({ ...current, [item.itemId]: { ...value, [field]: next } })); return <tr key={item.itemId} className="border-t"><td className="p-2">{item.itemNo}</td><td className="p-2"><Input type="number" value={value.quantity} onChange={(event) => update("quantity", event.target.value)} /></td><td className="p-2">{item.unit}</td><td className="p-2"><Input type="number" value={value.unitPrice} onChange={(event) => update("unitPrice", event.target.value)} /></td><td className="p-2"><Input type="number" min="0" max="1" step="0.01" value={value.taxRate} onChange={(event) => update("taxRate", event.target.value)} /></td><td className="p-2"><Input value={value.reason} onChange={(event) => update("reason", event.target.value)} /></td></tr>; })}</tbody></table></div>
-        <Button disabled={busy !== null || !settlementFile} onClick={() => void run("settlement", () => postRepairProjectAction(project.projectId, "settlement", { settlementAttachmentId: settlementFile?.attachmentId, items: details.currentPlanItems.map((item) => ({ projectItemId: item.itemId, actualQuantity: Number(settlementItems[item.itemId]?.quantity), unit: item.unit, actualUnitPrice: Number(settlementItems[item.itemId]?.unitPrice), taxRate: Number(settlementItems[item.itemId]?.taxRate), varianceReason: settlementItems[item.itemId]?.reason || undefined })) }), "竣工结算已提交")}>提交结算</Button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FileUpload projectId={project.projectId} label="竣工结算原件" value={settlementFile} onUploaded={(file) => { remember(file); setSettlementFile(file); }} />
+          <div><Label>结算单税率（%）</Label><Input type="number" min="0" max="100" step="0.001" value={settlementTaxRate} onChange={(event) => setSettlementTaxRate(event.target.value)} /></div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">每条结算专业明细可关联维修点位，也可如实记录项目通用事项。</p><Button type="button" size="sm" variant="outline" onClick={() => setSettlementLines((current) => [...current, emptyExecutionSettlementLine()])}><Plus className="size-4" />新增结算明细</Button></div>
+        {settlementLines.length === 0 ? <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">尚未新增结算专业明细。</div> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[960px] text-sm"><thead className="bg-muted/50"><tr><th className="p-2 text-left">关联维修点位</th><th className="p-2 text-left">实际数量</th><th className="p-2 text-left">单位</th><th className="p-2 text-left">实际单价</th><th className="p-2 text-left">差异原因</th><th className="p-2 text-right">操作</th></tr></thead><tbody>{settlementLines.map((line) => <tr key={line.clientId} className="border-t"><td className="p-2"><ManagementWorkPointSelect compact workPoints={workPoints} value={line.workPointId == null ? "" : String(line.workPointId)} onValueChange={(value) => updateSettlementLine(line.clientId, "workPointId", value ? Number(value) : null)} /></td><td className="p-2"><Input type="number" min="0" value={line.actualQuantity} onChange={(event) => updateSettlementLine(line.clientId, "actualQuantity", event.target.value)} /></td><td className="p-2"><Input value={line.unit} onChange={(event) => updateSettlementLine(line.clientId, "unit", event.target.value)} /></td><td className="p-2"><Input type="number" min="0" value={line.actualUnitPrice} onChange={(event) => updateSettlementLine(line.clientId, "actualUnitPrice", event.target.value)} /></td><td className="p-2"><Input value={line.varianceReason} onChange={(event) => updateSettlementLine(line.clientId, "varianceReason", event.target.value)} /></td><td className="p-2 text-right"><Button type="button" size="icon" variant="ghost" title="删除结算明细" onClick={() => setSettlementLines((current) => current.filter((candidate) => candidate.clientId !== line.clientId))}><Trash2 className="size-4" /></Button></td></tr>)}</tbody></table></div>}
+        <Button disabled={busy !== null || !settlementFile || !settlementValid} onClick={() => void run("settlement", () => postRepairProjectAction(project.projectId, "settlement", { settlementAttachmentId: settlementFile?.attachmentId, taxRate: settlementTaxRateNumber, items: settlementPayload }), "竣工结算已提交")}>提交结算</Button>
       </div>}
 
       <div className="mt-5 space-y-2 border-t pt-4">
-        {[...execution.executionRecords.filter((record) => record.verificationStatus === "PENDING").map((record) => ({ key: `record-${record.recordId}`, label: `${STAGE_LABEL[record.stage]} · 记录 ${record.recordId}`, action: (approved: boolean) => postRepairProjectAction(project.projectId, `execution-records/${record.recordId}/verification`, { status: approved ? "VERIFIED" : "REJECTED", opinion: approved ? "现场核验一致" : "现场证据与实际不一致" }) })), ...execution.materialInspections.filter((material) => material.status === "PENDING").map((material) => ({ key: `material-${material.inspectionId}`, label: `${material.materialName} · 材料 ${material.inspectionId}`, action: (approved: boolean) => postRepairProjectAction(project.projectId, `material-inspections/${material.inspectionId}/verification`, { status: approved ? "VERIFIED" : "REJECTED", opinion: approved ? "品牌规格数量与证明一致" : "材料信息或证明不一致" }) }))].map((item) => <div key={item.key} className="flex items-center justify-between gap-3 rounded-md border p-3"><span className="text-sm">待物业核验：{item.label}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`${item.key}-reject`, () => item.action(false), "已驳回并留痕")}>驳回</Button><Button size="sm" disabled={busy !== null} onClick={() => void run(`${item.key}-approve`, () => item.action(true), "已核验通过")}>通过</Button></div></div>)}
+        {[...execution.executionRecords.filter((record) => record.verificationStatus === "PENDING").map((record) => ({ key: `record-${record.recordId}`, label: `${STAGE_LABEL[record.stage]} · ${workPointLabel(record.workPointId)} · 记录 ${record.recordId}`, action: (approved: boolean) => postRepairProjectAction(project.projectId, `execution-records/${record.recordId}/verification`, { status: approved ? "VERIFIED" : "REJECTED", opinion: approved ? "现场核验一致" : "现场证据与实际不一致" }) })), ...execution.materialInspections.filter((material) => material.status === "PENDING").map((material) => ({ key: `material-${material.inspectionId}`, label: `${material.materialName} · ${workPointLabel(material.workPointId)} · 材料 ${material.inspectionId}`, action: (approved: boolean) => postRepairProjectAction(project.projectId, `material-inspections/${material.inspectionId}/verification`, { status: approved ? "VERIFIED" : "REJECTED", opinion: approved ? "品牌规格数量与证明一致" : "材料信息或证明不一致" }) }))].map((item) => <div key={item.key} className="flex items-center justify-between gap-3 rounded-md border p-3"><span className="text-sm">待物业核验：{item.label}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`${item.key}-reject`, () => item.action(false), "已驳回并留痕")}>驳回</Button><Button size="sm" disabled={busy !== null} onClick={() => void run(`${item.key}-approve`, () => item.action(true), "已核验通过")}>通过</Button></div></div>)}
         {execution.settlement?.status === "SUBMITTED" && <div className="flex items-center justify-between gap-3 rounded-md border p-3"><span className="text-sm">待物业核验：第 {execution.settlement.versionNo} 版竣工结算</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run("settlement-reject", () => postRepairProjectAction(project.projectId, "settlement/verification", { expectedProjectVersion: project.version, approved: false, opinion: "结算与现场实际不一致" }), "结算已驳回")}>驳回</Button><Button size="sm" disabled={busy !== null} onClick={() => void run("settlement-approve", () => postRepairProjectAction(project.projectId, "settlement/verification", { expectedProjectVersion: project.version, approved: true, opinion: "实际工程量与结算一致" }), "结算已核验并进入验收")}>通过并发起验收</Button></div></div>}
       </div>
     </OperationSection>
@@ -1383,7 +1463,8 @@ function AcceptanceOperation({ details, execution, hasPermission, remember, busy
 function PaymentOperation({ details, remember, attachments, busy, run }: OperationProps & { attachments: RepairProjectAttachment[] }) {
   const project = details.project;
   const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
-  const eligible = plan.paymentMilestones.filter((milestone) => {
+  const paymentMilestones = plan?.paymentMilestones ?? [];
+  const eligible = paymentMilestones.filter((milestone) => {
     if (milestone.type === "ADVANCE") return ["CONTRACT_EFFECTIVE", "IN_PROGRESS"].includes(project.status);
     if (milestone.type === "PROGRESS") return ["IN_PROGRESS", "PENDING_ACCEPTANCE"].includes(project.status);
     if (milestone.type === "COMPLETION") return ["COMPLETED", "WARRANTY"].includes(project.status);
@@ -1393,7 +1474,7 @@ function PaymentOperation({ details, remember, attachments, busy, run }: Operati
   const [amount, setAmount] = useState("");
   const [newEvidence, setNewEvidence] = useState<RepairProjectAttachment | null>(null);
   const [evidenceIds, setEvidenceIds] = useState<Record<string, string>>({});
-  const milestone = plan.paymentMilestones.find((item) => item.type === milestoneType);
+  const milestone = paymentMilestones.find((item) => item.type === milestoneType);
 
   useEffect(() => {
     if (eligible.length > 0 && !eligible.some((item) => item.type === milestoneType)) setMilestoneType(eligible[0].type);

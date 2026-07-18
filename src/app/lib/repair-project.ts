@@ -36,6 +36,7 @@ export type RepairProjectQuoteLineType =
   | "CONSTRUCTION_MEASURE"
   | "TRANSPORT_CLEANUP"
   | "OTHER";
+export type RepairProjectFundSource = "BUILDING_MAINTENANCE_FUND" | "COMMUNITY_MAINTENANCE_FUND";
 
 export interface RepairProject {
   projectId: number;
@@ -46,8 +47,10 @@ export interface RepairProject {
   scopeType: "BUILDING" | "BUILDING_UNIT" | "COMMUNITY";
   buildingId?: number | null;
   unitName?: string | null;
-  fundSource: "BUILDING_MAINTENANCE_FUND" | "COMMUNITY_MAINTENANCE_FUND";
-  governancePath: "BUILDING_REPAIR_DECISION" | "COMMUNITY_ASSEMBLY_DECISION";
+  /** 仅在后端完成可信资金核验后返回；项目范围本身不能推导该事实。 */
+  fundSource?: RepairProjectFundSource | null;
+  /** 仅在后端完成可信治理/授权核验后返回。 */
+  governancePath?: "BUILDING_REPAIR_DECISION" | "COMMUNITY_ASSEMBLY_DECISION" | null;
   status: RepairProjectStatus;
   activePlanId?: number | null;
   version: number;
@@ -66,39 +69,114 @@ export interface RepairProjectPlan {
   versionNo: number;
   planDescription: string;
   budgetTotal: number;
-  allocationRuleDescription: string;
-  supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
+  /** 以下冻结字段在筹备草稿阶段尚无可信来源，响应可为空。 */
+  allocationRuleDescription?: string | null;
+  supplierSelectionMethod?: RepairProjectSupplierSelectionMethod | null;
   supplierSelectionReason?: string | null;
-  constructionManagementRequirements: string;
-  safetyRequirements: string;
-  acceptanceMethod: string;
+  constructionManagementRequirements?: string | null;
+  safetyRequirements?: string | null;
+  acceptanceMethod?: string | null;
   affectedOwnerScopeDescription?: string | null;
   minimumAffectedOwnerAcceptors?: number | null;
   affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO" | null;
   affectedOwnerApprovalRatio?: number | null;
-  settlementMethod: "ACTUAL_QUANTITY" | "FIXED_TOTAL";
-  plannedStartDate: string;
-  plannedCompletionDate: string;
-  warrantyDays: number;
-  priceReviewRequired: boolean;
-  paymentMilestones: RepairProjectPaymentMilestone[];
+  settlementMethod?: "ACTUAL_QUANTITY" | "FIXED_TOTAL" | null;
+  plannedStartDate?: string | null;
+  plannedCompletionDate?: string | null;
+  warrantyDays?: number | null;
+  priceReviewRequired?: boolean | null;
+  paymentMilestones?: RepairProjectPaymentMilestone[] | null;
   status: "DRAFT" | "LOCKED" | "SUPERSEDED";
   snapshotHash?: string | null;
 }
 
-export interface RepairProjectItem {
-  itemId: number;
-  itemNo: string;
+/** 关联业务：维修点位独立于报价、合同和结算明细，承载可勘验的维修对象。 */
+export type RepairWorkPointLocationType = "REFERENCE_ROOM" | "COMMON_AREA";
+export type RepairWorkPointCauseStatus = "PENDING_INVESTIGATION" | "CONFIRMED" | "UNCONFIRMED";
+
+export interface RepairWorkPoint {
+  workPointId: number;
+  projectId: number;
+  planId: number;
+  tenantId: number;
+  sortOrder: number;
+  businessName: string;
   buildingId?: number | null;
   unitName?: string | null;
-  roomId?: number | null;
-  locationText: string;
-  workContent: string;
-  quantity: number;
-  unit: string;
-  estimatedUnitPrice: number;
-  estimatedAmount: number;
+  locationType: RepairWorkPointLocationType;
+  referenceRoomId?: number | null;
+  commonAreaName?: string | null;
+  spaceName: string;
+  orientation?: string | null;
+  component: string;
+  specificPart: string;
+  symptom: string;
+  causeStatus: RepairWorkPointCauseStatus;
+  causeBasis?: string | null;
+  proposedMeasure: string;
+  technicalRequirements?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  preliminaryEstimatedAmount?: number | null;
+  estimateSource?: string | null;
+  legacyReadOnly: boolean;
   linkedWorkOrderIds: number[];
+  createTime: string;
+}
+
+/** 关联业务：供应商邀价只获得报价所需的锁定点位范围，不获得管理端审计字段。 */
+export interface RepairSupplierQuoteWorkPoint {
+  workPointId: number;
+  businessName: string;
+  buildingId?: number | null;
+  unitName?: string | null;
+  locationType: RepairWorkPointLocationType;
+  referenceRoomId?: number | null;
+  commonAreaName?: string | null;
+  spaceName: string;
+  orientation?: string | null;
+  component: string;
+  specificPart: string;
+  symptom: string;
+  proposedMeasure: string;
+  technicalRequirements?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+}
+
+/** 关联业务：项目唯一决定范围由后端核验、快照和阻断跨范围来源。 */
+export interface RepairDecisionScope {
+  decisionScopeId: number;
+  scopeType: RepairProject["scopeType"];
+  buildingId?: number | null;
+  unitName?: string | null;
+  verificationStatus: "CONFIRMED" | "PENDING_VERIFICATION" | "LEGACY_READ_ONLY";
+  verificationBasis?: string | null;
+  legacyReadOnly: boolean;
+  createTime: string;
+}
+
+/** 关联业务：资金承担切片只由可信账簿、责任认定或有效决定写入，建项草稿不生成该事实。 */
+export interface RepairFundingSlice {
+  fundingSliceId: number;
+  decisionScopeId: number;
+  projectId: number;
+  tenantId: number;
+  sourceType:
+    | "SPECIAL_MAINTENANCE_LEDGER"
+    | "PUBLIC_REVENUE_LEDGER"
+    | "LIABLE_PARTY"
+    | "DEVELOPER_WARRANTY"
+    | "OWNER_SELF_FUNDING";
+  sourceRecordType: string;
+  sourceRecordId: string;
+  ledgerReference?: string | null;
+  allocationSnapshotHash?: string | null;
+  approvedAmount?: number | null;
+  verificationStatus: "CONFIRMED" | "PENDING_VERIFICATION" | "LEGACY_READ_ONLY";
+  legacyReadOnly: boolean;
+  verifiedAt?: string | null;
+  createTime: string;
 }
 
 export interface RepairProjectAttachment {
@@ -130,8 +208,10 @@ export interface RepairProjectQuoteInvitation {
 export interface RepairProjectQuoteLine {
   quoteLineId: number;
   quoteId: number;
-  projectItemId: number;
-  projectItemNo: string;
+  /** 运输、清运等项目通用明细可以不关联维修点位。 */
+  workPointId?: number | null;
+  /** 服务端按锁定方案返回的维修点位业务名称。 */
+  workPointName?: string | null;
   lineNo: number;
   itemName: string;
   lineType: RepairProjectQuoteLineType;
@@ -147,7 +227,8 @@ export interface RepairProjectQuoteLine {
 }
 
 export interface RepairProjectQuoteLineInput {
-  projectItemId: number;
+  /** 运输、清运等项目通用明细可以不关联维修点位。 */
+  workPointId?: number;
   itemName: string;
   lineType: RepairProjectQuoteLineType;
   workDescription?: string;
@@ -210,7 +291,8 @@ export interface RepairProjectSupplierSelection {
 export interface RepairProjectSourcingDetails {
   projectId: number;
   planId: number;
-  selectionMethod: RepairProjectSupplierSelectionMethod;
+  /** 筹备草稿只收集参考报价；可信决定/授权快照形成后才会给出定商方式。 */
+  selectionMethod?: RepairProjectSupplierSelectionMethod | null;
   invitations: RepairProjectQuoteInvitation[];
   quotes: RepairProjectSupplierQuote[];
   selection?: RepairProjectSupplierSelection | null;
@@ -222,19 +304,7 @@ export interface RepairSupplierQuoteOpportunity {
   projectName: string;
   planId: number;
   planDescription: string;
-  constructionManagementRequirements: string;
-  safetyRequirements: string;
-  plannedStartDate: string;
-  plannedCompletionDate: string;
-  warrantyDays: number;
-  items: Array<{
-    itemId: number;
-    itemNo: string;
-    locationText: string;
-    workContent: string;
-    quantity: number;
-    unit: string;
-  }>;
+  workPoints: RepairSupplierQuoteWorkPoint[];
   invitation: RepairProjectQuoteInvitation;
   latestQuote?: RepairProjectSupplierQuote | null;
 }
@@ -252,20 +322,9 @@ export interface RepairNarrativeImage {
 export interface RepairProjectDetails {
   project: RepairProject;
   plans: RepairProjectPlan[];
-  currentPlanItems: RepairProjectItem[];
-  currentPlanAllocationRooms: Array<{
-    roomId: number;
-    buildingId: number;
-    unitName?: string | null;
-    ownerUid?: number | null;
-    buildArea: number;
-  }>;
-  currentPlanAllocationBasis?: {
-    scopeLabel: string;
-    roomCount: number;
-    ownerCount: number;
-    totalBuildArea: number;
-  } | null;
+  decisionScope?: RepairDecisionScope | null;
+  currentPlanWorkPoints: RepairWorkPoint[];
+  fundingSlices: RepairFundingSlice[];
   currentPlanAffectedOwners: Array<{
     roomId: number;
     buildingId: number;
@@ -287,31 +346,6 @@ export interface RepairProjectProcessHistoryEntry {
   occurredAt: string;
 }
 
-export interface RepairAllocationPreview {
-  scopeType: RepairProject["scopeType"];
-  fundSource: RepairProject["fundSource"];
-  scopeLabel: string;
-  roomCount: number;
-  ownerCount: number;
-  totalBuildArea: number;
-  allocationRuleType: "BY_BUILDING_AREA" | "EQUAL_BY_ROOM";
-  allocationRuleDescription: string;
-  legalBasis: string;
-}
-
-export interface RepairAffectedOwnerPreview {
-  scopeLabel: string;
-  recommendedOwnerCount: number;
-  candidates: Array<{
-    roomId: number;
-    buildingId: number;
-    buildingName: string;
-    unitName?: string | null;
-    roomName: string;
-    affectedReason: string;
-  }>;
-}
-
 export interface RepairSupplierProjectSummary {
   project: RepairProject;
   contract: RepairProjectContract;
@@ -320,7 +354,7 @@ export interface RepairSupplierProjectSummary {
 export interface RepairSupplierProjectDetails {
   project: RepairProject;
   activePlan: RepairProjectPlan;
-  items: RepairProjectItem[];
+  workPoints: RepairWorkPoint[];
   attachments: RepairProjectAttachment[];
   contract: RepairProjectContract;
   execution: RepairProjectExecutionDetails;
@@ -331,7 +365,7 @@ export interface RepairProjectContract {
   supplierDeptId: number;
   supplierName: string;
   contractAmount: number;
-  fundSource: RepairProject["fundSource"];
+  fundSource?: RepairProjectFundSource | null;
   signingMethod: "ONLINE" | "OFFLINE" | "MIXED";
   contractAttachmentId: number;
   status: "EFFECTIVE" | "VOIDED";
@@ -340,7 +374,8 @@ export interface RepairProjectContract {
 
 export interface RepairProjectExecutionRecord {
   recordId: number;
-  itemId: number;
+  /** 项目通用过程事项可以不关联维修点位。 */
+  workPointId?: number | null;
   stage: RepairProjectStage;
   description: string;
   occurredAt: string;
@@ -351,7 +386,8 @@ export interface RepairProjectExecutionRecord {
 
 export interface RepairProjectMaterialInspection {
   inspectionId: number;
-  itemId: number;
+  /** 项目通用材料事项可以不关联维修点位。 */
+  workPointId?: number | null;
   materialName: string;
   brand: string;
   model: string;
@@ -366,14 +402,14 @@ export interface RepairProjectMaterialInspection {
 }
 
 export interface RepairProjectSettlementItem {
-  projectItemId: number;
+  settlementItemId: number;
+  settlementId: number;
+  /** 项目通用专业结算明细可以不关联维修点位。 */
+  workPointId?: number | null;
   actualQuantity: number;
   unit: string;
   actualUnitPrice: number;
   amountExcludingTax: number;
-  taxRate: number;
-  taxAmount: number;
-  amountIncludingTax: number;
   varianceReason?: string | null;
 }
 
@@ -382,6 +418,8 @@ export interface RepairProjectSettlement {
   versionNo: number;
   status: "SUBMITTED" | "VERIFIED" | "REJECTED";
   subtotalAmount: number;
+  /** 税率是结算单据头事实，不在每条专业明细重复声明。 */
+  taxRate: number;
   taxAmount: number;
   totalAmount: number;
   settlementAttachmentId: number;
@@ -473,40 +511,35 @@ export interface RepairProjectPage {
   size: number;
 }
 
+/** 创建草稿时提交的维修点位，不携带由服务端生成的稳定标识与审计字段。 */
+export interface RepairWorkPointCreateInput {
+  businessName: string;
+  buildingId?: number;
+  unitName?: string;
+  locationType: RepairWorkPointLocationType;
+  referenceRoomId?: number;
+  commonAreaName?: string;
+  spaceName: string;
+  orientation?: string;
+  component: string;
+  specificPart: string;
+  symptom: string;
+  causeStatus: RepairWorkPointCauseStatus;
+  causeBasis?: string;
+  proposedMeasure: string;
+  technicalRequirements?: string;
+  quantity?: number;
+  unit?: string;
+  preliminaryEstimatedAmount?: number;
+  estimateSource?: string;
+  linkedWorkOrderIds: number[];
+}
+
 export interface RepairPlanDraftInput {
   planDescription: string;
   budgetTotal: number;
-  supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
-  supplierSelectionReason?: string;
-  constructionManagementRequirements: string;
-  evidenceRequirements: Array<{ stage: RepairProjectStage; description: string; required: boolean }>;
-  safetyRequirements: string;
-  acceptanceMethod: string;
-  affectedOwners?: Array<{ roomId: number; affectedReason: string }>;
-  affectedOwnerAdjustmentReason?: string;
-  minimumAffectedOwnerAcceptors?: number;
-  affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO";
-  affectedOwnerApprovalRatio?: number;
-  settlementMethod: "ACTUAL_QUANTITY" | "FIXED_TOTAL";
-  plannedStartDate: string;
-  plannedCompletionDate: string;
-  warrantyDays: number;
-  priceReviewRequired: boolean;
-  paymentMilestones: RepairProjectPaymentMilestone[];
-  items: Array<{
-    itemNo: string;
-    buildingId?: number;
-    unitName?: string;
-    roomId?: number;
-    locationText: string;
-    workContent: string;
-    quantity: number;
-    unit: string;
-    estimatedUnitPrice: number;
-    estimatedAmount: number;
-    linkedWorkOrderIds: number[];
-  }>;
-  attachments: Array<{ attachmentId: number; purpose: string }>;
+  workPoints: RepairWorkPointCreateInput[];
+  attachments?: Array<{ attachmentId: number; purpose: string }>;
 }
 
 export interface RepairProjectCreateInput {
@@ -514,8 +547,6 @@ export interface RepairProjectCreateInput {
   scopeType: RepairProject["scopeType"];
   buildingId?: number;
   unitName?: string;
-  fundSource: RepairProject["fundSource"];
-  governancePath: RepairProject["governancePath"];
   plan: RepairPlanDraftInput;
 }
 
@@ -605,22 +636,6 @@ export function pageRepairProjects(params: {
 
 export function createRepairProject(input: RepairProjectCreateInput): Promise<RepairProjectDetails> {
   return apiPost<RepairProjectDetails>("/admin/repair-projects", input);
-}
-
-export function getRepairAllocationPreview(input: {
-  scopeType: RepairProject["scopeType"];
-  buildingId?: number;
-  unitName?: string;
-}): Promise<RepairAllocationPreview> {
-  return apiGet<RepairAllocationPreview>(`/admin/repair-projects/allocation-preview?${queryString(input)}`);
-}
-
-export function getRepairAffectedOwnerPreview(input: {
-  scopeType: "BUILDING" | "BUILDING_UNIT";
-  buildingId: number;
-  unitName?: string;
-}): Promise<RepairAffectedOwnerPreview> {
-  return apiGet<RepairAffectedOwnerPreview>(`/admin/repair-projects/affected-owner-preview?${queryString(input)}`);
 }
 
 export function getRepairProject(projectId: number): Promise<RepairProjectDetails> {
@@ -762,6 +777,16 @@ export function lockRepairProjectPlan(
   expectedProjectVersion: number,
 ): Promise<RepairProjectDetails> {
   return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/lock`, {
+    expectedProjectVersion,
+  });
+}
+
+/** 仅在草稿阶段按已关联来源重新核验唯一决定范围；后端拒绝以页面选择替代范围事实。 */
+export function reverifyRepairProjectDecisionScope(
+  projectId: number,
+  expectedProjectVersion: number,
+): Promise<RepairProjectDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/decision-scope/reverify`, {
     expectedProjectVersion,
   });
 }

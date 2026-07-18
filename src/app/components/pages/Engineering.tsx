@@ -31,6 +31,7 @@ import {
   type RepairProjectSourcingDetails,
   type RepairProjectStatus,
   type RepairProjectStage,
+  type RepairWorkPoint,
 } from "../../lib/repair-project";
 import { PageHeader, KpiCard, Money, SectionCard, StatusChip, type Tone } from "../gov/common";
 import { Button } from "../ui/button";
@@ -102,9 +103,47 @@ const FUND_LABEL = {
   COMMUNITY_MAINTENANCE_FUND: "小区公共维修资金",
 } as const;
 
+const FUNDING_SOURCE_TYPE_LABEL = {
+  SPECIAL_MAINTENANCE_LEDGER: "维修资金账簿",
+  PUBLIC_REVENUE_LEDGER: "公共收益账簿",
+  LIABLE_PARTY: "责任主体承担",
+  DEVELOPER_WARRANTY: "开发商保修责任",
+  OWNER_SELF_FUNDING: "业主自筹",
+} as const;
+
+/** 资金来源只能展示后端已核验的事实，不能由工程范围推导。 */
+function fundSourceLabel(fundSource: RepairProject["fundSource"]): string {
+  return fundSource ? `历史归档：${FUND_LABEL[fundSource]}` : "待后端核验";
+}
+
+/** 资金切片由后端可信来源返回；没有确认切片时不能把项目范围当作资金或分摊结论。 */
+function fundingSliceLabel(fundingSlices: RepairProjectDetails["fundingSlices"]): string {
+  const confirmed = fundingSlices.filter((slice) => slice.verificationStatus === "CONFIRMED");
+  if (confirmed.length === 0) return "尚未形成可信资金承担快照";
+  return confirmed.map((slice) => {
+    const source = FUNDING_SOURCE_TYPE_LABEL[slice.sourceType];
+    const reference = slice.ledgerReference || `${slice.sourceRecordType} #${slice.sourceRecordId}`;
+    const amount = slice.approvedAmount == null ? "" : ` · ${MoneyText(slice.approvedAmount)}`;
+    return `${source} · ${reference}${amount}`;
+  }).join("；");
+}
+
+function MoneyText(value: number): string {
+  return `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function formatDate(value?: string | null): string {
   if (!value) return "-";
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function workPointLocation(point: RepairWorkPoint): string {
+  const reference = point.locationType === "REFERENCE_ROOM"
+    ? `参照房屋 #${point.referenceRoomId ?? "-"}`
+    : point.commonAreaName || "公共区域";
+  return [point.buildingId ? `${point.buildingId} 号楼` : "", point.unitName || "", reference, point.spaceName, point.orientation, point.component, point.specificPart]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function Engineering() {
@@ -234,12 +273,12 @@ export function Engineering() {
           <div className="flex flex-col items-center justify-center py-16 text-center"><Inbox className="mb-3 size-9 text-muted-foreground/50" /><div className="text-sm font-medium">没有符合条件的维修工程项目</div></div>
         ) : (
           <Table>
-            <TableHeader><TableRow><TableHead>项目</TableHead><TableHead>治理流程</TableHead><TableHead>资金范围</TableHead><TableHead>工程范围</TableHead><TableHead>状态</TableHead><TableHead>更新时间</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>项目</TableHead><TableHead>项目范围</TableHead><TableHead>资金核验</TableHead><TableHead>工程位置</TableHead><TableHead>状态</TableHead><TableHead>更新时间</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
             <TableBody>{projects.map((project) => (
               <TableRow key={project.projectId} className="hover:bg-muted/40">
                 <TableCell><div className="font-medium">{project.projectName}</div><div className="mt-1 font-mono-num text-xs text-muted-foreground">{project.projectNo}</div></TableCell>
-                <TableCell><StatusChip tone={project.workflowType === "BUILDING_REPAIR" ? "warning" : "tech"}>{project.workflowType === "BUILDING_REPAIR" ? "楼栋/单元决定" : "全小区业主大会"}</StatusChip></TableCell>
-                <TableCell className="text-sm">{FUND_LABEL[project.fundSource]}</TableCell>
+                <TableCell><StatusChip tone={project.scopeType === "COMMUNITY" ? "tech" : "warning"}>{project.scopeType === "COMMUNITY" ? "全小区公共范围" : project.scopeType === "BUILDING_UNIT" ? "楼栋单元范围" : "楼栋范围"}</StatusChip></TableCell>
+                <TableCell className="text-sm">{fundSourceLabel(project.fundSource)}</TableCell>
                 <TableCell className="text-sm">{project.scopeType === "COMMUNITY" ? "全小区公共区域" : `${project.buildingId ?? "-"} 号楼${project.unitName ? ` · ${project.unitName}` : ""}`}</TableCell>
                 <TableCell><StatusChip tone={STATUS_TONE[project.status]} dot>{STATUS_LABEL[project.status]}</StatusChip></TableCell>
                 <TableCell className="text-xs text-muted-foreground">{formatDate(project.updateTime)}</TableCell>
@@ -335,12 +374,12 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
       <section className="pb-7">
         <h3 className="mb-5 text-base font-semibold text-slate-950">项目概况</h3>
         <div className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-4">
-          <Info label="资金范围" value={FUND_LABEL[project.fundSource]} icon={<Banknote className="size-4" />} />
+          <Info label="资金承担快照" value={fundingSliceLabel(details.fundingSlices)} icon={<Banknote className="size-4" />} />
           <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
-          <Info label="实施计划" value={`${plan?.plannedStartDate ?? "-"} 至 ${plan?.plannedCompletionDate ?? "-"}`} />
-          <Info label="质保期" value={`${plan?.warrantyDays ?? 0} 天`} />
-          <Info className="md:col-span-2" label="验收方式" value={plan?.acceptanceMethod ?? "-"} />
-          <Info className="md:col-span-2" label="分摊范围" value={plan?.allocationRuleDescription ?? "-"} />
+          <Info label="项目决定范围" value={details.decisionScope?.scopeType === "COMMUNITY" ? "全体共用" : details.decisionScope?.buildingId ? `${details.decisionScope.buildingId} 号楼${details.decisionScope.unitName ? ` · ${details.decisionScope.unitName}` : ""}` : "待核验"} />
+          <Info label="范围核验" value={details.decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : details.decisionScope?.verificationStatus === "PENDING_VERIFICATION" ? "待核验" : "历史只读"} />
+          <Info className="md:col-span-2" label="费用分摊与承担范围" value={fundingSliceLabel(details.fundingSlices)} />
+          <Info className="md:col-span-2" label="直接受影响/效果确认范围" value={details.currentPlanAffectedOwners.length > 0 ? `${details.currentPlanAffectedOwners.length} 套已确认房屋` : "尚未由可信勘验来源确认"} />
           <Info className="xl:col-span-2" label="中选供应商" value={sourcing?.selection?.supplierName ?? "尚未完成定商"} />
           <Info className="xl:col-span-2" label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
         </div>
@@ -350,19 +389,15 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
 
       <section className="border-t py-7">
         <PlanNarrative label="问题与维修方案" html={plan?.planDescription} />
-        <div className="mt-7 grid divide-y border-t lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <PlanNarrative className="py-6 lg:pr-8" label="施工管理要求" html={plan?.constructionManagementRequirements} />
-          <PlanNarrative className="py-6 lg:pl-8" label="安全要求" html={plan?.safetyRequirements} />
-        </div>
       </section>
 
       <section className="border-t py-7">
         <div className="mb-4 flex items-center justify-between gap-4">
-          <h3 className="text-base font-semibold text-slate-950">工程清单</h3>
-          <span className="text-xs text-muted-foreground">共 {details.currentPlanItems.length} 项</span>
+          <h3 className="text-base font-semibold text-slate-950">维修点位与维修对象</h3>
+          <span className="text-xs text-muted-foreground">共 {details.currentPlanWorkPoints.length} 个</span>
         </div>
         <div className="overflow-hidden rounded-md border">
-          <Table><TableHeader className="bg-slate-50"><TableRow><TableHead>编号</TableHead><TableHead>位置</TableHead><TableHead>工作内容</TableHead><TableHead className="text-right">数量</TableHead><TableHead className="text-right">估算金额</TableHead><TableHead>关联工单</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanItems.map((item) => <TableRow key={item.itemId}><TableCell className="font-mono-num text-xs">{item.itemNo}</TableCell><TableCell className="min-w-40 whitespace-normal">{item.locationText}</TableCell><TableCell className="min-w-56 whitespace-normal">{item.workContent}</TableCell><TableCell className="text-right">{item.quantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.estimatedAmount)} /></TableCell><TableCell className="text-xs text-muted-foreground">{item.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table>
+          <Table><TableHeader className="bg-slate-50"><TableRow><TableHead>维修对象</TableHead><TableHead>结构化位置</TableHead><TableHead>问题现象</TableHead><TableHead>拟定措施</TableHead><TableHead className="text-right">范围量</TableHead><TableHead className="text-right">初步暂估</TableHead><TableHead>关联来源</TableHead></TableRow></TableHeader><TableBody>{details.currentPlanWorkPoints.map((point) => <TableRow key={point.workPointId}><TableCell className="min-w-40 font-medium whitespace-normal">{point.businessName}</TableCell><TableCell className="min-w-56 whitespace-normal">{workPointLocation(point)}</TableCell><TableCell className="min-w-56 whitespace-normal">{point.symptom}</TableCell><TableCell className="min-w-56 whitespace-normal">{point.proposedMeasure}</TableCell><TableCell className="text-right">{point.quantity == null ? "-" : `${point.quantity} ${point.unit ?? ""}`}</TableCell><TableCell className="text-right">{point.preliminaryEstimatedAmount == null ? "-" : <Money value={Number(point.preliminaryEstimatedAmount)} />}</TableCell><TableCell className="text-xs text-muted-foreground">{point.linkedWorkOrderIds.join("、") || "-"}</TableCell></TableRow>)}</TableBody></Table>
         </div>
       </section>
 
@@ -391,7 +426,7 @@ function Info({ label, value, icon, className }: { label: string; value: ReactNo
 }
 
 function ExecutionArchive({ details, execution, openAttachment }: { details: RepairProjectDetails; execution: RepairProjectExecutionDetails; openAttachment: (attachmentId: number) => Promise<void> }) {
-  const itemById = new Map(details.currentPlanItems.map((item) => [item.itemId, item]));
+  const workPointById = new Map(details.currentPlanWorkPoints.map((point) => [point.workPointId, point]));
   return (
     <div className="space-y-6">
       <div className="grid gap-4 border-b pb-5 md:grid-cols-3">
@@ -400,11 +435,11 @@ function ExecutionArchive({ details, execution, openAttachment }: { details: Rep
         <Info label="签署方式" value={execution.contract?.signingMethod ?? "-"} />
       </div>
 
-      <div><h4 className="mb-3 text-sm font-semibold">施工过程记录</h4>{execution.executionRecords.length === 0 ? <Empty text="尚无施工记录" /> : <div className="space-y-2">{execution.executionRecords.map((record) => <div key={record.recordId} className="grid gap-3 rounded-md border p-3 md:grid-cols-[140px_1fr_auto]"><div><StatusChip tone={record.verificationStatus === "VERIFIED" ? "success" : record.verificationStatus === "REJECTED" ? "danger" : "warning"}>{STAGE_LABEL[record.stage]}</StatusChip><div className="mt-2 text-xs text-muted-foreground">{formatDate(record.occurredAt)}</div></div><div className="text-sm"><div className="font-medium">{itemById.get(record.itemId)?.itemNo ?? record.itemId}</div><div className="mt-1 text-muted-foreground">{record.description}</div>{record.verificationOpinion && <div className="mt-1 text-xs text-muted-foreground">核验：{record.verificationOpinion}</div>}</div><div className="flex flex-wrap gap-1">{record.attachmentIds.map((attachmentId) => <Button key={attachmentId} size="sm" variant="ghost" onClick={() => void openAttachment(attachmentId)}>附件 {attachmentId}</Button>)}</div></div>)}</div>}</div>
+      <div><h4 className="mb-3 text-sm font-semibold">施工过程记录</h4>{execution.executionRecords.length === 0 ? <Empty text="尚无施工记录" /> : <div className="space-y-2">{execution.executionRecords.map((record) => <div key={record.recordId} className="grid gap-3 rounded-md border p-3 md:grid-cols-[140px_1fr_auto]"><div><StatusChip tone={record.verificationStatus === "VERIFIED" ? "success" : record.verificationStatus === "REJECTED" ? "danger" : "warning"}>{STAGE_LABEL[record.stage]}</StatusChip><div className="mt-2 text-xs text-muted-foreground">{formatDate(record.occurredAt)}</div></div><div className="text-sm"><div className="font-medium">{record.workPointId == null ? "项目通用事项" : workPointById.get(record.workPointId)?.businessName ?? `维修点位 #${record.workPointId}`}</div><div className="mt-1 text-muted-foreground">{record.description}</div>{record.verificationOpinion && <div className="mt-1 text-xs text-muted-foreground">核验：{record.verificationOpinion}</div>}</div><div className="flex flex-wrap gap-1">{record.attachmentIds.map((attachmentId) => <Button key={attachmentId} size="sm" variant="ghost" onClick={() => void openAttachment(attachmentId)}>附件 {attachmentId}</Button>)}</div></div>)}</div>}</div>
 
       <div><h4 className="mb-3 text-sm font-semibold">材料进场</h4>{execution.materialInspections.length === 0 ? <Empty text="尚无材料进场记录" /> : <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>材料</TableHead><TableHead>品牌/型号</TableHead><TableHead>规格数量</TableHead><TableHead>生产厂家</TableHead><TableHead>核验状态</TableHead></TableRow></TableHeader><TableBody>{execution.materialInspections.map((material) => <TableRow key={material.inspectionId}><TableCell className="font-medium">{material.materialName}</TableCell><TableCell>{material.brand} · {material.model}</TableCell><TableCell>{material.specification} · {material.quantity} {material.unit}</TableCell><TableCell>{material.manufacturer}</TableCell><TableCell><StatusChip tone={material.status === "VERIFIED" ? "success" : material.status === "REJECTED" ? "danger" : "warning"}>{material.status}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>}</div>
 
-      {execution.settlement && <div><h4 className="mb-3 text-sm font-semibold">结构化竣工结算</h4><div className="mb-3 flex items-center justify-between rounded-md border p-3"><div className="text-sm">第 {execution.settlement.versionNo} 版 · {execution.settlement.status}</div><Money value={Number(execution.settlement.totalAmount)} className="font-semibold" /></div><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>工程项</TableHead><TableHead className="text-right">实际数量</TableHead><TableHead className="text-right">实际单价</TableHead><TableHead className="text-right">税额</TableHead><TableHead className="text-right">含税金额</TableHead><TableHead>差异原因</TableHead></TableRow></TableHeader><TableBody>{execution.settlement.items.map((item) => <TableRow key={item.projectItemId}><TableCell>{itemById.get(item.projectItemId)?.itemNo ?? item.projectItemId}</TableCell><TableCell className="text-right">{item.actualQuantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.actualUnitPrice)} /></TableCell><TableCell className="text-right"><Money value={Number(item.taxAmount)} /></TableCell><TableCell className="text-right"><Money value={Number(item.amountIncludingTax)} /></TableCell><TableCell>{item.varianceReason ?? "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
+      {execution.settlement && <div><h4 className="mb-3 text-sm font-semibold">结构化竣工结算</h4><div className="mb-3 grid gap-3 rounded-md border p-3 text-sm md:grid-cols-4"><div>第 {execution.settlement.versionNo} 版 · {execution.settlement.status}</div><div>不含税合计 <Money value={Number(execution.settlement.subtotalAmount)} className="ml-1 font-semibold" /></div><div>税率 {execution.settlement.taxRate}% · 税额 <Money value={Number(execution.settlement.taxAmount)} className="ml-1 font-semibold" /></div><div className="md:text-right">含税总额 <Money value={Number(execution.settlement.totalAmount)} className="ml-1 font-semibold" /></div></div><div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>维修点位</TableHead><TableHead className="text-right">实际数量</TableHead><TableHead className="text-right">实际单价</TableHead><TableHead className="text-right">不含税金额</TableHead><TableHead>差异原因</TableHead></TableRow></TableHeader><TableBody>{execution.settlement.items.map((item) => <TableRow key={item.settlementItemId}><TableCell>{item.workPointId == null ? "项目通用事项" : workPointById.get(item.workPointId)?.businessName ?? `维修点位 #${item.workPointId}`}</TableCell><TableCell className="text-right">{item.actualQuantity} {item.unit}</TableCell><TableCell className="text-right"><Money value={Number(item.actualUnitPrice)} /></TableCell><TableCell className="text-right"><Money value={Number(item.amountExcludingTax)} /></TableCell><TableCell>{item.varianceReason ?? "-"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
     </div>
   );
 }

@@ -27,15 +27,17 @@ import {
   type RepairQuoteLineDraft,
 } from "./RepairProjectQuoteEditor";
 
-function plannedPeriodDays(start: string, completion: string): number {
-  const startAt = new Date(`${start}T00:00:00`).getTime();
-  const completionAt = new Date(`${completion}T00:00:00`).getTime();
-  if (!Number.isFinite(startAt) || !Number.isFinite(completionAt)) return 1;
-  return Math.max(1, Math.round((completionAt - startAt) / 86_400_000) + 1);
-}
-
 function money(value: number): string {
   return `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function workPointLocation(point: RepairSupplierQuoteOpportunity["workPoints"][number]): string {
+  const reference = point.locationType === "REFERENCE_ROOM"
+    ? `参照房屋 #${point.referenceRoomId ?? "-"}`
+    : point.commonAreaName || "公共区域";
+  return [point.buildingId ? `${point.buildingId} 号楼` : "", point.unitName || "", reference, point.spaceName, point.component, point.specificPart]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function QuoteFormStep({
@@ -116,17 +118,17 @@ export function SupplierProjectQuoteWorkbench() {
       setWarrantyDays("");
       return;
     }
-    setLines(createRepairQuoteDraftLines(selected.items));
+    setLines(createRepairQuoteDraftLines());
     setTaxRate("9");
-    setConstructionPeriodDays(String(plannedPeriodDays(selected.plannedStartDate, selected.plannedCompletionDate)));
-    setWarrantyDays(String(selected.warrantyDays ?? 0));
+    setConstructionPeriodDays("");
+    setWarrantyDays("");
     setSummary("");
     setAttachment(null);
     setOriginalAmountConfirmed(false);
   }, [selectedId, selected?.planId]);
 
   const draftError = useMemo(
-    () => selected ? validateRepairQuoteDraft(lines, selected.items, taxRate) : "请选择工程邀价",
+    () => selected ? validateRepairQuoteDraft(lines, selected.workPoints, taxRate) : "请选择工程邀价",
     [lines, selected, taxRate],
   );
   const total = useMemo(() => calculateRepairQuoteTotal(lines, taxRate), [lines, taxRate]);
@@ -199,7 +201,7 @@ export function SupplierProjectQuoteWorkbench() {
                   <p className="mt-1 text-sm text-muted-foreground">报价前核对物业锁定的方案、工程量和施工要求。</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusChip tone="neutral">工程项 {selected.items.length} 项</StatusChip>
+                  <StatusChip tone="neutral">维修点位 {selected.workPoints.length} 个</StatusChip>
                   <CollapsibleTrigger asChild>
                     <Button type="button" size="icon" variant="ghost" title="展开或收起工程范围" className="transition-transform data-[state=open]:rotate-180">
                       <ChevronDown className="size-4" />
@@ -210,19 +212,15 @@ export function SupplierProjectQuoteWorkbench() {
               <CollapsibleContent>
                 <div className="grid divide-y border-t text-sm sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                   <div className="px-4 py-3"><div className="text-xs text-muted-foreground">报价轮次</div><div className="mt-1 font-medium">第 {selected.invitation.invitationRound} 轮</div></div>
-                  <div className="px-4 py-3"><div className="text-xs text-muted-foreground">计划开工</div><div className="mt-1 font-medium">{selected.plannedStartDate}</div></div>
-                  <div className="px-4 py-3"><div className="text-xs text-muted-foreground">计划完工</div><div className="mt-1 font-medium">{selected.plannedCompletionDate}</div></div>
+                  <div className="px-4 py-3"><div className="text-xs text-muted-foreground">维修点位</div><div className="mt-1 font-medium">{selected.workPoints.length} 个</div></div>
+                  <div className="px-4 py-3"><div className="text-xs text-muted-foreground">项目通用明细</div><div className="mt-1 font-medium">允许不关联点位</div></div>
                 </div>
                 <div className="border-t px-4 py-4">
                   <h5 className="mb-2 text-sm font-semibold">问题与维修方案</h5>
                   <RichTextView html={selected.planDescription} />
                 </div>
                 <div className="overflow-x-auto border-t">
-                  <table className="w-full min-w-[640px] text-sm"><thead className="bg-muted/40"><tr><th className="p-2 text-left">编号</th><th className="p-2 text-left">位置</th><th className="p-2 text-left">工作内容</th><th className="p-2 text-right">数量</th></tr></thead><tbody>{selected.items.map((item) => <tr key={item.itemId} className="border-t"><td className="p-2">{item.itemNo}</td><td className="p-2">{item.locationText}</td><td className="p-2">{item.workContent}</td><td className="p-2 text-right">{item.quantity} {item.unit}</td></tr>)}</tbody></table>
-                </div>
-                <div className="grid border-t text-sm md:grid-cols-2 md:divide-x">
-                  <div className="px-4 py-4"><h5 className="mb-2 font-semibold">施工管理要求</h5><RichTextView html={selected.constructionManagementRequirements} /></div>
-                  <div className="border-t px-4 py-4 md:border-t-0"><h5 className="mb-2 font-semibold">安全要求</h5><RichTextView html={selected.safetyRequirements} /></div>
+                  <table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/40"><tr><th className="p-2 text-left">维修对象</th><th className="p-2 text-left">结构化位置</th><th className="p-2 text-left">问题现象</th><th className="p-2 text-left">拟定措施</th><th className="p-2 text-right">范围量</th></tr></thead><tbody>{selected.workPoints.map((point) => <tr key={point.workPointId} className="border-t"><td className="p-2 font-medium">{point.businessName}</td><td className="p-2">{workPointLocation(point)}</td><td className="p-2">{point.symptom}</td><td className="p-2">{point.proposedMeasure}</td><td className="p-2 text-right">{point.quantity == null ? "-" : `${point.quantity} ${point.unit ?? ""}`}</td></tr>)}</tbody></table>
                 </div>
               </CollapsibleContent>
             </Collapsible>
@@ -263,7 +261,7 @@ export function SupplierProjectQuoteWorkbench() {
                     description="逐项填写不含税单价，系统根据整单税率计算税额和含税总额。"
                     status={<StatusChip tone={draftError ? "warning" : "success"}>{draftError ? "待完善" : "明细已完整"}</StatusChip>}
                   >
-                    <RepairProjectQuoteEditor items={selected.items} lines={lines} taxRate={taxRate} onChange={setLines} onTaxRateChange={setTaxRate} />
+                    <RepairProjectQuoteEditor workPoints={selected.workPoints} lines={lines} taxRate={taxRate} onChange={setLines} onTaxRateChange={setTaxRate} />
                   </QuoteFormStep>
 
                   <QuoteFormStep

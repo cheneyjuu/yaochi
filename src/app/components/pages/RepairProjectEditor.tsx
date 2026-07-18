@@ -1,15 +1,13 @@
-// 关联业务：在独立工作页创建楼栋或全小区维修工程项目，并固化首版结构化实施方案。
+// 关联业务：在独立工作页创建单一决定范围的维修工程筹备草稿，并登记首版结构化维修点位。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Loader2,
   PencilLine,
   Plus,
   Save,
-  Scale,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import {
   listRepairLocationOptions,
   pageRepairWorkOrders,
@@ -35,165 +33,138 @@ import {
 } from "../../lib/repair";
 import {
   createRepairProject,
-  getRepairAffectedOwnerPreview,
   getRepairNarrativeImagePreview,
-  getRepairAllocationPreview,
   uploadRepairNarrativeImage,
-  type RepairAffectedOwnerPreview,
-  type RepairAllocationPreview,
   type RepairPlanDraftInput,
   type RepairProjectCreateInput,
-  type RepairProjectStage,
+  type RepairWorkPointCreateInput,
 } from "../../lib/repair-project";
 import { richTextToPlain, toMiniappRichText } from "../../lib/richText";
 import { useStore } from "../../lib/store";
 
 type Workflow = "BUILDING_REPAIR" | "COMMUNITY_PUBLIC_REPAIR";
-
 interface EditorStep {
   key: string;
   label: string;
   title: string;
 }
 
-interface DraftItem {
-  itemNo: string;
-  locationText: string;
-  workContent: string;
+/** 建项草稿中的维修点位；浏览器仅保存临时键，稳定 ID 由后端创建后返回。 */
+interface DraftWorkPoint {
+  clientKey: string;
+  businessName: string;
+  buildingId: string;
+  unitName: string;
+  locationType: "" | "REFERENCE_ROOM" | "COMMON_AREA";
+  referenceRoomId: string;
+  commonAreaName: string;
+  spaceName: string;
+  orientation: string;
+  component: string;
+  specificPart: string;
+  symptom: string;
+  causeStatus: "PENDING_INVESTIGATION" | "CONFIRMED" | "UNCONFIRMED";
+  causeBasis: string;
+  proposedMeasure: string;
+  technicalRequirements: string;
   quantity: string;
   unit: string;
-  estimatedUnitPrice: string;
+  preliminaryEstimatedAmount: string;
+  estimateSource: string;
   linkedWorkOrderIds: number[];
 }
 
-type DraftItemTextField = Exclude<keyof DraftItem, "linkedWorkOrderIds">;
-
-interface PercentageInputProps {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  min?: number;
-  max?: number;
-  placeholder?: string;
-}
+type DraftWorkPointTextField = Exclude<keyof DraftWorkPoint, "clientKey" | "linkedWorkOrderIds">;
 
 const EDITOR_STEPS: EditorStep[] = [
-  { key: "scope", label: "项目范围", title: "确定维修范围与资金来源" },
-  { key: "plan", label: "实施方案", title: "编制现场问题与维修方案" },
-  { key: "items", label: "工程清单", title: "拆分工程项并关联报修事项" },
-  { key: "construction", label: "施工安排", title: "确定供应商遴选方式、工期与现场要求" },
-  { key: "acceptance", label: "验收付款", title: "设置验收门槛与分期付款比例" },
-  { key: "review", label: "核对提交", title: "核对完整方案后创建项目" },
+  { key: "scope", label: "项目范围", title: "确定维修范围与待核验边界" },
+  { key: "plan", label: "初步方案", title: "编制现场问题与初步预算" },
+  { key: "work-points", label: "维修点位", title: "登记维修对象并关联已勘验来源" },
+  { key: "review", label: "核对提交", title: "创建单一决定范围的工程草稿" },
 ];
 
 const REVIEW_STEP_INDEX = EDITOR_STEPS.length - 1;
 
-const SUPPLIER_METHOD_LABEL: Record<RepairPlanDraftInput["supplierSelectionMethod"], string> = {
-  COMPETITIVE_QUOTATION: "竞争性询价",
-  FRAMEWORK_SUPPLIER: "框架供应商",
-  DIRECT_AWARD: "依法直接委托",
-  EMERGENCY_APPOINTMENT: "紧急指定",
-};
+let draftWorkPointSequence = 0;
 
-const EVIDENCE_STAGES: RepairProjectStage[] = [
-  "BEFORE_CONSTRUCTION",
-  "MATERIAL_ENTRY",
-  "DURING_CONSTRUCTION",
-  "CONCEALED_WORK",
-  "COMPLETION",
-  "ACCEPTANCE",
-];
-
-function dateAfter(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function emptyItem(index: number): DraftItem {
+function emptyWorkPoint(): DraftWorkPoint {
+  draftWorkPointSequence += 1;
   return {
-    itemNo: `ITEM-${index + 1}`,
-    locationText: "",
-    workContent: "",
-    quantity: "1",
-    unit: "项",
-    estimatedUnitPrice: "0",
+    clientKey: `work-point-${draftWorkPointSequence}`,
+    businessName: "",
+    buildingId: "",
+    unitName: "",
+    locationType: "",
+    referenceRoomId: "",
+    commonAreaName: "",
+    spaceName: "",
+    orientation: "",
+    component: "",
+    specificPart: "",
+    symptom: "",
+    causeStatus: "PENDING_INVESTIGATION",
+    causeBasis: "",
+    proposedMeasure: "",
+    technicalRequirements: "",
+    quantity: "",
+    unit: "",
+    preliminaryEstimatedAmount: "",
+    estimateSource: "",
     linkedWorkOrderIds: [],
   };
 }
 
-function firstNonBlank(...values: Array<string | null | undefined>): string {
-  return values.find((value) => value?.trim())?.trim() ?? "";
+function optionalText(value: string): string | undefined {
+  return value.trim() || undefined;
 }
 
-// 首次关联已勘验报修事项时只补充空白或默认字段，避免覆盖物业已编辑的工程清单。
-function hydrateItemFromSurveyedWorkOrder(item: DraftItem, workOrder: RepairWorkOrder): DraftItem {
-  const planBudget = Number(workOrder.planBudget);
-  const quantity = Number(item.quantity);
-  const canUsePlanBudgetAsUnitPrice = Number.isFinite(planBudget)
-    && planBudget > 0
-    && (!item.estimatedUnitPrice.trim() || Number(item.estimatedUnitPrice) === 0)
-    && (!item.quantity.trim() || quantity === 1)
-    && (!item.unit.trim() || item.unit.trim() === "项");
+/**
+ * 将页面中的字符串状态在唯一边界处转换为后端点位契约。
+ * 不从报修摘要、照片数或旧工程项字段推导任何施工事实。
+ */
+function toWorkPointCreateInput(
+  point: DraftWorkPoint,
+  input: {
+    workflow: Workflow;
+    projectBuildingId?: number;
+    projectUnitName?: string;
+  },
+): RepairWorkPointCreateInput {
+  const locationType = point.locationType as Exclude<DraftWorkPoint["locationType"], "">;
+  const referenceRoomId = locationType === "REFERENCE_ROOM" ? Number(point.referenceRoomId) : undefined;
+  const preliminaryEstimatedAmount = point.preliminaryEstimatedAmount.trim()
+    ? Number(point.preliminaryEstimatedAmount)
+    : undefined;
+  const quantity = point.quantity.trim() ? Number(point.quantity) : undefined;
+  const pointBuildingId = input.workflow === "BUILDING_REPAIR"
+    ? input.projectBuildingId
+    : point.buildingId.trim() ? Number(point.buildingId) : undefined;
+  const pointUnitName = input.workflow === "BUILDING_REPAIR" && input.projectUnitName
+    ? input.projectUnitName
+    : optionalText(point.unitName);
 
   return {
-    ...item,
-    locationText: item.locationText.trim()
-      ? item.locationText
-      : firstNonBlank(workOrder.locationText),
-    workContent: item.workContent.trim()
-      ? item.workContent
-      : firstNonBlank(workOrder.surveySummary, workOrder.description, workOrder.title),
-    quantity: item.quantity.trim() || "1",
-    unit: item.unit.trim() || "项",
-    estimatedUnitPrice: canUsePlanBudgetAsUnitPrice
-      ? String(planBudget)
-      : item.estimatedUnitPrice,
+    businessName: point.businessName.trim(),
+    buildingId: pointBuildingId,
+    unitName: pointUnitName,
+    locationType,
+    referenceRoomId,
+    commonAreaName: locationType === "COMMON_AREA" ? optionalText(point.commonAreaName) : undefined,
+    spaceName: point.spaceName.trim(),
+    orientation: optionalText(point.orientation),
+    component: point.component.trim(),
+    specificPart: point.specificPart.trim(),
+    symptom: point.symptom.trim(),
+    causeStatus: point.causeStatus,
+    causeBasis: optionalText(point.causeBasis),
+    proposedMeasure: point.proposedMeasure.trim(),
+    technicalRequirements: optionalText(point.technicalRequirements),
+    quantity,
+    unit: point.unit.trim() || undefined,
+    preliminaryEstimatedAmount,
+    estimateSource: optionalText(point.estimateSource),
+    linkedWorkOrderIds: point.linkedWorkOrderIds,
   };
-}
-
-function percentageToRatio(percentage: number): number {
-  return Number((percentage / 100).toFixed(6));
-}
-
-// 管理端录入各期合同占比，领域模型保存截至每个节点的累计付款上限。
-function paymentSharesToCumulativeRatios(paymentShares: number[]): number[] {
-  let cumulativePercentage = 0;
-  return paymentShares.map((paymentShare) => {
-    cumulativePercentage += paymentShare;
-    return percentageToRatio(cumulativePercentage);
-  });
-}
-
-function PercentageInput({
-  label,
-  value,
-  onChange,
-  disabled = false,
-  min = 0,
-  max = 100,
-  placeholder,
-}: PercentageInputProps) {
-  return (
-    <div>
-      <Label>{label}</Label>
-      <div className="relative">
-        <Input
-          type="number"
-          min={min}
-          max={max}
-          step="0.01"
-          value={value}
-          disabled={disabled}
-          placeholder={placeholder}
-          className="pr-9"
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span>
-      </div>
-    </div>
-  );
 }
 
 function ReviewField({ label, children }: { label: string; children: ReactNode }) {
@@ -236,31 +207,8 @@ export function RepairProjectEditor() {
   const [buildingId, setBuildingId] = useState("");
   const [unitName, setUnitName] = useState("");
   const [planDescription, setPlanDescription] = useState("");
-  const [allocationPreview, setAllocationPreview] = useState<RepairAllocationPreview | null>(null);
-  const [allocationLoading, setAllocationLoading] = useState(false);
-  const [allocationError, setAllocationError] = useState("");
-  const [supplierSelectionMethod, setSupplierSelectionMethod] = useState<RepairPlanDraftInput["supplierSelectionMethod"]>("COMPETITIVE_QUOTATION");
-  const [supplierSelectionReason, setSupplierSelectionReason] = useState("");
-  const [constructionRequirements, setConstructionRequirements] = useState("");
-  const [safetyRequirements, setSafetyRequirements] = useState("");
-  const [affectedOwnerPreview, setAffectedOwnerPreview] = useState<RepairAffectedOwnerPreview | null>(null);
-  const [affectedOwnerLoading, setAffectedOwnerLoading] = useState(false);
-  const [affectedOwnerError, setAffectedOwnerError] = useState("");
-  const [selectedAffectedOwnerRoomIds, setSelectedAffectedOwnerRoomIds] = useState<number[]>([]);
-  const [affectedOwnerAdjustmentReason, setAffectedOwnerAdjustmentReason] = useState("");
-  const [minimumAcceptors, setMinimumAcceptors] = useState("");
-  const [passRule, setPassRule] = useState<"" | "ALL" | "AT_LEAST_RATIO">("");
-  const [approvalPercent, setApprovalPercent] = useState("");
-  const [settlementMethod, setSettlementMethod] = useState<"ACTUAL_QUANTITY" | "FIXED_TOTAL">("ACTUAL_QUANTITY");
-  const [plannedStartDate, setPlannedStartDate] = useState(dateAfter(1));
-  const [plannedCompletionDate, setPlannedCompletionDate] = useState(dateAfter(30));
-  const [warrantyDays, setWarrantyDays] = useState("365");
-  const [priceReviewRequired, setPriceReviewRequired] = useState(true);
-  const [advanceSharePercent, setAdvanceSharePercent] = useState("");
-  const [progressSharePercent, setProgressSharePercent] = useState("");
-  const [completionSharePercent, setCompletionSharePercent] = useState("");
-  const [warrantyReleaseSharePercent, setWarrantyReleaseSharePercent] = useState("");
-  const [items, setItems] = useState<DraftItem[]>([emptyItem(0)]);
+  const [decisionBudget, setDecisionBudget] = useState("");
+  const [workPoints, setWorkPoints] = useState<DraftWorkPoint[]>([emptyWorkPoint()]);
   const [eligibleCases, setEligibleCases] = useState<RepairWorkOrder[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
   const [locationBuildings, setLocationBuildings] = useState<Array<RepairLocationBuildingOption & { communityName: string }>>([]);
@@ -294,30 +242,21 @@ export function RepairProjectEditor() {
     if (workflow === "COMMUNITY_PUBLIC_REPAIR") return item.publicAreaScope === "COMMUNITY";
     return item.publicAreaScope === "BUILDING" && String(item.buildingId ?? "") === buildingId;
   }), [buildingId, eligibleCases, workflow]);
-  const draftBudgetTotal = useMemo(() => items.reduce((sum, item) => {
-    const quantity = Number(item.quantity);
-    const unitPrice = Number(item.estimatedUnitPrice);
-    if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return sum;
-    return sum + quantity * unitPrice;
-  }, 0), [items]);
-  const affectedOwnerCandidateRoomIds = useMemo(
-    () => affectedOwnerPreview?.candidates.map((candidate) => candidate.roomId) ?? [],
-    [affectedOwnerPreview],
-  );
-  const affectedOwnerSelectionAdjusted = useMemo(() => {
-    if (!affectedOwnerPreview) return false;
-    if (selectedAffectedOwnerRoomIds.length !== affectedOwnerCandidateRoomIds.length) return true;
-    const selected = new Set(selectedAffectedOwnerRoomIds);
-    return affectedOwnerCandidateRoomIds.some((roomId) => !selected.has(roomId));
-  }, [affectedOwnerCandidateRoomIds, affectedOwnerPreview, selectedAffectedOwnerRoomIds]);
-
+  const preliminaryEstimateTotal = useMemo(() => workPoints.reduce((sum, point) => {
+    const amount = Number(point.preliminaryEstimatedAmount);
+    return Number.isFinite(amount) && amount >= 0 ? sum + amount : sum;
+  }, 0), [workPoints]);
   useEffect(() => {
     if (workflow === "COMMUNITY_PUBLIC_REPAIR") {
       setBuildingId("");
       setUnitName("");
-      setAffectedOwnerPreview(null);
-      setSelectedAffectedOwnerRoomIds([]);
-      setAffectedOwnerAdjustmentReason("");
+      setWorkPoints((current) => current.map((point) => ({
+        ...point,
+        buildingId: "",
+        unitName: "",
+        referenceRoomId: "",
+        linkedWorkOrderIds: [],
+      })));
     }
   }, [workflow]);
 
@@ -334,7 +273,7 @@ export function RepairProjectEditor() {
   }, [canCreate]);
 
   useEffect(() => {
-    if (!canCreate || workflow !== "BUILDING_REPAIR") return;
+    if (!canCreate) return;
     setLocationLoading(true);
     listRepairLocationOptions()
       .then((options) => {
@@ -353,112 +292,85 @@ export function RepairProjectEditor() {
         toast.error(error instanceof Error ? error.message : "楼栋范围加载失败");
       })
       .finally(() => setLocationLoading(false));
-  }, [canCreate, workflow]);
+  }, [canCreate]);
 
-  useEffect(() => {
-    if (!canCreate) return;
-    const numericBuildingId = Number(buildingId);
-    if (workflow === "BUILDING_REPAIR"
-      && (!Number.isFinite(numericBuildingId) || numericBuildingId <= 0)) {
-      setAllocationPreview(null);
-      setAllocationError("");
-      setAllocationLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setAllocationPreview(null);
-    setAllocationError("");
-    setAllocationLoading(true);
-    getRepairAllocationPreview({
-      scopeType: workflow === "COMMUNITY_PUBLIC_REPAIR"
-        ? "COMMUNITY"
-        : unitName.trim() ? "BUILDING_UNIT" : "BUILDING",
-      buildingId: workflow === "BUILDING_REPAIR" ? numericBuildingId : undefined,
-      unitName: workflow === "BUILDING_REPAIR" ? unitName.trim() || undefined : undefined,
-    })
-      .then((preview) => {
-        if (!cancelled) setAllocationPreview(preview);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setAllocationError(error instanceof Error ? error.message : "费用承担范围计算失败");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setAllocationLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [buildingId, canCreate, unitName, workflow]);
-
-  useEffect(() => {
-    const numericBuildingId = Number(buildingId);
-    if (!canCreate || workflow !== "BUILDING_REPAIR"
-      || !Number.isFinite(numericBuildingId) || numericBuildingId <= 0) {
-      setAffectedOwnerPreview(null);
-      setSelectedAffectedOwnerRoomIds([]);
-      setAffectedOwnerError("");
-      setAffectedOwnerLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setAffectedOwnerPreview(null);
-    setSelectedAffectedOwnerRoomIds([]);
-    setAffectedOwnerAdjustmentReason("");
-    setAffectedOwnerError("");
-    setAffectedOwnerLoading(true);
-    getRepairAffectedOwnerPreview({
-      scopeType: unitName.trim() ? "BUILDING_UNIT" : "BUILDING",
-      buildingId: numericBuildingId,
-      unitName: unitName.trim() || undefined,
-    })
-      .then((preview) => {
-        if (cancelled) return;
-        setAffectedOwnerPreview(preview);
-        setSelectedAffectedOwnerRoomIds(preview.candidates.map((candidate) => candidate.roomId));
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setAffectedOwnerError(error instanceof Error ? error.message : "受影响业主名单生成失败");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setAffectedOwnerLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [buildingId, canCreate, unitName, workflow]);
-
-  function updateItem(index: number, field: DraftItemTextField, value: string) {
-    setItems((current) => current.map((item, itemIndex) => (
-      itemIndex === index ? { ...item, [field]: value } : item
+  function updateWorkPoint(index: number, field: DraftWorkPointTextField, value: string) {
+    setWorkPoints((current) => current.map((point, pointIndex) => (
+      pointIndex === index ? { ...point, [field]: value } : point
     )));
   }
 
   function toggleLinkedWorkOrder(index: number, workOrder: RepairWorkOrder, checked: boolean) {
-    setItems((current) => current.map((item, itemIndex) => {
-      if (itemIndex !== index) return item;
+    setWorkPoints((current) => current.map((point, pointIndex) => {
+      if (pointIndex !== index) return point;
       const workOrderId = workOrder.workOrderId;
       const linkedWorkOrderIds = checked
-        ? Array.from(new Set([...item.linkedWorkOrderIds, workOrderId]))
-        : item.linkedWorkOrderIds.filter((id) => id !== workOrderId);
-      const nextItem = checked && item.linkedWorkOrderIds.length === 0
-        ? hydrateItemFromSurveyedWorkOrder(item, workOrder)
-        : item;
-      return { ...nextItem, linkedWorkOrderIds };
+        ? Array.from(new Set([...point.linkedWorkOrderIds, workOrderId]))
+        : point.linkedWorkOrderIds.filter((id) => id !== workOrderId);
+      return { ...point, linkedWorkOrderIds };
     }));
   }
 
   function resetLinkedWorkOrders() {
-    setItems((current) => current.map((item) => ({ ...item, linkedWorkOrderIds: [] })));
+    setWorkPoints((current) => current.map((point) => ({ ...point, linkedWorkOrderIds: [] })));
   }
 
-  function toggleAffectedOwner(roomId: number, checked: boolean) {
-    setSelectedAffectedOwnerRoomIds((current) => checked
-      ? Array.from(new Set([...current, roomId]))
-      : current.filter((candidateRoomId) => candidateRoomId !== roomId));
+  function updateWorkPointLocationType(
+    index: number,
+    locationType: DraftWorkPoint["locationType"],
+  ) {
+    setWorkPoints((current) => current.map((point, pointIndex) => {
+      if (pointIndex !== index) return point;
+      return {
+        ...point,
+        locationType,
+        referenceRoomId: locationType === "REFERENCE_ROOM" ? point.referenceRoomId : "",
+        commonAreaName: locationType === "COMMON_AREA" ? point.commonAreaName : "",
+      };
+    }));
+  }
+
+  function updateWorkPointBuilding(index: number, nextBuildingId: string) {
+    setWorkPoints((current) => current.map((point, pointIndex) => (
+      pointIndex === index
+        ? { ...point, buildingId: nextBuildingId, unitName: "", referenceRoomId: "" }
+        : point
+    )));
+  }
+
+  function updateWorkPointUnit(index: number, nextUnitName: string) {
+    setWorkPoints((current) => current.map((point, pointIndex) => (
+      pointIndex === index
+        ? { ...point, unitName: nextUnitName, referenceRoomId: "" }
+        : point
+    )));
+  }
+
+  function updateWorkPointReferenceRoom(index: number, referenceRoomId: string, roomUnitName?: string) {
+    setWorkPoints((current) => current.map((point, pointIndex) => (
+      pointIndex === index
+        ? {
+          ...point,
+          referenceRoomId,
+          unitName: workflow === "BUILDING_REPAIR" && unitName
+            ? point.unitName
+            : roomUnitName ?? point.unitName,
+        }
+        : point
+    )));
+  }
+
+  function locationBuildingForWorkPoint(point: DraftWorkPoint) {
+    const pointBuildingId = workflow === "BUILDING_REPAIR" ? buildingId : point.buildingId;
+    return locationBuildings.find((building) => String(building.buildingId) === pointBuildingId);
+  }
+
+  function roomsForWorkPoint(point: DraftWorkPoint) {
+    const building = locationBuildingForWorkPoint(point);
+    if (!building) return [];
+    return building.units.flatMap((unit) => unit.rooms
+      .filter(() => !point.unitName || unit.unitName === point.unitName)
+      .map((room) => ({ ...room, unitName: unit.unitName })));
   }
 
   function moveToStep(stepIndex: number) {
@@ -480,14 +392,6 @@ export function RepairProjectEditor() {
         toast.error("楼栋维修必须选择楼栋范围");
         return false;
       }
-      if (allocationLoading) {
-        toast.error("费用承担范围正在计算，请稍候");
-        return false;
-      }
-      if (!allocationPreview) {
-        toast.error(allocationError || "当前范围无法形成费用承担房屋清单");
-        return false;
-      }
       return true;
     }
     if (stepIndex === 1) {
@@ -496,96 +400,47 @@ export function RepairProjectEditor() {
         toast.error("请填写问题与维修方案");
         return false;
       }
+      const budget = Number(decisionBudget);
+      if (!decisionBudget.trim() || !Number.isFinite(budget) || budget <= 0) {
+        toast.error("请填写送审/决定预算（含税）");
+        return false;
+      }
       return true;
     }
     if (stepIndex === 2) {
-      if (items.some((item) => !item.itemNo.trim() || !item.locationText.trim()
-        || !item.workContent.trim() || !item.unit.trim() || Number(item.quantity) <= 0
-        || Number(item.estimatedUnitPrice) < 0)) {
-        toast.error("请完整填写每个工程项，数量必须大于 0，单价不能小于 0");
+      if (workPoints.length === 0) {
+        toast.error("请至少录入一个维修点位");
         return false;
       }
-      if (draftBudgetTotal <= 0) {
-        toast.error("工程项预算合计必须大于 0");
+      const hasInvalidWorkPoint = workPoints.some((point) => {
+        const hasPairQuantity = Boolean(point.quantity.trim()) === Boolean(point.unit.trim());
+        const quantity = Number(point.quantity);
+        const amount = Number(point.preliminaryEstimatedAmount);
+        const hasEstimate = point.preliminaryEstimatedAmount.trim() !== "";
+        const hasBuilding = workflow === "BUILDING_REPAIR"
+          ? Number(buildingId) > 0
+          : !point.buildingId || Number(point.buildingId) > 0;
+        return !point.businessName.trim()
+          || !hasBuilding
+          || !point.locationType
+          || (point.locationType === "REFERENCE_ROOM" && Number(point.referenceRoomId) <= 0)
+          || (point.locationType === "COMMON_AREA" && !point.commonAreaName.trim())
+          || !point.spaceName.trim()
+          || !point.component.trim()
+          || !point.specificPart.trim()
+          || !point.symptom.trim()
+          || (point.causeStatus === "CONFIRMED" && !point.causeBasis.trim())
+          || !point.proposedMeasure.trim()
+          || !hasPairQuantity
+          || (Boolean(point.quantity.trim()) && (!Number.isFinite(quantity) || quantity <= 0))
+          || (hasEstimate && (!Number.isFinite(amount) || amount < 0 || !point.estimateSource.trim()))
+          || (!hasEstimate && point.estimateSource.trim() !== "");
+      });
+      if (hasInvalidWorkPoint) {
+        toast.error("请完整核对每个维修点位的位置、现象、原因状态、措施及可选金额信息");
         return false;
       }
       return true;
-    }
-    if (stepIndex === 3) {
-      const constructionRequirementsHtml = toMiniappRichText(constructionRequirements);
-      const safetyRequirementsHtml = toMiniappRichText(safetyRequirements);
-      const nonCompetitive = supplierSelectionMethod !== "COMPETITIVE_QUOTATION";
-      if ((nonCompetitive && !supplierSelectionReason.trim())
-        || !richTextToPlain(constructionRequirementsHtml) || !richTextToPlain(safetyRequirementsHtml)) {
-        toast.error(nonCompetitive
-          ? "请填写非竞争方式依据、施工管理要求和安全要求"
-          : "请填写施工管理要求和安全要求");
-        return false;
-      }
-      if (!plannedStartDate || !plannedCompletionDate || plannedCompletionDate < plannedStartDate
-        || Number(warrantyDays) < 0) {
-        toast.error("请检查实施日期和质保天数");
-        return false;
-      }
-      return true;
-    }
-    if (stepIndex !== 4) return true;
-
-    const building = workflow === "BUILDING_REPAIR";
-    if (building) {
-      if (affectedOwnerLoading) {
-        toast.error("受影响业主名单正在生成，请稍候");
-        return false;
-      }
-      if (!affectedOwnerPreview || selectedAffectedOwnerRoomIds.length === 0) {
-        toast.error(affectedOwnerError || "当前范围无法形成受影响业主名单");
-        return false;
-      }
-      if (Number(minimumAcceptors) < 1 || !passRule) {
-        toast.error("请明确填写最低有效人数和通过规则");
-        return false;
-      }
-      if (Number(minimumAcceptors) > affectedOwnerPreview.recommendedOwnerCount
-        || Number(minimumAcceptors) > selectedAffectedOwnerRoomIds.length) {
-        toast.error("最低有效人数不能超过当前选择范围内的业主人数");
-        return false;
-      }
-      if (affectedOwnerSelectionAdjusted && !affectedOwnerAdjustmentReason.trim()) {
-        toast.error("调整系统推荐的受影响业主名单时必须填写调整原因");
-        return false;
-      }
-    }
-    const approvalPercentValue = Number(approvalPercent);
-    if (building && (!Number.isFinite(approvalPercentValue)
-      || approvalPercentValue <= 0 || approvalPercentValue > 100)) {
-      toast.error("最低同意比例须大于 0% 且不超过 100%");
-      return false;
-    }
-    const paymentShareInputs = [
-      advanceSharePercent,
-      progressSharePercent,
-      completionSharePercent,
-      warrantyReleaseSharePercent,
-    ];
-    if (paymentShareInputs.some((percentage) => percentage.trim() === "")) {
-      toast.error("请明确填写 4 个付款节点比例，未发生付款的节点请填写 0%");
-      return false;
-    }
-    const paymentShares = paymentShareInputs.map(Number);
-    if (paymentShares.some((percentage) => !Number.isFinite(percentage)
-      || percentage < 0 || percentage > 100) || paymentShares[0] <= 0) {
-      toast.error("付款比例须在 0% 至 100% 之间，首次支取比例须大于 0%");
-      return false;
-    }
-    const paymentTotal = paymentShares.reduce((total, percentage) => total + percentage, 0);
-    if (Math.abs(paymentTotal - 100) > 0.000001) {
-      toast.error(`4 个付款节点比例合计须为 100%，当前为 ${paymentTotal.toFixed(2).replace(/\.00$/, "")}%`);
-      return false;
-    }
-    const cumulativeProgressPercent = paymentShares[0] + paymentShares[1];
-    if (paymentShares[0] > 30 || (priceReviewRequired && cumulativeProgressPercent > 90)) {
-      toast.error("首次支取不得超过 30%；需审价项目在审价完成前的进度款累计比例不得超过 90%");
-      return false;
     }
     return true;
   }
@@ -610,93 +465,28 @@ export function RepairProjectEditor() {
 
     const numericBuildingId = buildingId ? Number(buildingId) : undefined;
     const planDescriptionHtml = toMiniappRichText(planDescription);
-    const constructionRequirementsHtml = toMiniappRichText(constructionRequirements);
-    const safetyRequirementsHtml = toMiniappRichText(safetyRequirements);
     const building = workflow === "BUILDING_REPAIR";
-    const approvalPercentValue = Number(approvalPercent);
-    const paymentShares = [
-      advanceSharePercent,
-      progressSharePercent,
-      completionSharePercent,
-      warrantyReleaseSharePercent,
-    ].map(Number);
-    const paymentRatios = paymentSharesToCumulativeRatios(paymentShares);
-    const normalizedItems = items.map((item) => {
-      const quantity = Number(item.quantity);
-      const unitPrice = Number(item.estimatedUnitPrice);
-      return {
-        itemNo: item.itemNo.trim(),
-        buildingId: building ? numericBuildingId : undefined,
-        unitName: building ? unitName.trim() || undefined : undefined,
-        roomId: undefined,
-        locationText: item.locationText.trim(),
-        workContent: item.workContent.trim(),
-        quantity,
-        unit: item.unit.trim(),
-        estimatedUnitPrice: unitPrice,
-        estimatedAmount: Number((quantity * unitPrice).toFixed(2)),
-        linkedWorkOrderIds: item.linkedWorkOrderIds,
-      };
-    });
-    const budgetTotal = normalizedItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
+    const workPointInputs = workPoints.map((point) => toWorkPointCreateInput(point, {
+      workflow,
+      projectBuildingId: building ? numericBuildingId : undefined,
+      projectUnitName: building ? unitName.trim() || undefined : undefined,
+    }));
     const plan: RepairPlanDraftInput = {
       planDescription: planDescriptionHtml,
-      budgetTotal,
-      supplierSelectionMethod,
-      supplierSelectionReason: supplierSelectionMethod === "COMPETITIVE_QUOTATION"
-        ? undefined
-        : supplierSelectionReason.trim(),
-      constructionManagementRequirements: constructionRequirementsHtml,
-      evidenceRequirements: EVIDENCE_STAGES.map((stage) => ({
-        stage,
-        description: `${stage} 原始现场证据`,
-        required: true,
-      })),
-      safetyRequirements: safetyRequirementsHtml,
-      acceptanceMethod: building
-        ? "楼组长与锁定受影响业主按最低人数及通过规则共同验收"
-        : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署",
-      affectedOwners: building
-        ? affectedOwnerPreview?.candidates
-          .filter((candidate) => selectedAffectedOwnerRoomIds.includes(candidate.roomId))
-          .map((candidate) => ({
-            roomId: candidate.roomId,
-            affectedReason: candidate.affectedReason,
-          }))
-        : undefined,
-      affectedOwnerAdjustmentReason: building && affectedOwnerSelectionAdjusted
-        ? affectedOwnerAdjustmentReason.trim()
-        : undefined,
-      minimumAffectedOwnerAcceptors: building ? Number(minimumAcceptors) : undefined,
-      affectedOwnerPassRule: building ? passRule || undefined : undefined,
-      affectedOwnerApprovalRatio: building ? percentageToRatio(approvalPercentValue) : undefined,
-      settlementMethod,
-      plannedStartDate,
-      plannedCompletionDate,
-      warrantyDays: Number(warrantyDays),
-      priceReviewRequired,
-      paymentMilestones: [
-        { type: "ADVANCE", maximumContractRatio: paymentRatios[0], requiredEvidenceCodes: ["SIGNED_CONTRACT"] },
-        { type: "PROGRESS", maximumContractRatio: paymentRatios[1], requiredEvidenceCodes: ["PROGRESS_RECORD"] },
-        { type: "COMPLETION", maximumContractRatio: paymentRatios[2], requiredEvidenceCodes: ["ACCEPTANCE", "SETTLEMENT"] },
-        { type: "WARRANTY_RELEASE", maximumContractRatio: paymentRatios[3], requiredEvidenceCodes: ["WARRANTY_EXPIRED_CERTIFICATE"] },
-      ],
-      items: normalizedItems,
-      attachments: [],
+      budgetTotal: Number(decisionBudget),
+      workPoints: workPointInputs,
     };
     const payload: RepairProjectCreateInput = {
       projectName: projectName.trim(),
       scopeType: building ? (unitName.trim() ? "BUILDING_UNIT" : "BUILDING") : "COMMUNITY",
       buildingId: building ? numericBuildingId : undefined,
       unitName: building ? unitName.trim() || undefined : undefined,
-      fundSource: building ? "BUILDING_MAINTENANCE_FUND" : "COMMUNITY_MAINTENANCE_FUND",
-      governancePath: building ? "BUILDING_REPAIR_DECISION" : "COMMUNITY_ASSEMBLY_DECISION",
       plan,
     };
     setSubmitting(true);
     try {
       await createRepairProject(payload);
-      toast.success("维修工程项目已创建");
+      toast.success("维修工程草稿已创建，待后端核验决定与资金承担依据");
       setPage("engineering");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "维修工程项目创建失败");
@@ -705,18 +495,11 @@ export function RepairProjectEditor() {
     }
   }
 
-  const scopeLabel = allocationPreview?.scopeLabel || (workflow === "BUILDING_REPAIR"
+  const scopeLabel = workflow === "BUILDING_REPAIR"
     ? selectedBuilding
       ? `${selectedBuilding.communityName} · ${selectedBuilding.buildingName} · ${unitName || "整栋"}`
       : "未选择楼栋"
-    : "全小区公共区域");
-  const allocationLabel = allocationPreview
-    ? `${allocationPreview.scopeLabel} · ${allocationPreview.roomCount} 套 · ${Number(allocationPreview.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡ · 按建筑面积比例`
-    : allocationError || "待系统计算";
-  const acceptanceSummary = workflow === "BUILDING_REPAIR"
-    ? `${affectedOwnerPreview?.scopeLabel || "待生成范围"} · 已选 ${selectedAffectedOwnerRoomIds.length} 套房屋 · 最低 ${minimumAcceptors || "0"} 人 · ${passRule === "ALL" ? "参与业主全部通过" : `同意比例不低于 ${approvalPercent || "0"}%`}`
-    : "主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署";
-  const paymentSummary = `首次支取 ${advanceSharePercent || "0"}% · 进度款 ${progressSharePercent || "0"}% · 完工款 ${completionSharePercent || "0"}% · 质保金 ${warrantyReleaseSharePercent || "0"}%`;
+    : "全小区公共区域";
 
   if (!canCreate) {
     return (
@@ -738,7 +521,7 @@ export function RepairProjectEditor() {
     <div className="space-y-5 pb-4">
       <PageHeader
         title="新建维修工程项目"
-        desc="分步完成工程范围、实施方案、工程清单、施工安排、验收及付款设置"
+        desc="分步核对单一决定范围、维修点位与实施方案"
         actions={(
           <Button variant="ghost" onClick={() => setPage("engineering")}>
             <ArrowLeft className="size-4" />返回项目台账
@@ -755,196 +538,129 @@ export function RepairProjectEditor() {
 
       <div ref={stepContentRef} className="box-content min-h-[420px] scroll-mt-4 pb-32 sm:pb-24">
         {currentStep === 0 && (
-          <SectionCard title="项目范围与资金">
+          <SectionCard title="项目范围与核验边界">
             <div className="space-y-5">
               <div className="inline-flex rounded-md border bg-muted/30 p-1">
-                <Button type="button" size="sm" variant={workflow === "BUILDING_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("BUILDING_REPAIR"); resetLinkedWorkOrders(); }}>楼栋/单元维修</Button>
-                <Button type="button" size="sm" variant={workflow === "COMMUNITY_PUBLIC_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("COMMUNITY_PUBLIC_REPAIR"); resetLinkedWorkOrders(); }}>全小区公共维修</Button>
+                <Button type="button" size="sm" variant={workflow === "BUILDING_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("BUILDING_REPAIR"); resetLinkedWorkOrders(); }}>楼栋/单元共用项目</Button>
+                <Button type="button" size="sm" variant={workflow === "COMMUNITY_PUBLIC_REPAIR" ? "default" : "ghost"} onClick={() => { setWorkflow("COMMUNITY_PUBLIC_REPAIR"); resetLinkedWorkOrders(); }}>全体共用项目</Button>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="md:col-span-2"><Label>工程名称</Label><Input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></div>
                 {workflow === "BUILDING_REPAIR" ? (
-                  <div><Label>楼栋范围</Label><Select value={buildingId} onValueChange={(value) => { setBuildingId(value); setUnitName(""); resetLinkedWorkOrders(); }} disabled={locationLoading}><SelectTrigger><SelectValue placeholder={locationLoading ? "正在加载楼栋" : "选择楼栋"} /></SelectTrigger><SelectContent>{locationBuildings.map((building) => <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
+                  <div><Label>楼栋范围</Label><Select value={buildingId} onValueChange={(value) => { setBuildingId(value); setUnitName(""); resetLinkedWorkOrders(); setWorkPoints((current) => current.map((point) => ({ ...point, unitName: "", referenceRoomId: "" }))); }} disabled={locationLoading}><SelectTrigger><SelectValue placeholder={locationLoading ? "正在加载楼栋" : "选择楼栋"} /></SelectTrigger><SelectContent>{locationBuildings.map((building) => <SelectItem key={`${building.communityName}-${building.buildingId}`} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
                 ) : (
-                  <div><Label>资金范围</Label><Input value="小区公共维修资金" disabled /></div>
+                  <div><Label>项目范围</Label><Input value="全小区公共区域" disabled /></div>
                 )}
                 {workflow === "BUILDING_REPAIR" && <div><Label>单元范围</Label><Select value={unitName || "__BUILDING__"} onValueChange={(value) => setUnitName(value === "__BUILDING__" ? "" : value)} disabled={!selectedBuilding}><SelectTrigger><SelectValue placeholder="整栋" /></SelectTrigger><SelectContent><SelectItem value="__BUILDING__">整栋</SelectItem>{selectedBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>}
-                <div className="md:col-span-3 border-y bg-muted/20 py-4">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Scale className="size-4 text-primary" />
-                    系统确定的费用承担范围
+                  <div className="md:col-span-3 border-y bg-muted/20 py-4">
+                    <div className="text-sm font-medium">范围核对</div>
+                    <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <ReviewField label="直接受影响/效果确认范围">待依据关联的可信勘验来源和后续核验确认，不从其他范围推导。</ReviewField>
+                      <ReviewField label="项目决定范围（待核验）">{scopeLabel}</ReviewField>
+                      <ReviewField label="费用分摊范围">待后端核验，不由本页自动生成。</ReviewField>
+                      <ReviewField label="资金来源">待后端核验，不由项目范围推导。</ReviewField>
+                    </dl>
                   </div>
-                  {allocationLoading ? (
-                    <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在核对产权名册</div>
-                  ) : allocationPreview ? (
-                    <div className="mt-3 space-y-3">
-                      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <ReviewField label="承担范围">{allocationPreview.scopeLabel}</ReviewField>
-                        <ReviewField label="费用承担房屋">{allocationPreview.roomCount} 套</ReviewField>
-                        <ReviewField label="汇总建筑面积">{Number(allocationPreview.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡</ReviewField>
-                        <ReviewField label="分摊方式">按各套住宅建筑面积比例</ReviewField>
-                      </dl>
-                      <p className="text-xs leading-5 text-muted-foreground">依据：{allocationPreview.legalBasis}</p>
-                    </div>
-                  ) : (
-                    <p className={`mt-3 text-sm ${allocationError ? "text-destructive" : "text-muted-foreground"}`}>
-                      {allocationError || "选择维修范围后自动核对"}
-                    </p>
-                  )}
-                </div>
               </div>
             </div>
           </SectionCard>
         )}
 
         {currentStep === 1 && (
-          <SectionCard title="问题与实施方案">
-            <RichTextEditor
-              label="问题与维修方案"
-              value={planDescription}
-              onChange={setPlanDescription}
-              rows={14}
-              placeholder="填写现场问题、成因、维修位置与边界、主要工作内容，可在正文中插入现场图片"
-              imageUploadHandler={uploadPlanImage}
-              imagePreviewHandler={previewPlanImage}
-            />
+          <SectionCard title="问题与初步方案">
+            <div className="space-y-4">
+              <RichTextEditor
+                label="问题与维修方案"
+                value={planDescription}
+                onChange={setPlanDescription}
+                rows={14}
+                placeholder="填写本项目的整体问题、实施边界和方案说明，可在正文中插入现场图片"
+                imageUploadHandler={uploadPlanImage}
+                imagePreviewHandler={previewPlanImage}
+              />
+              <div><Label>送审/决定预算（含税）</Label><Input className="max-w-sm" type="number" min="0.01" step="0.01" value={decisionBudget} onChange={(event) => setDecisionBudget(event.target.value)} /></div>
+            </div>
           </SectionCard>
         )}
 
         {currentStep === 2 && (
           <SectionCard
-            title="工程清单"
+            title="维修点位与维修对象"
             extra={(
               <div className="flex flex-wrap items-center justify-end gap-3">
-                <span className="text-sm text-muted-foreground">预算合计 ¥{draftBudgetTotal.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                <Button type="button" size="sm" variant="outline" onClick={() => setItems((current) => [...current, emptyItem(current.length)])}><Plus className="size-4" />增加工程项</Button>
+                <span className="text-sm text-muted-foreground">点位暂估合计 ¥{preliminaryEstimateTotal.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => setWorkPoints((current) => [...current, emptyWorkPoint()])}><Plus className="size-4" />增加维修点位</Button>
               </div>
             )}
           >
             <div className="space-y-4">
-              {items.map((item, index) => (
-                <div key={`${item.itemNo}-${index}`} className="rounded-md border p-4">
-                  <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium">工程项 {index + 1}</span><Button type="button" size="icon" variant="ghost" title="删除工程项" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4" /></Button></div>
-                  <div className="grid gap-3 md:grid-cols-6">
-                    <div><Label>编号</Label><Input value={item.itemNo} onChange={(event) => updateItem(index, "itemNo", event.target.value)} /></div>
-                    <div className="md:col-span-2"><Label>位置</Label><Input value={item.locationText} onChange={(event) => updateItem(index, "locationText", event.target.value)} /></div>
-                    <div className="md:col-span-3"><Label>工作内容</Label><Input value={item.workContent} onChange={(event) => updateItem(index, "workContent", event.target.value)} /></div>
-                    <div><Label>数量</Label><Input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} /></div>
-                    <div><Label>单位</Label><Input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} /></div>
-                    <div><Label>含税估算单价</Label><Input type="number" min="0" step="0.01" value={item.estimatedUnitPrice} onChange={(event) => updateItem(index, "estimatedUnitPrice", event.target.value)} /></div>
-                    <div className="md:col-span-6">
-                      <Label>关联已勘验报修事项</Label>
-                      <div className="mt-1 max-h-36 overflow-y-auto rounded-md border">
-                        {casesLoading ? (
-                          <div className="flex items-center justify-center px-3 py-5 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />加载待交接事项</div>
-                        ) : visibleEligibleCases.length === 0 ? (
-                          <div className="px-3 py-5 text-center text-sm text-muted-foreground">当前工程范围没有待交接的已勘验共有部分报修事项</div>
-                        ) : visibleEligibleCases.map((workOrder) => (
-                          <label key={workOrder.workOrderId} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/30">
-                            <Checkbox
-                              className="mt-0.5"
-                              checked={item.linkedWorkOrderIds.includes(workOrder.workOrderId)}
-                              onCheckedChange={(checked) => toggleLinkedWorkOrder(index, workOrder, checked === true)}
-                            />
-                            <span className="min-w-0 text-sm">
-                              <span className="block truncate font-medium">{workOrder.title}</span>
-                              <span className="block truncate text-xs text-muted-foreground">{workOrder.orderNo} · {workOrder.locationText || "未填写位置"}</span>
-                            </span>
-                          </label>
-                        ))}
+              <div className="border-l-2 border-primary bg-muted/30 px-4 py-3 text-sm leading-6">
+                只能关联当前决定范围内的已勘验来源。不同范围应分别建项；仅服务多个特定楼栋的共同设施当前不能进入本流程。
+              </div>
+              {workPoints.map((point, index) => {
+                const pointBuilding = locationBuildingForWorkPoint(point);
+                const effectiveUnitName = workflow === "BUILDING_REPAIR" && unitName
+                  ? unitName
+                  : point.unitName;
+                const pointRooms = roomsForWorkPoint({ ...point, unitName: effectiveUnitName });
+                return (
+                  <div key={point.clientKey} className="rounded-md border p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium">维修点位 {index + 1}</span>
+                      <Button type="button" size="icon" variant="ghost" title="删除维修点位" disabled={workPoints.length === 1} onClick={() => setWorkPoints((current) => current.filter((_, pointIndex) => pointIndex !== index))}><Trash2 className="size-4" /></Button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-6">
+                      <div className="md:col-span-3"><Label>业务可读名称</Label><Input value={point.businessName} placeholder="例如：16 号楼 403 室北次卧窗户与外墙交界" onChange={(event) => updateWorkPoint(index, "businessName", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>位置类型</Label><Select value={point.locationType || "__UNSELECTED__"} onValueChange={(value) => updateWorkPointLocationType(index, value === "__UNSELECTED__" ? "" : value as DraftWorkPoint["locationType"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__UNSELECTED__">选择参照房屋或公区</SelectItem><SelectItem value="REFERENCE_ROOM">参照房屋</SelectItem><SelectItem value="COMMON_AREA">公共区域</SelectItem></SelectContent></Select></div>
+                      {workflow === "BUILDING_REPAIR" ? (
+                        <div className="md:col-span-2"><Label>楼栋</Label><Input value={selectedBuilding ? `${selectedBuilding.communityName} · ${selectedBuilding.buildingName}` : "请先选择项目楼栋"} disabled /></div>
+                      ) : (
+                        <div className="md:col-span-2"><Label>楼栋</Label><Select value={point.buildingId || "__COMMUNITY_AREA__"} onValueChange={(value) => updateWorkPointBuilding(index, value === "__COMMUNITY_AREA__" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__COMMUNITY_AREA__">全小区公共区域（无特定楼栋）</SelectItem>{locationBuildings.map((building) => <SelectItem key={building.buildingId} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
+                      )}
+                      {workflow === "BUILDING_REPAIR" && unitName ? (
+                        <div className="md:col-span-2"><Label>单元</Label><Input value={unitName} disabled /></div>
+                      ) : (
+                        <div className="md:col-span-2"><Label>单元</Label><Select value={point.unitName || "__NO_UNIT__"} onValueChange={(value) => updateWorkPointUnit(index, value === "__NO_UNIT__" ? "" : value)} disabled={!pointBuilding}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__NO_UNIT__">未限定单元</SelectItem>{pointBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>
+                      )}
+                      {point.locationType === "REFERENCE_ROOM" ? (
+                        <div className="md:col-span-2"><Label>参照房屋</Label>{pointRooms.length > 0 ? <Select value={point.referenceRoomId || "__NO_ROOM__"} onValueChange={(value) => { const nextRoomId = value === "__NO_ROOM__" ? "" : value; const room = pointRooms.find((candidate) => String(candidate.roomId) === nextRoomId); updateWorkPointReferenceRoom(index, nextRoomId, room?.unitName); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__NO_ROOM__">选择房屋</SelectItem>{pointRooms.map((room) => <SelectItem key={room.roomId} value={String(room.roomId)}>{room.unitName} · {room.roomName}</SelectItem>)}</SelectContent></Select> : <Input value={pointBuilding ? "当前范围没有可选房屋" : "请先选择楼栋"} disabled />}</div>
+                      ) : (
+                        <div className="md:col-span-2"><Label>参照公区</Label><Input value={point.commonAreaName} disabled={point.locationType !== "COMMON_AREA"} placeholder="例如：一层大厅、地库泵房、东大门" onChange={(event) => updateWorkPoint(index, "commonAreaName", event.target.value)} /></div>
+                      )}
+                      <div className="md:col-span-2"><Label>空间</Label><Input value={point.spaceName} placeholder="例如：北次卧、门厅、泵房" onChange={(event) => updateWorkPoint(index, "spaceName", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>朝向（如适用）</Label><Input value={point.orientation} placeholder="例如：北侧、东面" onChange={(event) => updateWorkPoint(index, "orientation", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>构件</Label><Input value={point.component} placeholder="例如：窗框、外墙、玻璃、排水泵" onChange={(event) => updateWorkPoint(index, "component", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>具体部位</Label><Input value={point.specificPart} placeholder="例如：窗框与外墙交界、玻璃左上角" onChange={(event) => updateWorkPoint(index, "specificPart", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>问题现象</Label><Textarea value={point.symptom} rows={3} placeholder="仅记录可观察到的现象" onChange={(event) => updateWorkPoint(index, "symptom", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>原因状态</Label><Select value={point.causeStatus} onValueChange={(value) => updateWorkPoint(index, "causeStatus", value as DraftWorkPoint["causeStatus"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PENDING_INVESTIGATION">待勘验</SelectItem><SelectItem value="CONFIRMED">已确认</SelectItem><SelectItem value="UNCONFIRMED">未能确认</SelectItem></SelectContent></Select></div>
+                      <div className="md:col-span-4"><Label>{point.causeStatus === "CONFIRMED" ? "原因依据" : "原因依据或未能确认说明"}</Label><Input value={point.causeBasis} placeholder={point.causeStatus === "CONFIRMED" ? "填写可靠勘验或鉴定依据" : "可填写已核验材料或待补充事项"} onChange={(event) => updateWorkPoint(index, "causeBasis", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>拟定维修措施</Label><Textarea value={point.proposedMeasure} rows={3} placeholder="填写拟实施的维修措施" onChange={(event) => updateWorkPoint(index, "proposedMeasure", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>技术要求（可选）</Label><Textarea value={point.technicalRequirements} rows={3} placeholder="例如：材料规格、施工边界、过程要求" onChange={(event) => updateWorkPoint(index, "technicalRequirements", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>范围数量（可选）</Label><Input type="number" min="0.001" step="0.001" value={point.quantity} onChange={(event) => updateWorkPoint(index, "quantity", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>单位（与数量同时填写）</Label><Input value={point.unit} onChange={(event) => updateWorkPoint(index, "unit", event.target.value)} /></div>
+                      <div className="md:col-span-2"><Label>初步暂估金额（可选）</Label><Input type="number" min="0" step="0.01" value={point.preliminaryEstimatedAmount} onChange={(event) => updateWorkPoint(index, "preliminaryEstimatedAmount", event.target.value)} /></div>
+                      <div className="md:col-span-3"><Label>暂估来源</Label><Input value={point.estimateSource} disabled={!point.preliminaryEstimatedAmount.trim()} placeholder="有暂估金额时必填，例如：历史结算、第三方估算" onChange={(event) => updateWorkPoint(index, "estimateSource", event.target.value)} /></div>
+                      <div className="md:col-span-6">
+                        <Label>关联的已勘验来源</Label>
+                        <div className="mt-1 max-h-40 overflow-y-auto rounded-md border">
+                          {casesLoading ? (
+                            <div className="flex items-center justify-center px-3 py-5 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />加载已勘验来源</div>
+                          ) : visibleEligibleCases.length === 0 ? (
+                            <div className="px-3 py-5 text-center text-sm text-muted-foreground">当前决定范围没有可关联的已勘验来源</div>
+                          ) : visibleEligibleCases.map((workOrder) => (
+                            <label key={workOrder.workOrderId} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/30">
+                              <Checkbox className="mt-0.5" checked={point.linkedWorkOrderIds.includes(workOrder.workOrderId)} onCheckedChange={(checked) => toggleLinkedWorkOrder(index, workOrder, checked === true)} />
+                              <span className="min-w-0 text-sm"><span className="block truncate font-medium">{workOrder.title}</span><span className="block truncate text-xs text-muted-foreground">{workOrder.orderNo} · {workOrder.locationText || "未填写位置"}</span></span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </SectionCard>
-        )}
-
-        {currentStep === 3 && (
-          <SectionCard title="施工安排">
-            <div className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="md:col-span-2"><Label>供应商遴选方式</Label><Select value={supplierSelectionMethod} onValueChange={(value) => { const next = value as RepairPlanDraftInput["supplierSelectionMethod"]; setSupplierSelectionMethod(next); if (next === "COMPETITIVE_QUOTATION") setSupplierSelectionReason(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COMPETITIVE_QUOTATION">竞争性询价</SelectItem><SelectItem value="FRAMEWORK_SUPPLIER">框架供应商</SelectItem><SelectItem value="DIRECT_AWARD">依法直接委托</SelectItem><SelectItem value="EMERGENCY_APPOINTMENT">紧急指定</SelectItem></SelectContent></Select></div>
-                {supplierSelectionMethod !== "COMPETITIVE_QUOTATION" && (
-                  <div className="md:col-span-2"><Label>非竞争方式依据</Label><Input value={supplierSelectionReason} onChange={(event) => setSupplierSelectionReason(event.target.value)} /></div>
-                )}
-                <div><Label>结算方式</Label><Select value={settlementMethod} onValueChange={(value) => setSettlementMethod(value as typeof settlementMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTUAL_QUANTITY">按实际工程量</SelectItem><SelectItem value="FIXED_TOTAL">固定总价</SelectItem></SelectContent></Select></div>
-                <div><Label><CalendarDays className="mr-1 inline size-3.5" />计划开工</Label><Input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} /></div>
-                <div><Label>计划完工</Label><Input type="date" value={plannedCompletionDate} onChange={(event) => setPlannedCompletionDate(event.target.value)} /></div>
-                <div><Label>质保天数</Label><Input type="number" min="0" value={warrantyDays} onChange={(event) => setWarrantyDays(event.target.value)} /></div>
-                <div className="flex items-end gap-3 pb-2"><Switch checked={priceReviewRequired} onCheckedChange={setPriceReviewRequired} /><span className="text-sm">签约/完工需审价</span></div>
-              </div>
-              <RichTextEditor label="施工管理要求" value={constructionRequirements} onChange={setConstructionRequirements} rows={8} toolbar="basic" placeholder="填写现场管理、过程核验和资料归档要求" />
-              <RichTextEditor label="安全要求" value={safetyRequirements} onChange={setSafetyRequirements} rows={8} toolbar="basic" placeholder="填写施工安全、人员防护和现场隔离要求" />
-            </div>
-          </SectionCard>
-        )}
-
-        {currentStep === 4 && (
-          <div className="space-y-5">
-            <SectionCard title="验收规则">
-              <div className="space-y-4">
-                <div className="border-l-2 border-primary bg-muted/30 px-4 py-3 text-sm">
-                  {workflow === "BUILDING_REPAIR"
-                    ? "楼栋维修由楼组长与受影响业主共同验收，系统按锁定的范围、人数和通过比例判断。"
-                    : "全小区公共维修由主任或副主任在线同意、业委会用印，并由物业或第三方专业人员共同签署。"}
-                </div>
-                {workflow === "BUILDING_REPAIR" && (
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <Label>系统生成的受影响业主名单</Label>
-                        {affectedOwnerPreview && (
-                          <span className="text-xs text-muted-foreground">
-                            {selectedAffectedOwnerRoomIds.length} / {affectedOwnerPreview.candidates.length} 套房屋 · {affectedOwnerPreview.recommendedOwnerCount} 名业主
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 max-h-52 overflow-y-auto rounded-md border">
-                        {affectedOwnerLoading ? (
-                          <div className="flex items-center justify-center px-3 py-6 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在核对产权名册</div>
-                        ) : affectedOwnerPreview ? affectedOwnerPreview.candidates.map((candidate) => (
-                          <label key={candidate.roomId} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/30">
-                            <Checkbox
-                              className="mt-0.5"
-                              checked={selectedAffectedOwnerRoomIds.includes(candidate.roomId)}
-                              onCheckedChange={(checked) => toggleAffectedOwner(candidate.roomId, checked === true)}
-                            />
-                            <span className="min-w-0 text-sm">
-                              <span className="block font-medium">{candidate.buildingName} · {candidate.unitName ? `${candidate.unitName} · ` : ""}{candidate.roomName}</span>
-                              <span className="block text-xs text-muted-foreground">{candidate.affectedReason}</span>
-                            </span>
-                          </label>
-                        )) : (
-                          <div className={`px-3 py-6 text-center text-sm ${affectedOwnerError ? "text-destructive" : "text-muted-foreground"}`}>
-                            {affectedOwnerError || "选择维修范围后自动生成"}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    {affectedOwnerSelectionAdjusted && (
-                      <div><Label>名单调整原因</Label><Input value={affectedOwnerAdjustmentReason} onChange={(event) => setAffectedOwnerAdjustmentReason(event.target.value)} /></div>
-                    )}
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div><Label>最低有效业主人数</Label><Input type="number" min="1" max={affectedOwnerPreview?.recommendedOwnerCount} value={minimumAcceptors} onChange={(event) => setMinimumAcceptors(event.target.value)} /></div>
-                      <div><Label>通过规则</Label><Select value={passRule} onValueChange={(value) => { const next = value as "ALL" | "AT_LEAST_RATIO"; setPassRule(next); setApprovalPercent(next === "ALL" ? "100" : ""); }}><SelectTrigger><SelectValue placeholder="明确选择" /></SelectTrigger><SelectContent><SelectItem value="ALL">参与业主全部通过</SelectItem><SelectItem value="AT_LEAST_RATIO">达到同意比例</SelectItem></SelectContent></Select></div>
-                      <PercentageInput label="最低同意比例" value={approvalPercent} disabled={!passRule || passRule === "ALL"} min={0.01} placeholder="例如 60" onChange={setApprovalPercent} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </SectionCard>
-
-            <SectionCard title="分期付款比例（合计 100%）">
-              <div className="grid gap-4 md:grid-cols-4">
-                <PercentageInput label="首次支取比例" value={advanceSharePercent} min={0.01} max={30} placeholder="不超过 30" onChange={setAdvanceSharePercent} />
-                <PercentageInput label="进度款比例" value={progressSharePercent} placeholder="例如 50" onChange={setProgressSharePercent} />
-                <PercentageInput label="完工款比例" value={completionSharePercent} placeholder="例如 10" onChange={setCompletionSharePercent} />
-                <PercentageInput label="质保金比例" value={warrantyReleaseSharePercent} placeholder="例如 10" onChange={setWarrantyReleaseSharePercent} />
-              </div>
-            </SectionCard>
-          </div>
         )}
 
         {currentStep === REVIEW_STEP_INDEX && (
@@ -953,45 +669,29 @@ export function RepairProjectEditor() {
               <ReviewBlock title="项目范围" onEdit={() => moveToStep(0)}>
                 <dl className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <ReviewField label="工程名称">{projectName}</ReviewField>
-                  <ReviewField label="维修类型">{workflow === "BUILDING_REPAIR" ? "楼栋/单元维修" : "全小区公共维修"}</ReviewField>
-                  <ReviewField label="工程范围">{scopeLabel}</ReviewField>
-                  <ReviewField label="资金来源">{workflow === "BUILDING_REPAIR" ? "楼栋维修资金" : "小区公共维修资金"}</ReviewField>
-                  <div className="md:col-span-2 xl:col-span-4"><ReviewField label="分摊范围">{allocationLabel}</ReviewField></div>
+                  <ReviewField label="项目类型">{workflow === "BUILDING_REPAIR" ? "楼栋/单元共用项目" : "全体共用项目"}</ReviewField>
+                  <ReviewField label="项目决定范围（待核验）">{scopeLabel}</ReviewField>
+                  <ReviewField label="费用分摊范围">待后端核验，不由本页自动生成。</ReviewField>
+                  <ReviewField label="资金来源">待后端核验，不由项目范围推导。</ReviewField>
+                  <div className="md:col-span-2 xl:col-span-4"><ReviewField label="直接受影响/效果确认范围">待依据关联的可信勘验来源和后续核验确认，不从项目决定范围或费用分摊范围推导。</ReviewField></div>
                 </dl>
               </ReviewBlock>
 
-              <ReviewBlock title="实施方案" onEdit={() => moveToStep(1)}>
-                <dl>
-                  <ReviewField label="问题与维修方案"><span className="line-clamp-4">{richTextToPlain(toMiniappRichText(planDescription))}</span></ReviewField>
-                </dl>
-              </ReviewBlock>
-
-              <ReviewBlock title="工程清单" onEdit={() => moveToStep(2)}>
-                <dl className="grid gap-4 md:grid-cols-3">
-                  <ReviewField label="工程项数量">{items.length} 项</ReviewField>
-                  <ReviewField label="预算合计">¥{draftBudgetTotal.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ReviewField>
-                  <ReviewField label="关联报修事项">{items.reduce((sum, item) => sum + item.linkedWorkOrderIds.length, 0)} 项</ReviewField>
-                </dl>
-              </ReviewBlock>
-
-              <ReviewBlock title="施工安排" onEdit={() => moveToStep(3)}>
-                <dl className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <ReviewField label="供应商遴选方式">{SUPPLIER_METHOD_LABEL[supplierSelectionMethod]}</ReviewField>
-                  {supplierSelectionMethod !== "COMPETITIVE_QUOTATION" && (
-                    <ReviewField label="非竞争方式依据">{supplierSelectionReason}</ReviewField>
-                  )}
-                  <ReviewField label="结算方式">{settlementMethod === "ACTUAL_QUANTITY" ? "按实际工程量" : "固定总价"}</ReviewField>
-                  <ReviewField label="计划工期">{plannedStartDate} 至 {plannedCompletionDate}</ReviewField>
-                  <ReviewField label="质保与审价">{warrantyDays} 天 · {priceReviewRequired ? "需审价" : "无需审价"}</ReviewField>
-                </dl>
-              </ReviewBlock>
-
-              <ReviewBlock title="验收与付款" onEdit={() => moveToStep(4)}>
+              <ReviewBlock title="初步方案" onEdit={() => moveToStep(1)}>
                 <dl className="grid gap-4 md:grid-cols-2">
-                  <ReviewField label="验收规则">{acceptanceSummary}</ReviewField>
-                  <ReviewField label="分期付款">{paymentSummary}</ReviewField>
+                  <ReviewField label="问题与维修方案"><span className="line-clamp-4">{richTextToPlain(toMiniappRichText(planDescription))}</span></ReviewField>
+                  <ReviewField label="送审/决定预算（含税）">¥{Number(decisionBudget || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ReviewField>
                 </dl>
               </ReviewBlock>
+
+              <ReviewBlock title="维修点位与维修对象" onEdit={() => moveToStep(2)}>
+                <dl className="grid gap-4 md:grid-cols-3">
+                  <ReviewField label="维修点位数量">{workPoints.length} 个</ReviewField>
+                  <ReviewField label="点位初步暂估合计">¥{preliminaryEstimateTotal.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ReviewField>
+                  <ReviewField label="关联已勘验来源">{workPoints.reduce((sum, point) => sum + point.linkedWorkOrderIds.length, 0)} 项</ReviewField>
+                </dl>
+              </ReviewBlock>
+
             </div>
           </SectionCard>
         )}
@@ -1018,7 +718,7 @@ export function RepairProjectEditor() {
           ) : (
             <Button type="button" onClick={() => void submit()} disabled={submitting}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-              创建项目
+              创建草稿并进入询价
             </Button>
           )}
         </div>

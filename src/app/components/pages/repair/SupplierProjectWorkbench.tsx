@@ -6,7 +6,9 @@ import {
   Inbox,
   Loader2,
   PackageCheck,
+  Plus,
   RefreshCw,
+  Trash2,
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,6 +34,7 @@ import {
   type RepairProjectAttachment,
   type RepairProjectStage,
   type RepairProjectStatus,
+  type RepairWorkPoint,
   type RepairSupplierProjectDetails,
   type RepairSupplierProjectSummary,
 } from "../../../lib/repair-project";
@@ -64,6 +67,13 @@ type OperationMode = "EXECUTION" | "MATERIAL" | "SETTLEMENT";
 function nowLocal(): string {
   const date = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000);
   return date.toISOString().slice(0, 16);
+}
+
+function isPercentageTaxRate(value: string): boolean {
+  const normalized = value.trim();
+  return /^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(normalized)
+    && Number(normalized) >= 0
+    && Number(normalized) <= 100;
 }
 
 function ProjectFileField({
@@ -229,6 +239,29 @@ export function SupplierProjectWorkbench() {
   );
 }
 
+interface SettlementLineDraft {
+  clientId: string;
+  workPointId: number | null;
+  actualQuantity: string;
+  unit: string;
+  actualUnitPrice: string;
+  varianceReason: string;
+}
+
+let settlementLineSequence = 0;
+
+function emptySettlementLine(): SettlementLineDraft {
+  settlementLineSequence += 1;
+  return {
+    clientId: `settlement-line-${settlementLineSequence}`,
+    workPointId: null,
+    actualQuantity: "",
+    unit: "",
+    actualUnitPrice: "",
+    varianceReason: "",
+  };
+}
+
 function SupplierProjectOperations({
   details,
   onChanged,
@@ -239,7 +272,7 @@ function SupplierProjectOperations({
   const project = details.project;
   const [mode, setMode] = useState<OperationMode>("EXECUTION");
   const [busy, setBusy] = useState<string | null>(null);
-  const [itemId, setItemId] = useState(String(details.items[0]?.itemId ?? ""));
+  const [workPointId, setWorkPointId] = useState("");
   const [stage, setStage] = useState<RepairProjectStage>("BEFORE_CONSTRUCTION");
   const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState(nowLocal());
@@ -248,27 +281,23 @@ function SupplierProjectOperations({
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [specification, setSpecification] = useState("");
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [qualification, setQualification] = useState<RepairProjectAttachment | null>(null);
   const [materialPhoto, setMaterialPhoto] = useState<RepairProjectAttachment | null>(null);
   const [settlementFile, setSettlementFile] = useState<RepairProjectAttachment | null>(null);
-  const [settlementItems, setSettlementItems] = useState<Record<number, {
-    quantity: string;
-    unitPrice: string;
-    taxRate: string;
-    reason: string;
-  }>>({});
+  const [settlementTaxRate, setSettlementTaxRate] = useState("");
+  const [settlementLines, setSettlementLines] = useState<SettlementLineDraft[]>([]);
+  const workPointById = useMemo(
+    () => new Map(details.workPoints.map((point) => [point.workPointId, point])),
+    [details.workPoints],
+  );
 
   useEffect(() => {
-    setItemId(String(details.items[0]?.itemId ?? ""));
-    setSettlementItems(Object.fromEntries(details.items.map((item) => [item.itemId, {
-      quantity: String(item.quantity),
-      unitPrice: String(item.estimatedUnitPrice),
-      taxRate: "0",
-      reason: "",
-    }])));
+    setWorkPointId("");
+    setSettlementTaxRate("");
+    setSettlementLines([]);
     setEvidence(null);
     setQualification(null);
     setMaterialPhoto(null);
@@ -294,46 +323,48 @@ function SupplierProjectOperations({
     }
   }
 
-  const settlementPayload = useMemo(() => details.items.map((item) => ({
-    projectItemId: item.itemId,
-    actualQuantity: Number(settlementItems[item.itemId]?.quantity),
-    unit: item.unit,
-    actualUnitPrice: Number(settlementItems[item.itemId]?.unitPrice),
-    taxRate: Number(settlementItems[item.itemId]?.taxRate),
-    varianceReason: settlementItems[item.itemId]?.reason.trim() || undefined,
-  })), [details.items, settlementItems]);
-  const settlementValid = settlementPayload.length > 0 && settlementPayload.every((item) =>
-    Number.isFinite(item.actualQuantity) && item.actualQuantity > 0
-    && Number.isFinite(item.actualUnitPrice) && item.actualUnitPrice >= 0
-    && Number.isFinite(item.taxRate) && item.taxRate >= 0 && item.taxRate <= 1);
+  function updateSettlementLine(clientId: string, field: keyof SettlementLineDraft, value: string | number | null) {
+    setSettlementLines((current) => current.map((line) => line.clientId === clientId ? { ...line, [field]: value } : line));
+  }
+
+  const settlementPayload = useMemo(() => settlementLines.map((line) => ({
+    workPointId: line.workPointId ?? undefined,
+    actualQuantity: Number(line.actualQuantity),
+    unit: line.unit.trim(),
+    actualUnitPrice: Number(line.actualUnitPrice),
+    varianceReason: line.varianceReason.trim() || undefined,
+  })), [settlementLines]);
+  const settlementTaxRateNumber = Number(settlementTaxRate);
+  const settlementValid = settlementPayload.length > 0
+    && isPercentageTaxRate(settlementTaxRate)
+    && settlementPayload.every((line) =>
+      (line.workPointId == null || workPointById.has(line.workPointId))
+      && Number.isFinite(line.actualQuantity) && line.actualQuantity >= 0
+      && Boolean(line.unit)
+      && Number.isFinite(line.actualUnitPrice) && line.actualUnitPrice >= 0);
+
+  const scopeLabel = project.scopeType === "COMMUNITY"
+    ? "全小区公共范围"
+    : project.scopeType === "BUILDING_UNIT" ? "楼栋单元范围" : "楼栋范围";
 
   return (
     <div className="space-y-5">
       <div className="grid gap-3 border-b pb-5 sm:grid-cols-2 lg:grid-cols-4">
-        <ProjectFact icon={<Building2 className="size-4" />} label="维修范围" value={project.workflowType === "BUILDING_REPAIR" ? "楼栋专有资金范围" : "小区公共部分"} />
-        <ProjectFact icon={<Wrench className="size-4" />} label="工程项" value={`${details.items.length} 项`} />
+        <ProjectFact icon={<Building2 className="size-4" />} label="项目范围" value={scopeLabel} />
+        <ProjectFact icon={<Wrench className="size-4" />} label="维修点位" value={`${details.workPoints.length} 个`} />
         <ProjectFact icon={<PackageCheck className="size-4" />} label="已核验过程" value={`${verifiedRecordCount} 条记录 · ${verifiedMaterialCount} 条材料`} />
         <ProjectFact icon={<FileUp className="size-4" />} label="合同金额" value={`¥${Number(details.contract.contractAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`} />
       </div>
 
       <div className="grid gap-3 text-sm sm:grid-cols-2">
         <div><span className="text-muted-foreground">锁定方案：</span>第 {details.activePlan.versionNo} 版</div>
-        <div><span className="text-muted-foreground">计划工期：</span>{details.activePlan.plannedStartDate} 至 {details.activePlan.plannedCompletionDate}</div>
-        <div className="sm:col-span-2">
-          <div className="mb-1 text-muted-foreground">问题与维修方案</div>
-          <RichTextView html={details.activePlan.planDescription} />
-        </div>
+        <div><span className="text-muted-foreground">维修点位关联：</span>过程、材料和结算均可记录项目通用事项</div>
+        <div className="sm:col-span-2"><div className="mb-1 text-muted-foreground">问题与维修方案</div><RichTextView html={details.activePlan.planDescription} /></div>
       </div>
 
       {canSubmit ? (
         <>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={mode}
-            onValueChange={(value) => value && setMode(value as OperationMode)}
-            className="w-full sm:w-auto"
-          >
+          <ToggleGroup type="single" variant="outline" value={mode} onValueChange={(value) => value && setMode(value as OperationMode)} className="w-full sm:w-auto">
             <ToggleGroupItem value="EXECUTION">施工记录</ToggleGroupItem>
             <ToggleGroupItem value="MATERIAL">材料进场</ToggleGroupItem>
             <ToggleGroupItem value="SETTLEMENT">竣工结算</ToggleGroupItem>
@@ -342,12 +373,12 @@ function SupplierProjectOperations({
           {mode === "EXECUTION" && (
             <OperationSection title="提交施工阶段原始记录">
               <div className="grid gap-4 md:grid-cols-2">
-                <ProjectItemSelect items={details.items} value={itemId} onValueChange={setItemId} />
+                <ProjectWorkPointSelect workPoints={details.workPoints} value={workPointId} onValueChange={setWorkPointId} />
                 <div><Label>施工阶段</Label><Select value={stage} onValueChange={(value) => setStage(value as RepairProjectStage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STAGE_LABEL).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label>发生时间</Label><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} /></div>
                 <ProjectFileField projectId={project.projectId} label="阶段原始证据" value={evidence} onUploaded={setEvidence} />
                 <div className="md:col-span-2"><Label>现场记录</Label><Textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
-                <Button disabled={busy !== null || !itemId || !description.trim() || !evidence} onClick={() => void run("execution", () => postRepairProjectAction(project.projectId, "execution-records", { itemId: Number(itemId), stage, description, occurredAt, attachmentIds: [evidence?.attachmentId] }), "施工记录已提交，等待物业核验")}>{busy === "execution" && <Loader2 className="mr-1 size-4 animate-spin" />}提交施工记录</Button>
+                <Button disabled={busy !== null || !description.trim() || !evidence} onClick={() => void run("execution", () => postRepairProjectAction(project.projectId, "execution-records", { workPointId: workPointId ? Number(workPointId) : undefined, stage, description, occurredAt, attachmentIds: [evidence?.attachmentId] }), "施工记录已提交，等待物业核验")}>{busy === "execution" && <Loader2 className="mr-1 size-4 animate-spin" />}提交施工记录</Button>
               </div>
             </OperationSection>
           )}
@@ -355,17 +386,17 @@ function SupplierProjectOperations({
           {mode === "MATERIAL" && (
             <OperationSection title="提交材料进场原始记录">
               <div className="grid gap-4 md:grid-cols-3">
-                <ProjectItemSelect items={details.items} value={itemId} onValueChange={setItemId} />
+                <ProjectWorkPointSelect workPoints={details.workPoints} value={workPointId} onValueChange={setWorkPointId} />
                 <div><Label>材料名称</Label><Input value={materialName} onChange={(event) => setMaterialName(event.target.value)} /></div>
                 <div><Label>品牌</Label><Input value={brand} onChange={(event) => setBrand(event.target.value)} /></div>
                 <div><Label>型号</Label><Input value={model} onChange={(event) => setModel(event.target.value)} /></div>
                 <div><Label>规格</Label><Input value={specification} onChange={(event) => setSpecification(event.target.value)} /></div>
                 <div><Label>生产厂家</Label><Input value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} /></div>
-                <div><Label>数量</Label><Input type="number" min="0" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
+                <div><Label>数量</Label><Input type="number" min="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
                 <div><Label>单位</Label><Input value={unit} onChange={(event) => setUnit(event.target.value)} /></div>
                 <ProjectFileField projectId={project.projectId} label="材料合格证明" value={qualification} onUploaded={setQualification} />
                 <ProjectFileField projectId={project.projectId} label="材料进场照片" value={materialPhoto} accept="image/*" onUploaded={setMaterialPhoto} />
-                <div className="flex items-end"><Button disabled={busy !== null || !itemId || !materialName.trim() || !brand.trim() || !model.trim() || !specification.trim() || !manufacturer.trim() || Number(quantity) <= 0 || !unit.trim() || !qualification || !materialPhoto} onClick={() => void run("material", () => postRepairProjectAction(project.projectId, "material-inspections", { itemId: Number(itemId), materialName, brand, model, specification, quantity: Number(quantity), unit, manufacturer, qualificationAttachmentId: qualification?.attachmentId, photoAttachmentIds: [materialPhoto?.attachmentId] }), "材料记录已提交，等待物业核验")}>{busy === "material" && <Loader2 className="mr-1 size-4 animate-spin" />}提交材料记录</Button></div>
+                <div className="flex items-end"><Button disabled={busy !== null || !materialName.trim() || !brand.trim() || !model.trim() || !specification.trim() || !manufacturer.trim() || Number(quantity) <= 0 || !unit.trim() || !qualification || !materialPhoto} onClick={() => void run("material", () => postRepairProjectAction(project.projectId, "material-inspections", { workPointId: workPointId ? Number(workPointId) : undefined, materialName, brand, model, specification, quantity: Number(quantity), unit, manufacturer, qualificationAttachmentId: qualification?.attachmentId, photoAttachmentIds: [materialPhoto?.attachmentId] }), "材料记录已提交，等待物业核验")}>{busy === "material" && <Loader2 className="mr-1 size-4 animate-spin" />}提交材料记录</Button></div>
               </div>
             </OperationSection>
           )}
@@ -373,54 +404,25 @@ function SupplierProjectOperations({
           {mode === "SETTLEMENT" && (
             <OperationSection title="提交结构化竣工结算">
               {details.execution.settlement ? (
-                <div className="rounded-md border px-4 py-3 text-sm">
-                  第 {details.execution.settlement.versionNo} 版结算已提交，当前状态：
-                  <StatusChip tone={details.execution.settlement.status === "VERIFIED" ? "success" : details.execution.settlement.status === "REJECTED" ? "danger" : "warning"} className="ml-2">
-                    {details.execution.settlement.status === "VERIFIED" ? "物业已核验" : details.execution.settlement.status === "REJECTED" ? "已退回" : "待物业核验"}
-                  </StatusChip>
-                </div>
+                <div className="rounded-md border px-4 py-3 text-sm">第 {details.execution.settlement.versionNo} 版结算已提交，当前状态：<StatusChip tone={details.execution.settlement.status === "VERIFIED" ? "success" : details.execution.settlement.status === "REJECTED" ? "danger" : "warning"} className="ml-2">{details.execution.settlement.status === "VERIFIED" ? "物业已核验" : details.execution.settlement.status === "REJECTED" ? "已退回" : "待物业核验"}</StatusChip></div>
               ) : (
                 <div className="space-y-4">
-                  <ProjectFileField projectId={project.projectId} label="竣工结算原件" value={settlementFile} onUploaded={setSettlementFile} />
-                  <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full min-w-[760px] text-sm">
-                      <thead className="bg-muted/50"><tr><th className="p-2 text-left">工程项</th><th className="p-2 text-left">实际数量</th><th className="p-2 text-left">单位</th><th className="p-2 text-left">实际单价</th><th className="p-2 text-left">税率</th><th className="p-2 text-left">差异原因</th></tr></thead>
-                      <tbody>{details.items.map((item) => {
-                        const value = settlementItems[item.itemId] ?? { quantity: "", unitPrice: "", taxRate: "0", reason: "" };
-                        const update = (field: keyof typeof value, next: string) => setSettlementItems((current) => ({ ...current, [item.itemId]: { ...value, [field]: next } }));
-                        return <tr key={item.itemId} className="border-t"><td className="p-2">{item.itemNo}</td><td className="p-2"><Input type="number" min="0" value={value.quantity} onChange={(event) => update("quantity", event.target.value)} /></td><td className="p-2">{item.unit}</td><td className="p-2"><Input type="number" min="0" value={value.unitPrice} onChange={(event) => update("unitPrice", event.target.value)} /></td><td className="p-2"><Input type="number" min="0" max="1" step="0.01" value={value.taxRate} onChange={(event) => update("taxRate", event.target.value)} /></td><td className="p-2"><Input value={value.reason} onChange={(event) => update("reason", event.target.value)} /></td></tr>;
-                      })}</tbody>
-                    </table>
-                  </div>
-                  <Button disabled={busy !== null || !settlementFile || !settlementValid} onClick={() => void run("settlement", () => postRepairProjectAction(project.projectId, "settlement", { settlementAttachmentId: settlementFile?.attachmentId, items: settlementPayload }), "竣工结算已提交，等待物业核验")}>{busy === "settlement" && <Loader2 className="mr-1 size-4 animate-spin" />}提交竣工结算</Button>
+                  <div className="grid gap-4 md:grid-cols-2"><ProjectFileField projectId={project.projectId} label="竣工结算原件" value={settlementFile} onUploaded={setSettlementFile} /><div><Label>结算单税率（%）</Label><Input type="number" min="0" max="100" step="0.001" value={settlementTaxRate} onChange={(event) => setSettlementTaxRate(event.target.value)} /></div></div>
+                  <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">每条结算专业明细可关联维修点位，也可如实记录项目通用事项。</p><Button type="button" size="sm" variant="outline" onClick={() => setSettlementLines((current) => [...current, emptySettlementLine()])}><Plus className="size-4" />新增结算明细</Button></div>
+                  {settlementLines.length === 0 ? <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">尚未新增结算专业明细。</div> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[960px] text-sm"><thead className="bg-muted/50"><tr><th className="p-2 text-left">关联维修点位</th><th className="p-2 text-left">实际数量</th><th className="p-2 text-left">单位</th><th className="p-2 text-left">实际单价</th><th className="p-2 text-left">差异原因</th><th className="p-2 text-right">操作</th></tr></thead><tbody>{settlementLines.map((line) => <tr key={line.clientId} className="border-t"><td className="p-2"><ProjectWorkPointSelect compact workPoints={details.workPoints} value={line.workPointId == null ? "" : String(line.workPointId)} onValueChange={(value) => updateSettlementLine(line.clientId, "workPointId", value ? Number(value) : null)} /></td><td className="p-2"><Input type="number" min="0" value={line.actualQuantity} onChange={(event) => updateSettlementLine(line.clientId, "actualQuantity", event.target.value)} /></td><td className="p-2"><Input value={line.unit} onChange={(event) => updateSettlementLine(line.clientId, "unit", event.target.value)} /></td><td className="p-2"><Input type="number" min="0" value={line.actualUnitPrice} onChange={(event) => updateSettlementLine(line.clientId, "actualUnitPrice", event.target.value)} /></td><td className="p-2"><Input value={line.varianceReason} onChange={(event) => updateSettlementLine(line.clientId, "varianceReason", event.target.value)} /></td><td className="p-2 text-right"><Button type="button" size="icon" variant="ghost" title="删除结算明细" onClick={() => setSettlementLines((current) => current.filter((candidate) => candidate.clientId !== line.clientId))}><Trash2 className="size-4" /></Button></td></tr>)}</tbody></table></div>}
+                  <Button disabled={busy !== null || !settlementFile || !settlementValid} onClick={() => void run("settlement", () => postRepairProjectAction(project.projectId, "settlement", { settlementAttachmentId: settlementFile?.attachmentId, taxRate: settlementTaxRateNumber, items: settlementPayload }), "竣工结算已提交，等待物业核验")}>{busy === "settlement" && <Loader2 className="mr-1 size-4 animate-spin" />}提交竣工结算</Button>
                 </div>
               )}
             </OperationSection>
           )}
         </>
-      ) : (
-        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          当前项目处于“{STATUS_META[project.status].label}”，施工单位仅可查看已归档工程资料。
-        </div>
-      )}
+      ) : <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">当前项目处于“{STATUS_META[project.status].label}”，施工单位仅可查看已归档工程资料。</div>}
 
       <OperationSection title="已提交记录">
         <div className="space-y-2">
-          {details.execution.executionRecords.map((record) => (
-            <div key={`record-${record.recordId}`} className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0">
-              <div className="min-w-0"><span className="font-medium">{STAGE_LABEL[record.stage]}</span><span className="ml-2 text-muted-foreground">{record.description}</span></div>
-              <VerificationChip status={record.verificationStatus} />
-            </div>
-          ))}
-          {details.execution.materialInspections.map((material) => (
-            <div key={`material-${material.inspectionId}`} className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0">
-              <div><span className="font-medium">{material.materialName}</span><span className="ml-2 text-muted-foreground">{material.brand} · {material.specification}</span></div>
-              <VerificationChip status={material.status} />
-            </div>
-          ))}
-          {details.execution.executionRecords.length === 0 && details.execution.materialInspections.length === 0 && (
-            <div className="py-5 text-center text-sm text-muted-foreground">尚未提交施工或材料记录</div>
-          )}
+          {details.execution.executionRecords.map((record) => <div key={`record-${record.recordId}`} className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0"><div className="min-w-0"><span className="font-medium">{STAGE_LABEL[record.stage]}</span><span className="ml-2 text-muted-foreground">{record.workPointId == null ? "项目通用事项" : workPointById.get(record.workPointId)?.businessName ?? `维修点位 #${record.workPointId}`} · {record.description}</span></div><VerificationChip status={record.verificationStatus} /></div>)}
+          {details.execution.materialInspections.map((material) => <div key={`material-${material.inspectionId}`} className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0"><div><span className="font-medium">{material.materialName}</span><span className="ml-2 text-muted-foreground">{material.workPointId == null ? "项目通用事项" : workPointById.get(material.workPointId)?.businessName ?? `维修点位 #${material.workPointId}`} · {material.brand} · {material.specification}</span></div><VerificationChip status={material.status} /></div>)}
+          {details.execution.executionRecords.length === 0 && details.execution.materialInspections.length === 0 && <div className="py-5 text-center text-sm text-muted-foreground">尚未提交施工或材料记录</div>}
         </div>
       </OperationSection>
     </div>
@@ -436,21 +438,23 @@ function ProjectFact({ icon, label, value }: { icon: ReactNode; label: string; v
   );
 }
 
-function ProjectItemSelect({
-  items,
+function ProjectWorkPointSelect({
+  workPoints,
   value,
   onValueChange,
+  compact = false,
 }: {
-  items: RepairSupplierProjectDetails["items"];
+  workPoints: RepairWorkPoint[];
   value: string;
   onValueChange: (value: string) => void;
+  compact?: boolean;
 }) {
   return (
     <div>
-      <Label>工程项</Label>
-      <Select value={value} onValueChange={onValueChange}>
+      {!compact && <Label>关联维修点位（可选）</Label>}
+      <Select value={value || "__PROJECT_WIDE__"} onValueChange={(nextValue) => onValueChange(nextValue === "__PROJECT_WIDE__" ? "" : nextValue)}>
         <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>{items.map((item) => <SelectItem key={item.itemId} value={String(item.itemId)}>{item.itemNo} · {item.locationText}</SelectItem>)}</SelectContent>
+        <SelectContent><SelectItem value="__PROJECT_WIDE__">项目通用事项</SelectItem>{workPoints.map((point) => <SelectItem key={point.workPointId} value={String(point.workPointId)}>{point.businessName}</SelectItem>)}</SelectContent>
       </Select>
     </div>
   );
