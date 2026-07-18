@@ -11,6 +11,16 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
@@ -407,6 +417,7 @@ function BuildingGovernanceOperation({
   const [reviewAmount, setReviewAmount] = useState("");
   const [opinion, setOpinion] = useState("");
   const [confirmedResult, setConfirmedResult] = useState<"PASSED" | "FAILED" | null>(null);
+  const [decisionConfirmationOpen, setDecisionConfirmationOpen] = useState(false);
   const [auditedGovernance, setAuditedGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const status = governance?.process.status;
   const allocationBasis = details.currentPlanAllocationBasis;
@@ -461,8 +472,25 @@ function BuildingGovernanceOperation({
   }
 
   async function governanceRun<T>(key: string, action: () => Promise<T>, success: string) {
-    await run(key, action, success);
+    const succeeded = await run(key, action, success);
     await afterGovernance();
+    return succeeded;
+  }
+
+  async function confirmWechatDecision() {
+    if (!governance || !evidenceFile || !confirmedResult) return;
+    const succeeded = await governanceRun(
+      "building-complete",
+      () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
+        expectedProcessVersion: governance.process.processVersion,
+        evidenceAttachmentId: evidenceFile.attachmentId,
+        confirmedResult,
+      }),
+      confirmedResult === "PASSED"
+        ? "微信接龙核验通过，项目已进入报审阶段"
+        : "微信接龙核验未通过，项目已退回已锁定方案",
+    );
+    if (succeeded) setDecisionConfirmationOpen(false);
   }
 
   if (!governance) {
@@ -600,15 +628,64 @@ function BuildingGovernanceOperation({
                     </Button>
                   </div>
                 </fieldset>
-                <Button disabled={busy !== null || !evidenceFile || !confirmedResult} onClick={() => void governanceRun(
-                  "building-complete",
-                  () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
-                    expectedProcessVersion: governance.process.processVersion,
-                    evidenceAttachmentId: evidenceFile?.attachmentId,
-                    confirmedResult,
-                  }),
-                  "微信接龙结果已由物业核验",
-                )}>确认核验结果</Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    disabled={busy !== null || !evidenceFile || !confirmedResult}
+                    className={confirmedResult === "PASSED"
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : confirmedResult === "FAILED"
+                        ? "bg-destructive text-white hover:bg-destructive/90"
+                        : undefined}
+                    onClick={() => setDecisionConfirmationOpen(true)}
+                  >
+                    {confirmedResult === "PASSED" ? <CheckCircle2 /> : confirmedResult === "FAILED" ? <XCircle /> : <ShieldCheck />}
+                    {confirmedResult === "PASSED"
+                      ? "确认通过并进入报审"
+                      : confirmedResult === "FAILED"
+                        ? "确认未通过并退回方案"
+                        : "请选择核验结论"}
+                  </Button>
+                  {!confirmedResult && <p className="text-sm text-muted-foreground">上传证据后，请先选择核验结论。</p>}
+                </div>
+                <AlertDialog
+                  open={decisionConfirmationOpen}
+                  onOpenChange={(open) => {
+                    if (busy === null) setDecisionConfirmationOpen(open);
+                  }}
+                >
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {confirmedResult === "PASSED" ? "确认微信接龙核验通过？" : "确认微信接龙核验未通过？"}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {confirmedResult === "PASSED"
+                          ? "系统将留存原始证据和物业核验结论，项目随后进入报审阶段。"
+                          : "系统将留存原始证据和物业核验结论，本次征询结束，项目将退回已锁定方案。"}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                      已归档证据：{evidenceFile?.originalFileName ?? "未选择"}
+                    </div>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={busy !== null}>取消</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={busy !== null || !evidenceFile || !confirmedResult}
+                        className={confirmedResult === "PASSED"
+                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                          : "bg-destructive text-white hover:bg-destructive/90"}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void confirmWechatDecision();
+                        }}
+                      >
+                        {busy === "building-complete" ? <Loader2 className="animate-spin" /> : confirmedResult === "PASSED" ? <CheckCircle2 /> : <XCircle />}
+                        {confirmedResult === "PASSED" ? "确认通过" : "确认未通过"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </>
             ) : (
               <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">微信接龙结果由物业上传原始截图并确认通过或未通过，当前身份仅可查看。</p>
