@@ -2,11 +2,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   Eye,
   FileText,
   Loader2,
   Play,
   ShieldCheck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
@@ -567,13 +569,37 @@ function BuildingGovernanceOperation({
                 <div className="max-w-xl">
                   <FileUpload projectId={project.projectId} label="微信接龙原始截图" value={evidenceFile} accept="image/*" onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
                 </div>
-                <div>
-                  <Label>物业核验结论</Label>
-                  <div className="mt-2 inline-flex rounded-md border p-1">
-                    <Button type="button" size="sm" variant={confirmedResult === "PASSED" ? "default" : "ghost"} onClick={() => setConfirmedResult("PASSED")}>通过</Button>
-                    <Button type="button" size="sm" variant={confirmedResult === "FAILED" ? "destructive" : "ghost"} onClick={() => setConfirmedResult("FAILED")}>未通过</Button>
+                <fieldset>
+                  <legend className="text-sm font-medium">物业核验结论</legend>
+                  <div className="mt-2 grid w-full max-w-xs grid-cols-2 gap-2" role="group" aria-label="物业核验结论">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-pressed={confirmedResult === "PASSED"}
+                      className={`h-10 ${confirmedResult === "PASSED"
+                        ? "border-emerald-600 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 hover:text-white"
+                        : "hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                      }`}
+                      onClick={() => setConfirmedResult("PASSED")}
+                    >
+                      <CheckCircle2 />
+                      通过
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-pressed={confirmedResult === "FAILED"}
+                      className={`h-10 ${confirmedResult === "FAILED"
+                        ? "border-destructive bg-destructive text-white shadow-sm hover:bg-destructive/90 hover:text-white"
+                        : "hover:border-red-300 hover:bg-red-50 hover:text-red-800"
+                      }`}
+                      onClick={() => setConfirmedResult("FAILED")}
+                    >
+                      <XCircle />
+                      未通过
+                    </Button>
                   </div>
-                </div>
+                </fieldset>
                 <Button disabled={busy !== null || !evidenceFile || !confirmedResult} onClick={() => void governanceRun(
                   "building-complete",
                   () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
