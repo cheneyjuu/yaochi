@@ -476,6 +476,8 @@ function BuildingGovernanceOperation({
   const allocationBasis = details.currentPlanAllocationBasis;
   const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
     && hasPermission("repair:decision:verify");
+  const isCommitteePriceReviewer = ["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "")
+    && hasPermission("repair:workorder:governance");
   const decisionEvidence = governance?.decision.evidenceAttachmentHash
     ? details.attachments.find((attachment) => attachment.sha256 === governance.decision.evidenceAttachmentHash)
     : null;
@@ -900,12 +902,52 @@ function BuildingGovernanceOperation({
         <div className="space-y-4"><FileUpload projectId={project.projectId} label="物业正式报审文件" value={officialFile} onUploaded={(file) => { remember(file); setOfficialFile(file); }} /><Button disabled={busy !== null || !officialFile} onClick={() => void governanceRun("building-official", () => postRepairProjectAction(project.projectId, "building-governance/official-document", { expectedProcessVersion: governance.process.processVersion, attachmentId: officialFile?.attachmentId }), "物业正式报审文件已归档")}>提交正式文件</Button></div>
       )}
       {status === "OFFICIAL_DOCUMENT_READY" && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <div><Label>审价金额</Label><Input type="number" min="0" value={reviewAmount} onChange={(event) => setReviewAmount(event.target.value)} /></div>
-          <FileUpload projectId={project.projectId} label="审价报告（可选）" value={reviewFile} onUploaded={(file) => { remember(file); setReviewFile(file); }} />
-          <div className="md:col-span-2"><Label>审价意见</Label><Textarea value={opinion} onChange={(event) => setOpinion(event.target.value)} /></div>
-          <Button disabled={busy !== null || Number(reviewAmount) <= 0} onClick={() => void governanceRun("building-review", () => postRepairProjectAction(project.projectId, "building-governance/price-review", { expectedProcessVersion: governance.process.processVersion, reviewMode: reviewFile ? "THIRD_PARTY_AUDIT" : "INTERNAL_PRICE_REVIEW", reviewedAmount: Number(reviewAmount), reportAttachmentId: reviewFile?.attachmentId, conclusion: "APPROVED", opinion }), "楼栋维修审价已完成")}>完成审价</Button>
-        </div>
+        isCommitteePriceReviewer ? (
+          <div className="space-y-5">
+            <div>
+              <h5 className="text-sm font-semibold">业委会审价</h5>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">物业正式报审文件已归档。由具备审价权限的业委会成员核对方案、报价和报告后办理审价。</p>
+            </div>
+            <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="building-review-amount">审价金额</Label>
+                <Input id="building-review-amount" type="number" min="0" step="0.01" value={reviewAmount} onChange={(event) => setReviewAmount(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <FileUpload projectId={project.projectId} label="审价报告（必填）" value={reviewFile} onUploaded={(file) => { remember(file); setReviewFile(file); }} />
+                <p className="text-xs leading-5 text-muted-foreground">支持 PDF、Office 文档或扫描图片，归档后作为本次审价依据。</p>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="building-review-opinion">审价意见</Label>
+                <Textarea id="building-review-opinion" rows={4} placeholder="填写审价结论、金额依据或需补充事项" value={opinion} onChange={(event) => setOpinion(event.target.value)} />
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <Button disabled={busy !== null || Number(reviewAmount) <= 0 || !reviewFile} onClick={() => {
+                if (!reviewFile) return;
+                void governanceRun(
+                  "building-review",
+                  () => postRepairProjectAction(project.projectId, "building-governance/price-review", {
+                    expectedProcessVersion: governance.process.processVersion,
+                    reviewMode: "INTERNAL_PRICE_REVIEW",
+                    reviewedAmount: Number(reviewAmount),
+                    reportAttachmentId: reviewFile.attachmentId,
+                    conclusion: "APPROVED",
+                    opinion,
+                  }),
+                  "楼栋维修审价已完成",
+                );
+              }}>
+                <ShieldCheck className="mr-1 size-4" />完成审价
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="border-l-2 border-amber-500 bg-amber-50/60 px-4 py-3 text-sm text-amber-950">
+            <p className="font-medium">待业委会审价</p>
+            <p className="mt-1 leading-6">物业正式报审文件已归档。审价由具备审价权限的业委会成员办理，当前身份仅可查看已完成环节。</p>
+          </div>
+        )
       )}
       {status === "PRICE_REVIEWED" && <div className="space-y-3"><Textarea placeholder="主任或副主任确认意见" value={opinion} onChange={(event) => setOpinion(event.target.value)} /><Button disabled={busy !== null} onClick={() => void governanceRun("building-approve", () => postRepairProjectAction(project.projectId, "building-governance/committee-approval", { expectedProcessVersion: governance.process.processVersion, opinion }), "主任或副主任已在线确认")}>在线确认</Button></div>}
       {status === "COMMITTEE_APPROVED" && <div className="space-y-4"><FileUpload projectId={project.projectId} label="已盖章正式文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} /><Button disabled={busy !== null || !sealedFile} onClick={() => void governanceRun("building-seal", () => postRepairProjectAction(project.projectId, "building-governance/seal", { expectedProcessVersion: governance.process.processVersion, sealedAttachmentId: sealedFile?.attachmentId, remark: opinion }), "楼栋维修用印已登记")}>登记用印</Button></div>}
