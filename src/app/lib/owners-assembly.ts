@@ -96,11 +96,16 @@ export function getOwnersAssemblyWorkspace(sessionId: number): Promise<OwnersAss
   return apiGet<OwnersAssemblyWorkspace>(`/owners-assemblies/${sessionId}/workspace`);
 }
 
+/**
+ * 当前业主大会仅办理书面征求意见和盖章纸质选票；历史记录的其他形式只用于展示。
+ */
 export function createOwnersAssemblySession(input: {
   title: string;
-  preparationMode: OwnersAssemblyPreparationMode;
 }): Promise<OwnersAssemblySession> {
-  return apiPost<OwnersAssemblySession>("/owners-assemblies", input);
+  return apiPost<OwnersAssemblySession>("/owners-assemblies", {
+    ...input,
+    preparationMode: "WRITTEN_DECISION",
+  });
 }
 
 export function createOwnersAssemblySubjectDraft(sessionId: number, input: {
@@ -123,7 +128,6 @@ export function uploadOwnersAssemblyMaterial(
 }
 
 export function confirmOwnersAssemblyArrangement(sessionId: number, input: {
-  publicNoticeDays: number;
   voteStartAt: string;
   voteEndAt: string;
   publicNoticeMaterialId: number;

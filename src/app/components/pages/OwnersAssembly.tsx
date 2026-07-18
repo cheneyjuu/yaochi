@@ -47,7 +47,6 @@ import {
   type OwnerPropertyOption,
   type OwnersAssemblyMaterial,
   type OwnersAssemblyMaterialType,
-  type OwnersAssemblyPreparationMode,
   type OwnersAssemblySession,
   type OwnersAssemblyWorkspace,
 } from "../../lib/owners-assembly";
@@ -61,10 +60,10 @@ const ASSEMBLY_STATUS: Record<string, { label: string; tone: Tone }> = {
   VOIDED: { label: "已终止", tone: "danger" },
 };
 
-const MODE_LABEL: Record<OwnersAssemblyPreparationMode, string> = {
+const MODE_LABEL: Record<string, string> = {
   WRITTEN_DECISION: "书面征求意见",
-  OFFLINE_MEETING: "线下会议",
-  ONLINE_AND_OFFLINE: "线上线下结合",
+  OFFLINE_MEETING: "历史线下会议记录",
+  ONLINE_AND_OFFLINE: "历史线上线下记录",
 };
 
 const SUBJECT_TYPE_LABEL: Record<Extract<SubjectType, "GENERAL" | "MAJOR">, string> = {
@@ -112,7 +111,7 @@ function statusMeta(status: string | null | undefined) {
 }
 
 function preparationModeLabel(mode: string) {
-  return MODE_LABEL[mode as OwnersAssemblyPreparationMode] ?? "历史会议记录";
+  return MODE_LABEL[mode] ?? "历史会议记录";
 }
 
 function currentStep(workspace: OwnersAssemblyWorkspace | null) {
@@ -137,8 +136,9 @@ function materialList(materials: OwnersAssemblyMaterial[], type: OwnersAssemblyM
 export function OwnersAssembly() {
   const { hasPermission, setPage } = useStore();
   const canCreate = hasPermission("voting:subject:create");
-  const canPublish = hasPermission("voting:subject:publish");
   const canAudit = hasPermission("voting:subject:audit");
+  const canFormalManage = hasPermission("owners-assembly:formal:manage");
+  const canPrepare = canCreate || canFormalManage;
 
   const [sessions, setSessions] = useState<OwnersAssemblySession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
@@ -147,11 +147,9 @@ export function OwnersAssembly() {
   const [acting, setActing] = useState<string | null>(null);
 
   const [sessionTitle, setSessionTitle] = useState("");
-  const [preparationMode, setPreparationMode] = useState<OwnersAssemblyPreparationMode>("WRITTEN_DECISION");
   const [subjectType, setSubjectType] = useState<Extract<SubjectType, "GENERAL" | "MAJOR">>("MAJOR");
   const [subjectTitle, setSubjectTitle] = useState("");
   const [subjectContent, setSubjectContent] = useState("");
-  const [noticeDays, setNoticeDays] = useState("7");
   const [voteStartAt, setVoteStartAt] = useState(localDateTime(7));
   const [voteEndAt, setVoteEndAt] = useState(localDateTime(14));
 
@@ -237,7 +235,7 @@ export function OwnersAssembly() {
   async function onCreateSession() {
     const next = await run(
       "create-session",
-      () => createOwnersAssemblySession({ title: sessionTitle.trim(), preparationMode }),
+      () => createOwnersAssemblySession({ title: sessionTitle.trim() }),
       "业主大会已发起",
     );
     if (!next) return;
@@ -274,7 +272,6 @@ export function OwnersAssembly() {
     const next = await run(
       "confirm-arrangement",
       () => confirmOwnersAssemblyArrangement(workspace.assembly.sessionId, {
-        publicNoticeDays: Number(noticeDays),
         voteStartAt: toInstant(voteStartAt),
         voteEndAt: toInstant(voteEndAt),
         publicNoticeMaterialId: publicNotice.materialId,
@@ -366,7 +363,7 @@ export function OwnersAssembly() {
     if (result !== null) await refreshWorkspace();
   }
 
-  if (!canCreate && !canPublish && !canAudit) {
+  if (!canPrepare && !canAudit && !canFormalManage) {
     return (
       <div className="space-y-5">
         <PageHeader title="业主大会办理" desc="当前角色没有业主大会办理权限。" />
@@ -430,22 +427,16 @@ export function OwnersAssembly() {
         </SectionCard>
       )}
 
-      {!workspace && canCreate && (
+      {!workspace && canPrepare && (
         <SectionCard title="1. 发起业主大会" desc="先建立本次会议，再依次拟定表决事项和公示材料。">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] lg:items-end">
             <div>
               <Label>业主大会标题</Label>
               <Input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="如：2026 年小区公共区域改造业主大会" />
             </div>
-            <div>
-              <Label>会议形式</Label>
-              <Select value={preparationMode} onValueChange={(value) => setPreparationMode(value as OwnersAssemblyPreparationMode)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WRITTEN_DECISION">书面征求意见</SelectItem>
-                  <SelectItem value="OFFLINE_MEETING">线下会议</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2.5 text-sm">
+              <div className="font-medium">会议形式</div>
+              <div className="text-muted-foreground">书面征求意见（盖章纸质选票）</div>
             </div>
             <Button onClick={() => void onCreateSession()} disabled={acting === "create-session" || !sessionTitle.trim()}>
               {acting === "create-session" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} 发起业主大会
@@ -456,7 +447,7 @@ export function OwnersAssembly() {
 
       {workspace && (
         <div className="space-y-5">
-          {workspace.assembly.status === "PREPARING" && canCreate && (
+          {workspace.assembly.status === "PREPARING" && canPrepare && (
             <div className="grid gap-5 xl:grid-cols-2">
               <SectionCard title="2. 拟定表决事项" desc="业主大会只处理小区整体公共事项；楼栋和单元维修不在此处发起。">
                 <div className="space-y-3">
@@ -487,7 +478,7 @@ export function OwnersAssembly() {
                 <SubjectList drafts={workspace.draftSubjects} formalSubjects={workspace.formalSubjects} />
               </SectionCard>
 
-              <SectionCard title="3. 确认公示与表决安排" desc="上传正式材料后，系统会固定留存所用材料和表决时间；无需填写额外编号。">
+              <SectionCard title="3. 准备并确认公示与表决安排" desc="先归档正式材料；主任或副主任确认时，系统按已生效议事规则冻结公示期与表决规则。">
                 <div className="space-y-4">
                   <AssemblyMaterialUpload
                     sessionId={workspace.assembly.sessionId}
@@ -513,11 +504,7 @@ export function OwnersAssembly() {
                     value={ballotTemplate}
                     onUpload={onUploadMaterial}
                   />
-                  <div className="grid gap-3 border-t pt-4 sm:grid-cols-3">
-                    <div>
-                      <Label>公示天数</Label>
-                      <Input inputMode="numeric" value={noticeDays} onChange={(event) => setNoticeDays(event.target.value)} />
-                    </div>
+                  <div className="grid gap-3 border-t pt-4 sm:grid-cols-2">
                     <div>
                       <Label>计划开始投票</Label>
                       <Input type="datetime-local" value={voteStartAt} onChange={(event) => setVoteStartAt(event.target.value)} />
@@ -527,12 +514,16 @@ export function OwnersAssembly() {
                       <Input type="datetime-local" value={voteEndAt} onChange={(event) => setVoteEndAt(event.target.value)} />
                     </div>
                   </div>
-                  <Button
-                    onClick={() => void onConfirmArrangement()}
-                    disabled={acting === "confirm-arrangement" || workspace.draftSubjects.length === 0 || !publicNotice || !ballotTemplate || planAttachments.length === 0}
-                  >
-                    {acting === "confirm-arrangement" ? <Loader2 className="size-4 animate-spin" /> : <CalendarClock className="size-4" />} 确认公示与表决安排
-                  </Button>
+                  {canFormalManage ? (
+                    <Button
+                      onClick={() => void onConfirmArrangement()}
+                      disabled={acting === "confirm-arrangement" || workspace.draftSubjects.length === 0 || !publicNotice || !ballotTemplate || planAttachments.length === 0}
+                    >
+                      {acting === "confirm-arrangement" ? <Loader2 className="size-4 animate-spin" /> : <CalendarClock className="size-4" />} 确认公示与表决安排
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">材料准备完成后，由主任或副主任确认正式安排。</p>
+                  )}
                 </div>
               </SectionCard>
             </div>
@@ -542,43 +533,42 @@ export function OwnersAssembly() {
             <SectionCard title="4. 确认并发布公示" desc="发布后，事项、选票模板和公示材料将按当前版本留档，后续不能替换。">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-muted-foreground">公示期为 {arrangement?.publicNoticeDays ?? "-"} 天，计划投票时间：{formatDateTime(arrangement?.voteStartAt)} 至 {formatDateTime(arrangement?.voteEndAt)}。</div>
-                {canPublish ? (
+                {canFormalManage ? (
                   <Button onClick={() => void onPublish()} disabled={acting === "publish"}>
                     {acting === "publish" ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />} 确认并发布公示
                   </Button>
-                ) : <span className="text-sm text-muted-foreground">需由具备发布权限的角色办理。</span>}
+                ) : <span className="text-sm text-muted-foreground">由主任或副主任发布正式公示。</span>}
               </div>
             </SectionCard>
           )}
 
           {arrangement?.status === "PUBLIC_NOTICE" && (
-            <SectionCard title="5. 公示期与纸质送达" desc="公示期间可归档纸质选票送达凭证；公示期届满后才可开始投票。">
+            <SectionCard title="4. 公示期" desc="公示材料和盖章纸质选票模板已公开；公示期届满后，由主任或副主任开启纸质投票。">
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                 <div>
                   <div className="text-sm font-medium">公示截至</div>
-                  <div className="mt-1 text-sm text-muted-foreground">{formatDateTime(arrangement.publicNoticeEndAt)}。未到期时系统不会开启投票。</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{formatDateTime(arrangement.publicNoticeEndAt)}。公示结束后，才可发放纸质选票、登记送达和回收选票。</div>
                 </div>
-                {canPublish ? (
+                {canFormalManage ? (
                   <Button onClick={() => void onStartVoting()} disabled={acting === "start-voting" || !votingCanStart} title={votingCanStart ? undefined : "公示期未满，暂不能开始投票"}>
                     {acting === "start-voting" ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} 开始投票
                   </Button>
-                ) : <span className="text-sm text-muted-foreground">需由具备发布权限的角色开始投票。</span>}
+                ) : <span className="text-sm text-muted-foreground">由主任或副主任在公示期满后开启投票。</span>}
               </div>
-              {canAudit && <PaperHandling workspace={workspace} selectedPropertyLabel={selectedPropertyLabel} ownerPhonePrefix={ownerPhonePrefix} onPhonePrefixChange={setOwnerPhonePrefix} ownerCandidates={ownerCandidates} ownerProperties={ownerProperties} selectedProperty={selectedProperty} onSearchOwner={onSearchOwner} onSelectOwner={onSelectOwner} onSelectProperty={setSelectedProperty} deliveryMethod={deliveryMethod} onDeliveryMethodChange={setDeliveryMethod} deliveryEvidence={deliveryEvidence} onUpload={onUploadMaterial} onRecordDelivery={onRecordDelivery} acting={acting} showVoteForm={false} paperSubjectId={paperSubjectId} onPaperSubjectChange={setPaperSubjectId} paperChoice={paperChoice} onPaperChoiceChange={setPaperChoice} paperBallot={paperBallot} onCastPaperVote={onCastPaperVote} />}
             </SectionCard>
           )}
 
           {arrangement?.status === "VOTING" && (
-            <SectionCard title="6. 投票与纸质选票回收" desc={`投票截止时间：${formatDateTime(arrangement.voteEndAt)}。纸质选票须先完成送达留痕后方可录入。`}>
+            <SectionCard title="5. 纸质选票送达、回收与录入" desc={`投票截止时间：${formatDateTime(arrangement.voteEndAt)}。物业按已发放的盖章纸质选票登记送达，并录入已回收选票。`}>
               {canAudit ? <PaperHandling workspace={workspace} selectedPropertyLabel={selectedPropertyLabel} ownerPhonePrefix={ownerPhonePrefix} onPhonePrefixChange={setOwnerPhonePrefix} ownerCandidates={ownerCandidates} ownerProperties={ownerProperties} selectedProperty={selectedProperty} onSearchOwner={onSearchOwner} onSelectOwner={onSelectOwner} onSelectProperty={setSelectedProperty} deliveryMethod={deliveryMethod} onDeliveryMethodChange={setDeliveryMethod} deliveryEvidence={deliveryEvidence} onUpload={onUploadMaterial} onRecordDelivery={onRecordDelivery} acting={acting} showVoteForm paperSubjectId={paperSubjectId} onPaperSubjectChange={setPaperSubjectId} paperChoice={paperChoice} onPaperChoiceChange={setPaperChoice} paperBallot={paperBallot} onCastPaperVote={onCastPaperVote} /> : <span className="text-sm text-muted-foreground">需由具备核验权限的角色办理纸质送达和选票录入。</span>}
             </SectionCard>
           )}
 
           {arrangement?.status === "VOTING" && (
-            <SectionCard title="7. 计票并形成结果" desc="投票截止后，系统对本次业主大会全部事项统一计票并形成结果。">
+            <SectionCard title="6. 计票并形成结果" desc="投票截止后，由主任或副主任对本次业主大会全部事项统一计票并形成结果。">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm text-muted-foreground">{new Date(arrangement.voteEndAt).getTime() <= Date.now() ? "投票已截止，可以办理计票。" : `投票尚未截止，截止时间为 ${formatDateTime(arrangement.voteEndAt)}。`}</span>
-                {canAudit ? <Button onClick={() => void onSettle()} disabled={acting === "settle" || new Date(arrangement.voteEndAt).getTime() > Date.now()}>{acting === "settle" ? <Loader2 className="size-4 animate-spin" /> : <Vote className="size-4" />} 计票并形成结果</Button> : <span className="text-sm text-muted-foreground">需由具备核验权限的角色办理。</span>}
+                {canFormalManage ? <Button onClick={() => void onSettle()} disabled={acting === "settle" || new Date(arrangement.voteEndAt).getTime() > Date.now()}>{acting === "settle" ? <Loader2 className="size-4 animate-spin" /> : <Vote className="size-4" />} 计票并形成结果</Button> : <span className="text-sm text-muted-foreground">由主任或副主任办理计票并形成结果。</span>}
               </div>
             </SectionCard>
           )}
