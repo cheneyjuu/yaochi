@@ -44,6 +44,10 @@ import {
   type RepairDecisionRule,
 } from "../../../lib/repair-decision-rule";
 import {
+  listPropertyServiceOrganizations,
+  type PropertyServiceOrganization,
+} from "../../../lib/property-service-organization";
+import {
   auditBuildingRepairDecision,
   getBuildingRepairGovernance,
   getCommunityRepairAssembly,
@@ -337,6 +341,7 @@ export function RepairProjectOperationPanel({
           details={details}
           execution={execution}
           sourcing={sourcing}
+          roleKey={roleKey}
           remember={remember}
           busy={busy}
           run={run}
@@ -1017,12 +1022,19 @@ function ContractOperation({
   details,
   execution,
   sourcing,
+  roleKey,
   remember,
   busy,
   run,
-}: OperationProps & { sourcing: RepairProjectSourcingDetails | null }) {
+}: OperationProps & { sourcing: RepairProjectSourcingDetails | null; roleKey: string | null }) {
   const project = details.project;
   const plan = details.plans.find((item) => item.planId === project.activePlanId) ?? details.plans[0];
+  const isBuildingRepair = project.workflowType === "BUILDING_REPAIR";
+  const isCommitteeReviewer = roleKey === "COMMITTEE_DIRECTOR" || roleKey === "COMMITTEE_MEMBER";
+  const priceReviewPending = project.workflowType === "COMMUNITY_PUBLIC_REPAIR"
+    && plan.priceReviewRequired
+    && !execution?.costReview;
+  const canRecordContract = roleKey === "PROPERTY_MANAGER" && !priceReviewPending;
   const [reviewMode, setReviewMode] = useState("THIRD_PARTY_AUDIT");
   const [reviewAmount, setReviewAmount] = useState("");
   const [reviewReport, setReviewReport] = useState<RepairProjectAttachment | null>(null);
@@ -1039,6 +1051,8 @@ function ContractOperation({
   const [supplierSignerUserId, setSupplierSignerUserId] = useState("");
   const [signatureMethod, setSignatureMethod] = useState<"PAPER_SCAN" | "ELECTRONIC">("PAPER_SCAN");
   const [signedAt, setSignedAt] = useState(nowLocal());
+  const [propertyOrganization, setPropertyOrganization] = useState<PropertyServiceOrganization | null>(null);
+  const [propertyOrganizationLoading, setPropertyOrganizationLoading] = useState(true);
   const selectedSupplier = sourcing?.selection;
 
   useEffect(() => {
@@ -1047,9 +1061,38 @@ function ContractOperation({
     }
   }, [selectedSupplier?.selectionId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void listPropertyServiceOrganizations()
+      .then((organizations) => {
+        if (!cancelled) {
+          setPropertyOrganization(organizations.find((item) => item.status === "ACTIVE") ?? null);
+          setPropertyOrganizationLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPropertyOrganization(null);
+          setPropertyOrganizationLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const requiredSignaturesComplete = isBuildingRepair
+    ? Boolean(propertySignature && supplierSignature && propertySignerName && propertySignerUserId && supplierSignerName)
+    : Boolean(ownerSignature && ownerSignerName && ownerSignerUserId
+      && propertySignature && supplierSignature && propertySignerName && propertySignerUserId && supplierSignerName);
+  const contractTitle = isBuildingRepair ? "登记双方施工合同" : "登记三方施工合同";
+  const contractDescription = isBuildingRepair
+    ? "楼栋维修合同由物业服务企业和施工单位以各自名义签署；签约物业从已启用的物业服务组织读取，业委会授权依据已在治理环节归档。"
+    : "合同必须由业主大会或相关业主方、物业服务企业和施工单位三方签署，并引用当前锁定方案。";
+
   return (
     <>
-      {project.workflowType === "COMMUNITY_PUBLIC_REPAIR" && plan.priceReviewRequired && !execution?.costReview && (
+      {priceReviewPending && isCommitteeReviewer && (
         <OperationSection title="全小区维修审价" desc="审价结论绑定当前锁定方案，合同金额不得超过预算和有效审价金额。">
           <div className="grid gap-4 md:grid-cols-2">
             <div><Label>审价方式</Label><Select value={reviewMode} onValueChange={setReviewMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="INTERNAL_PRICE_REVIEW">业委会内部审价</SelectItem><SelectItem value="THIRD_PARTY_AUDIT">第三方审价</SelectItem><SelectItem value="NOT_REQUIRED">依法不需审价</SelectItem></SelectContent></Select></div>
@@ -1060,36 +1103,48 @@ function ContractOperation({
         </OperationSection>
       )}
 
-      <OperationSection title="登记三方施工合同" desc="合同必须由业主大会或相关业主方、物业服务企业和施工单位三方签署，并引用当前锁定方案。">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2"><Label>锁定方案中选施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取中选结果"}</span>{selectedSupplier && <span className="text-muted-foreground">中选报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
-          <div><Label>合同含税总额</Label><Input type="number" min="0" max={selectedSupplier?.quoteAmount} step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
-          <FileUpload projectId={project.projectId} label="完整三方合同" value={contractFile} onUploaded={(file) => { remember(file); setContractFile(file); }} />
-          <div><Label>签署方式</Label><Select value={signatureMethod} onValueChange={(value) => setSignatureMethod(value as typeof signatureMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER_SCAN">纸质签署扫描</SelectItem><SelectItem value="ELECTRONIC">可信电子签署</SelectItem></SelectContent></Select></div>
-          <div><Label>签署时间</Label><Input type="datetime-local" value={signedAt} onChange={(event) => setSignedAt(event.target.value)} /></div>
-        </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">业主方</div><Input placeholder="主任或副主任姓名" value={ownerSignerName} onChange={(event) => setOwnerSignerName(event.target.value)} /><Input type="number" placeholder="主任或副主任 userId" value={ownerSignerUserId} onChange={(event) => setOwnerSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="业主方签署页" value={ownerSignature} onUploaded={(file) => { remember(file); setOwnerSignature(file); }} /></div>
-          <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">物业方</div><Input placeholder="物业签署人姓名" value={propertySignerName} onChange={(event) => setPropertySignerName(event.target.value)} /><Input type="number" placeholder="物业签署人 userId" value={propertySignerUserId} onChange={(event) => setPropertySignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="物业签署页" value={propertySignature} onUploaded={(file) => { remember(file); setPropertySignature(file); }} /></div>
-          <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">施工单位</div><Input placeholder="施工单位签署人姓名" value={supplierSignerName} onChange={(event) => setSupplierSignerName(event.target.value)} /><Input type="number" placeholder="系统 userId（纸质可不填）" value={supplierSignerUserId} onChange={(event) => setSupplierSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="施工单位签署页" value={supplierSignature} onUploaded={(file) => { remember(file); setSupplierSignature(file); }} /></div>
-        </div>
-        <Button className="mt-4" disabled={busy !== null || !selectedSupplier || Number(contractAmount) <= 0 || Number(contractAmount) > Number(selectedSupplier?.quoteAmount ?? 0) || !contractFile || !ownerSignature || !propertySignature || !supplierSignature || !ownerSignerName || !ownerSignerUserId || !propertySignerName || !propertySignerUserId || !supplierSignerName} onClick={() => void run(
-          "contract",
-          () => postRepairProjectAction(project.projectId, "contract", {
-            expectedProjectVersion: project.version,
-            supplierDeptId: selectedSupplier?.supplierDeptId,
-            supplierName: selectedSupplier?.supplierName,
-            contractAmount: Number(contractAmount),
-            contractAttachmentId: contractFile?.attachmentId,
-            signatures: [
-              { partyType: "OWNERS_ASSEMBLY_OR_GROUP", signerName: ownerSignerName, signerUserId: Number(ownerSignerUserId), signatureMethod, signatureAttachmentId: ownerSignature?.attachmentId, signedAt },
-              { partyType: "PROPERTY", signerName: propertySignerName, signerUserId: Number(propertySignerUserId), signatureMethod, signatureAttachmentId: propertySignature?.attachmentId, signedAt },
-              { partyType: "SUPPLIER", signerName: supplierSignerName, signerUserId: supplierSignerUserId ? Number(supplierSignerUserId) : undefined, signatureMethod, signatureAttachmentId: supplierSignature?.attachmentId, signedAt },
-            ],
-          }),
-          "三方施工合同已登记生效",
-        )}>登记合同</Button>
-      </OperationSection>
+      {!canRecordContract ? (
+        <OperationSection title="施工合同办理" desc="合同归档由物业经理办理，已完成的治理授权会作为合同依据持续保留。">
+          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+            {priceReviewPending
+              ? "当前锁定方案待业委会完成审价，审价通过后由物业经理登记施工合同。"
+              : isBuildingRepair
+                ? "楼栋维修合同由物业服务企业与施工单位以各自名义签署。业委会当前仅查看授权依据和后续归档结果。"
+                : "当前项目待物业经理归档三方施工合同。"}
+          </div>
+        </OperationSection>
+      ) : (
+        <OperationSection title={contractTitle} desc={contractDescription}>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="md:col-span-2"><Label>锁定方案中选施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取中选结果"}</span>{selectedSupplier && <span className="text-muted-foreground">中选报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
+            <div><Label>合同含税总额</Label><Input type="number" min="0" max={selectedSupplier?.quoteAmount} step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
+            <FileUpload projectId={project.projectId} label={isBuildingRepair ? "完整双方合同" : "完整三方合同"} value={contractFile} onUploaded={(file) => { remember(file); setContractFile(file); }} />
+            <div><Label>签署方式</Label><Select value={signatureMethod} onValueChange={(value) => setSignatureMethod(value as typeof signatureMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER_SCAN">纸质签署扫描</SelectItem><SelectItem value="ELECTRONIC">电子签署文件</SelectItem></SelectContent></Select></div>
+            <div><Label>签署时间</Label><Input type="datetime-local" value={signedAt} onChange={(event) => setSignedAt(event.target.value)} /></div>
+          </div>
+          <div className={`mt-5 grid gap-4 ${isBuildingRepair ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+            {!isBuildingRepair && <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">业主方</div><Input placeholder="主任或副主任姓名" value={ownerSignerName} onChange={(event) => setOwnerSignerName(event.target.value)} /><Input type="number" placeholder="主任或副主任 userId" value={ownerSignerUserId} onChange={(event) => setOwnerSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="业主方签署页" value={ownerSignature} onUploaded={(file) => { remember(file); setOwnerSignature(file); }} /></div>}
+            <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">物业服务企业</div><div className="rounded-md bg-muted/50 px-3 py-2 text-sm">{propertyOrganizationLoading ? "正在读取本小区已启用的物业服务组织" : propertyOrganization ? <><div>{propertyOrganization.legalName}</div><div className="mt-1 text-xs text-muted-foreground">{propertyOrganization.projectDeptName}</div></> : "未找到已启用的物业服务组织，暂不能登记合同"}</div><Input placeholder="物业授权签署人姓名" value={propertySignerName} onChange={(event) => setPropertySignerName(event.target.value)} /><Input type="number" placeholder="物业授权签署人 userId" value={propertySignerUserId} onChange={(event) => setPropertySignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="物业方签署页" value={propertySignature} onUploaded={(file) => { remember(file); setPropertySignature(file); }} /></div>
+            <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">施工单位</div><Input placeholder="施工单位签署人姓名" value={supplierSignerName} onChange={(event) => setSupplierSignerName(event.target.value)} /><Input type="number" placeholder="系统 userId（纸质可不填）" value={supplierSignerUserId} onChange={(event) => setSupplierSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="施工单位签署页" value={supplierSignature} onUploaded={(file) => { remember(file); setSupplierSignature(file); }} /></div>
+          </div>
+          <Button className="mt-4" disabled={busy !== null || propertyOrganizationLoading || !propertyOrganization || !selectedSupplier || Number(contractAmount) <= 0 || Number(contractAmount) > Number(selectedSupplier?.quoteAmount ?? 0) || !contractFile || !requiredSignaturesComplete} onClick={() => void run(
+            "contract",
+            () => postRepairProjectAction(project.projectId, "contract", {
+              expectedProjectVersion: project.version,
+              supplierDeptId: selectedSupplier?.supplierDeptId,
+              supplierName: selectedSupplier?.supplierName,
+              contractAmount: Number(contractAmount),
+              contractAttachmentId: contractFile?.attachmentId,
+              signatures: [
+                ...(!isBuildingRepair ? [{ partyType: "OWNERS_ASSEMBLY_OR_GROUP", signerName: ownerSignerName, signerUserId: Number(ownerSignerUserId), signatureMethod, signatureAttachmentId: ownerSignature?.attachmentId, signedAt }] : []),
+                { partyType: "PROPERTY", signerName: propertySignerName, signerUserId: Number(propertySignerUserId), signatureMethod, signatureAttachmentId: propertySignature?.attachmentId, signedAt },
+                { partyType: "SUPPLIER", signerName: supplierSignerName, signerUserId: supplierSignerUserId ? Number(supplierSignerUserId) : undefined, signatureMethod, signatureAttachmentId: supplierSignature?.attachmentId, signedAt },
+              ],
+            }),
+            `${isBuildingRepair ? "双方" : "三方"}施工合同已登记生效`,
+          )}>登记合同</Button>
+        </OperationSection>
+      )}
     </>
   );
 }
