@@ -1044,12 +1044,8 @@ function ContractOperation({
   const [propertySignature, setPropertySignature] = useState<RepairProjectAttachment | null>(null);
   const [supplierSignature, setSupplierSignature] = useState<RepairProjectAttachment | null>(null);
   const [ownerSignerName, setOwnerSignerName] = useState("");
-  const [ownerSignerUserId, setOwnerSignerUserId] = useState("");
   const [propertySignerName, setPropertySignerName] = useState("");
-  const [propertySignerUserId, setPropertySignerUserId] = useState("");
   const [supplierSignerName, setSupplierSignerName] = useState("");
-  const [supplierSignerUserId, setSupplierSignerUserId] = useState("");
-  const [signatureMethod, setSignatureMethod] = useState<"PAPER_SCAN" | "ELECTRONIC">("PAPER_SCAN");
   const [signedAt, setSignedAt] = useState(nowLocal());
   const [propertyOrganization, setPropertyOrganization] = useState<PropertyServiceOrganization | null>(null);
   const [propertyOrganizationLoading, setPropertyOrganizationLoading] = useState(true);
@@ -1082,9 +1078,9 @@ function ContractOperation({
   }, []);
 
   const requiredSignaturesComplete = isBuildingRepair
-    ? Boolean(propertySignature && supplierSignature && propertySignerName && propertySignerUserId && supplierSignerName)
-    : Boolean(ownerSignature && ownerSignerName && ownerSignerUserId
-      && propertySignature && supplierSignature && propertySignerName && propertySignerUserId && supplierSignerName);
+    ? Boolean(propertySignature && supplierSignature && propertySignerName && supplierSignerName)
+    : Boolean(ownerSignature && ownerSignerName
+      && propertySignature && supplierSignature && propertySignerName && supplierSignerName);
   const contractTitle = isBuildingRepair ? "登记双方施工合同" : "登记三方施工合同";
   const contractDescription = isBuildingRepair
     ? "楼栋维修合同由物业服务企业和施工单位以各自名义签署；签约物业从已启用的物业服务组织读取，业委会授权依据已在治理环节归档。"
@@ -1119,13 +1115,34 @@ function ContractOperation({
             <div className="md:col-span-2"><Label>锁定方案中选施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取中选结果"}</span>{selectedSupplier && <span className="text-muted-foreground">中选报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
             <div><Label>合同含税总额</Label><Input type="number" min="0" max={selectedSupplier?.quoteAmount} step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
             <FileUpload projectId={project.projectId} label={isBuildingRepair ? "完整双方合同" : "完整三方合同"} value={contractFile} onUploaded={(file) => { remember(file); setContractFile(file); }} />
-            <div><Label>签署方式</Label><Select value={signatureMethod} onValueChange={(value) => setSignatureMethod(value as typeof signatureMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER_SCAN">纸质签署扫描</SelectItem><SelectItem value="ELECTRONIC">电子签署文件</SelectItem></SelectContent></Select></div>
+            <div>
+              <Label>签署归档</Label>
+              <div className="mt-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">纸质签署扫描件</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">签署页和完整合同作为凭证，系统自动留存本次物业办理人的审计记录。</p>
+            </div>
             <div><Label>签署时间</Label><Input type="datetime-local" value={signedAt} onChange={(event) => setSignedAt(event.target.value)} /></div>
           </div>
           <div className={`mt-5 grid gap-4 ${isBuildingRepair ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
-            {!isBuildingRepair && <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">业主方</div><Input placeholder="主任或副主任姓名" value={ownerSignerName} onChange={(event) => setOwnerSignerName(event.target.value)} /><Input type="number" placeholder="主任或副主任 userId" value={ownerSignerUserId} onChange={(event) => setOwnerSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="业主方签署页" value={ownerSignature} onUploaded={(file) => { remember(file); setOwnerSignature(file); }} /></div>}
-            <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">物业服务企业</div><div className="rounded-md bg-muted/50 px-3 py-2 text-sm">{propertyOrganizationLoading ? "正在读取本小区已启用的物业服务组织" : propertyOrganization ? <><div>{propertyOrganization.legalName}</div><div className="mt-1 text-xs text-muted-foreground">{propertyOrganization.projectDeptName}</div></> : "未找到已启用的物业服务组织，暂不能登记合同"}</div><Input placeholder="物业授权签署人姓名" value={propertySignerName} onChange={(event) => setPropertySignerName(event.target.value)} /><Input type="number" placeholder="物业授权签署人 userId" value={propertySignerUserId} onChange={(event) => setPropertySignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="物业方签署页" value={propertySignature} onUploaded={(file) => { remember(file); setPropertySignature(file); }} /></div>
-            <div className="space-y-3 rounded-md border p-3"><div className="text-sm font-medium">施工单位</div><Input placeholder="施工单位签署人姓名" value={supplierSignerName} onChange={(event) => setSupplierSignerName(event.target.value)} /><Input type="number" placeholder="系统 userId（纸质可不填）" value={supplierSignerUserId} onChange={(event) => setSupplierSignerUserId(event.target.value)} /><FileUpload projectId={project.projectId} label="施工单位签署页" value={supplierSignature} onUploaded={(file) => { remember(file); setSupplierSignature(file); }} /></div>
+            {!isBuildingRepair && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="text-sm font-medium">业主方</div>
+                <Input placeholder="主任或副主任姓名" value={ownerSignerName} onChange={(event) => setOwnerSignerName(event.target.value)} />
+                <FileUpload projectId={project.projectId} label="业主方签署页" value={ownerSignature} onUploaded={(file) => { remember(file); setOwnerSignature(file); }} />
+              </div>
+            )}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="text-sm font-medium">物业服务企业</div>
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+                {propertyOrganizationLoading ? "正在读取本小区已启用的物业服务组织" : propertyOrganization ? <><div>{propertyOrganization.legalName}</div><div className="mt-1 text-xs text-muted-foreground">{propertyOrganization.projectDeptName}</div></> : "未找到已启用的物业服务组织，暂不能登记合同"}
+              </div>
+              <Input placeholder="物业授权签署人姓名" value={propertySignerName} onChange={(event) => setPropertySignerName(event.target.value)} />
+              <FileUpload projectId={project.projectId} label="物业方签署页" value={propertySignature} onUploaded={(file) => { remember(file); setPropertySignature(file); }} />
+            </div>
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="text-sm font-medium">施工单位</div>
+              <Input placeholder="施工单位签署人姓名" value={supplierSignerName} onChange={(event) => setSupplierSignerName(event.target.value)} />
+              <FileUpload projectId={project.projectId} label="施工单位签署页" value={supplierSignature} onUploaded={(file) => { remember(file); setSupplierSignature(file); }} />
+            </div>
           </div>
           <Button className="mt-4" disabled={busy !== null || propertyOrganizationLoading || !propertyOrganization || !selectedSupplier || Number(contractAmount) <= 0 || Number(contractAmount) > Number(selectedSupplier?.quoteAmount ?? 0) || !contractFile || !requiredSignaturesComplete} onClick={() => void run(
             "contract",
@@ -1136,9 +1153,9 @@ function ContractOperation({
               contractAmount: Number(contractAmount),
               contractAttachmentId: contractFile?.attachmentId,
               signatures: [
-                ...(!isBuildingRepair ? [{ partyType: "OWNERS_ASSEMBLY_OR_GROUP", signerName: ownerSignerName, signerUserId: Number(ownerSignerUserId), signatureMethod, signatureAttachmentId: ownerSignature?.attachmentId, signedAt }] : []),
-                { partyType: "PROPERTY", signerName: propertySignerName, signerUserId: Number(propertySignerUserId), signatureMethod, signatureAttachmentId: propertySignature?.attachmentId, signedAt },
-                { partyType: "SUPPLIER", signerName: supplierSignerName, signerUserId: supplierSignerUserId ? Number(supplierSignerUserId) : undefined, signatureMethod, signatureAttachmentId: supplierSignature?.attachmentId, signedAt },
+                ...(!isBuildingRepair ? [{ partyType: "OWNERS_ASSEMBLY_OR_GROUP", signerName: ownerSignerName, signatureMethod: "PAPER_SCAN" as const, signatureAttachmentId: ownerSignature?.attachmentId, signedAt }] : []),
+                { partyType: "PROPERTY", signerName: propertySignerName, signatureMethod: "PAPER_SCAN" as const, signatureAttachmentId: propertySignature?.attachmentId, signedAt },
+                { partyType: "SUPPLIER", signerName: supplierSignerName, signatureMethod: "PAPER_SCAN" as const, signatureAttachmentId: supplierSignature?.attachmentId, signedAt },
               ],
             }),
             `${isBuildingRepair ? "双方" : "三方"}施工合同已登记生效`,
