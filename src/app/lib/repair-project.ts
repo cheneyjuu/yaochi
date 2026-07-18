@@ -279,6 +279,14 @@ export interface RepairProjectDetails {
   currentPlanAttachments: Array<{ attachmentId: number; purpose: string; sortOrder: number }>;
 }
 
+/** 管理端可见的项目办理节点；不含个人业主表决或原始审计载荷。 */
+export interface RepairProjectProcessHistoryEntry {
+  eventId: number;
+  title: string;
+  summary: string;
+  occurredAt: string;
+}
+
 export interface RepairAllocationPreview {
   scopeType: RepairProject["scopeType"];
   fundSource: RepairProject["fundSource"];
@@ -617,6 +625,10 @@ export function getRepairAffectedOwnerPreview(input: {
 
 export function getRepairProject(projectId: number): Promise<RepairProjectDetails> {
   return apiGet<RepairProjectDetails>(`/admin/repair-projects/${projectId}`);
+}
+
+export function getRepairProjectProcessHistory(projectId: number): Promise<RepairProjectProcessHistoryEntry[]> {
+  return apiGet<RepairProjectProcessHistoryEntry[]>(`/admin/repair-projects/${projectId}/process-history`);
 }
 
 export function getRepairProjectExecution(projectId: number): Promise<RepairProjectExecutionDetails> {

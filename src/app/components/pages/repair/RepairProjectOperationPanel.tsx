@@ -2,9 +2,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Eye,
   FileText,
+  History,
   Loader2,
   Play,
   ShieldCheck,
@@ -52,6 +55,7 @@ import {
   getBuildingRepairGovernance,
   getCommunityRepairAssembly,
   getRepairProjectAttachmentTicket,
+  getRepairProjectProcessHistory,
   getRepairProjectSourcing,
   linkRepairPlanAttachment,
   lockRepairProjectPlan,
@@ -62,6 +66,7 @@ import {
   type RepairProjectAttachment,
   type RepairProjectDetails,
   type RepairProjectExecutionDetails,
+  type RepairProjectProcessHistoryEntry,
   type RepairProjectPlan,
   type RepairProjectSourcingDetails,
   type RepairProjectStage,
@@ -221,6 +226,9 @@ export function RepairProjectOperationPanel({
   const [buildingGovernance, setBuildingGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const [assemblyLink, setAssemblyLink] = useState<RepairCommunityAssemblyLink | null>(null);
   const [sourcing, setSourcing] = useState<RepairProjectSourcingDetails | null>(null);
+  const [processHistory, setProcessHistory] = useState<RepairProjectProcessHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const attachments = useMemo(() => {
     const byId = new Map<number, RepairProjectAttachment>();
@@ -239,7 +247,7 @@ export function RepairProjectOperationPanel({
       toast.success(success);
       setUploaded([]);
       await onChanged();
-      await reloadSourcing();
+      await Promise.all([reloadSourcing(), reloadProcessHistory()]);
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "操作失败");
@@ -254,6 +262,19 @@ export function RepairProjectOperationPanel({
       setSourcing(await getRepairProjectSourcing(project.projectId));
     } catch {
       setSourcing(null);
+    }
+  }
+
+  async function reloadProcessHistory() {
+    setHistoryLoading(true);
+    try {
+      setProcessHistory(await getRepairProjectProcessHistory(project.projectId));
+      setHistoryError(null);
+    } catch (error) {
+      setProcessHistory([]);
+      setHistoryError(error instanceof Error ? error.message : "办理记录读取失败");
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -286,8 +307,18 @@ export function RepairProjectOperationPanel({
     void reloadSourcing();
   }, [project.projectId, plan?.planId]);
 
+  useEffect(() => {
+    void reloadProcessHistory();
+  }, [project.projectId]);
+
   return (
     <div>
+      <RepairProjectProcessHistory
+        entries={processHistory}
+        loading={historyLoading}
+        error={historyError}
+      />
+
       {draftPlan && (
         <>
           <RepairProjectSourcingOperation
@@ -398,6 +429,77 @@ export function RepairProjectOperationPanel({
         <div className="py-8 text-center text-sm text-muted-foreground">当前项目已结束，不再开放工程写入操作。</div>
       )}
     </div>
+  );
+}
+
+function RepairProjectProcessHistory({
+  entries,
+  loading,
+  error,
+}: {
+  entries: RepairProjectProcessHistoryEntry[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleEntries = expanded ? entries : entries.slice(-3);
+
+  return (
+    <section className="border-b pb-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <History className="size-4 text-primary" />
+            办理记录
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            已完成环节会持续保留；当前操作不会覆盖此前的结论和办理时间。
+          </p>
+        </div>
+        {!loading && !error && entries.length > 0 && (
+          <span className="text-xs text-muted-foreground">共 {entries.length} 个节点</span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />正在读取办理记录
+        </div>
+      ) : error ? (
+        <p className="mt-4 text-sm text-destructive">办理记录暂时无法读取：{error}</p>
+      ) : entries.length === 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">当前项目尚无已归档的办理节点。</p>
+      ) : (
+        <div className="mt-4">
+          <ol className="space-y-4 border-l border-border pl-5">
+            {visibleEntries.map((entry) => (
+              <li key={entry.eventId} className="relative">
+                <span className="absolute -left-[1.6rem] top-1.5 size-3 rounded-full border-2 border-background bg-primary" />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <h5 className="text-sm font-medium">{entry.title}</h5>
+                  <span className="text-xs text-muted-foreground">{formatDateTime(entry.occurredAt)}</span>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{entry.summary}</p>
+              </li>
+            ))}
+          </ol>
+          {entries.length > 3 && (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((current) => !current)}
+              >
+                {expanded ? <ChevronUp className="mr-1 size-4" /> : <ChevronDown className="mr-1 size-4" />}
+                {expanded ? "收起办理记录" : `查看全部 ${entries.length} 个节点`}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
