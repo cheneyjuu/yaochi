@@ -384,7 +384,7 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
           <Info className="xl:col-span-2" label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
         </div>
 
-        {sourcing?.selection && (sourcing.selection.recommendationReason || sourcing.selection.insufficientQuoteReason) && <div className="mt-5 border-l-2 border-primary/50 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">{sourcing.selection.recommendationReason && <div>中选说明：{sourcing.selection.recommendationReason}</div>}{sourcing.selection.insufficientQuoteReason && <div className="mt-1">有效报价不足说明：{sourcing.selection.insufficientQuoteReason}</div>}</div>}
+        {sourcing?.selection && (sourcing.selection.selectionRationale || sourcing.selection.selectionEvidenceAttachmentId) && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-l-2 border-primary/50 bg-primary/5 px-4 py-3 text-sm text-muted-foreground"><div>{sourcing.selection.selectionRationale && <div>定商说明：{sourcing.selection.selectionRationale}</div>}</div>{sourcing.selection.selectionEvidenceAttachmentId && <Button type="button" size="sm" variant="outline" onClick={() => void openAttachment(sourcing.selection!.selectionEvidenceAttachmentId!)}>查看定商评审记录</Button>}</div>}
       </section>
 
       <section className="border-t py-7">

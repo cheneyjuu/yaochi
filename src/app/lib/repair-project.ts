@@ -29,6 +29,14 @@ export type RepairProjectSupplierSelectionMethod =
   | "FRAMEWORK_SUPPLIER"
   | "DIRECT_AWARD"
   | "EMERGENCY_APPOINTMENT";
+export type RepairProjectSupplierEvaluationRule =
+  | "LOWEST_COMPLIANT_QUOTE"
+  | "COMPREHENSIVE_EVALUATION"
+  | "AUTHORIZED_DIRECT_SELECTION";
+export type RepairProjectSupplierSelectionAuthorizationStatus =
+  | "PENDING_AUTHORIZATION"
+  | "AUTHORIZED"
+  | "UNSUPPORTED_WORKFLOW";
 
 export type RepairProjectQuoteLineType =
   | "MATERIAL_EQUIPMENT"
@@ -281,18 +289,70 @@ export interface RepairProjectSupplierSelection {
   supplierName: string;
   quoteAmount: number;
   selectionMethod: RepairProjectSupplierSelectionMethod;
-  recommendationReason?: string | null;
-  insufficientQuoteReason?: string | null;
+  selectionEvaluationRule?: RepairProjectSupplierEvaluationRule | null;
+  /** 由最终定商人基于已通过授权快照填写，不替代授权文件中的选择方式。 */
+  selectionRationale?: string | null;
+  selectionEvidenceAttachmentId?: number | null;
+  governanceBasisId?: number | null;
+  governanceBasisHash?: string | null;
   frameworkRelationId?: number | null;
-  recommendedByUserId: number;
+  confirmedByUserId: number;
   createTime: string;
+}
+
+/**
+ * 关联业务：楼栋项目完成已用印的决定/授权链后，服务端返回不可由管理端改写的定商依据。
+ * 社区项目及未完成授权的项目只返回阻断状态，前端不得从范围、资金或角色名称推导授权。
+ */
+export interface RepairProjectSupplierSelectionAuthorization {
+  status: RepairProjectSupplierSelectionAuthorizationStatus;
+  blockingReason?: string | null;
+  approvedSelectionMethod?: RepairProjectSupplierSelectionMethod | null;
+  approvedEvaluationRule?: RepairProjectSupplierEvaluationRule | null;
+  /** 授权文件明确写明时才有值；空值不代表平台默认数量。 */
+  minimumInvitedSupplierCount?: number | null;
+  /** 授权文件明确写明时才有值；空值不代表平台默认数量。 */
+  minimumValidQuoteCount?: number | null;
+  nonCompetitiveSelectionBasis?: string | null;
+  approvedBudgetAmount?: number | null;
+  governanceBasisId?: number | null;
+  governanceBasisHash?: string | null;
+  buildingProcessId?: number | null;
+  decisionId?: number | null;
+  /** 仅服务端确认当前在任主任/副主任时为 true；仍须由定商接口二次校验。 */
+  currentActorMayConfirm: boolean;
+}
+
+/**
+ * 关联业务：框架供应商定商时仅暴露当前项目、当前授权快照和当前确认人可使用的关系。
+ * 不以项目名称、维修点位或前端分类推断服务类别。
+ */
+export interface RepairProjectEligibleFrameworkRelation {
+  relationId: number;
+  supplierDeptId: number;
+  supplierLegalName: string;
+  serviceCategory?: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+}
+
+/** 已盖章楼栋授权文件中明确的施工单位选择和评审规则。 */
+export interface RepairProjectSupplierSelectionAuthorizationInput {
+  selectionMethod: RepairProjectSupplierSelectionMethod;
+  evaluationRule: RepairProjectSupplierEvaluationRule;
+  minimumInvitedSupplierCount?: number;
+  minimumValidQuoteCount?: number;
+  nonCompetitiveSelectionBasis?: string;
 }
 
 export interface RepairProjectSourcingDetails {
   projectId: number;
   planId: number;
-  /** 筹备草稿只收集参考报价；可信决定/授权快照形成后才会给出定商方式。 */
+  /** 已授权时由服务端从治理快照映射，管理端不得提交或自行选择。 */
   selectionMethod?: RepairProjectSupplierSelectionMethod | null;
+  selectionAuthorization?: RepairProjectSupplierSelectionAuthorization | null;
+  /** 仅框架供应商、当前可确认身份且当前项目适用时由服务端返回。 */
+  eligibleFrameworkRelations?: RepairProjectEligibleFrameworkRelation[];
   invitations: RepairProjectQuoteInvitation[];
   quotes: RepairProjectSupplierQuote[];
   selection?: RepairProjectSupplierSelection | null;
@@ -692,8 +752,8 @@ export function selectRepairProjectSupplier(
   projectId: number,
   input: {
     quoteId: number;
-    recommendationReason?: string;
-    insufficientQuoteReason?: string;
+    selectionRationale: string;
+    selectionEvidenceAttachmentId: number;
     frameworkRelationId?: number;
   },
 ): Promise<RepairProjectSourcingDetails> {

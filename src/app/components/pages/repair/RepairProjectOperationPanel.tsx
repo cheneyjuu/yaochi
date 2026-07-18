@@ -70,6 +70,9 @@ import {
   type RepairProjectExecutionDetails,
   type RepairProjectProcessHistoryEntry,
   type RepairProjectPlan,
+  type RepairProjectSupplierEvaluationRule,
+  type RepairProjectSupplierSelectionAuthorizationInput,
+  type RepairProjectSupplierSelectionMethod,
   type RepairProjectSourcingDetails,
   type RepairProjectStage,
   type RepairWorkPoint,
@@ -91,6 +94,19 @@ const MILESTONE_LABEL: Record<RepairPaymentMilestone, string> = {
   PROGRESS: "进度款",
   COMPLETION: "完工款",
   WARRANTY_RELEASE: "质保金释放",
+};
+
+const SUPPLIER_SELECTION_METHOD_LABEL: Record<RepairProjectSupplierSelectionMethod, string> = {
+  COMPETITIVE_QUOTATION: "竞争性询价",
+  FRAMEWORK_SUPPLIER: "框架供应商",
+  DIRECT_AWARD: "经授权直接委托",
+  EMERGENCY_APPOINTMENT: "紧急指定",
+};
+
+const SUPPLIER_EVALUATION_RULE_LABEL: Record<RepairProjectSupplierEvaluationRule, string> = {
+  LOWEST_COMPLIANT_QUOTE: "最低合格报价",
+  COMPREHENSIVE_EVALUATION: "综合评审",
+  AUTHORIZED_DIRECT_SELECTION: "经授权直接选择",
 };
 
 function nowLocal(): string {
@@ -128,6 +144,14 @@ function isPercentageTaxRate(value: string): boolean {
   return /^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(normalized)
     && Number(normalized) >= 0
     && Number(normalized) <= 100;
+}
+
+function optionalPositiveInteger(value: string): number | null | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : null;
 }
 
 function buildingProcessStatusLabel(value?: string | null): string {
@@ -329,18 +353,25 @@ export function RepairProjectOperationPanel({
         error={historyError}
       />
 
+      {["DRAFT", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
+        <RepairProjectSourcingOperation
+          details={details}
+          sourcing={sourcing}
+          suppliers={suppliers}
+          remember={remember}
+          busy={busy}
+          run={run}
+          onReload={reloadSourcing}
+          onOpenSupplierDirectory={onOpenSupplierDirectory}
+          canManageReferenceQuotes={[
+            "PROPERTY_MANAGER",
+            "PROPERTY_STAFF",
+          ].includes(roleKey ?? "") && hasPermission("repair:workorder:manage")}
+        />
+      )}
+
       {draftPlan && (
         <>
-          <RepairProjectSourcingOperation
-            details={details}
-            sourcing={sourcing}
-            suppliers={suppliers}
-            remember={remember}
-            busy={busy}
-            run={run}
-            onReload={reloadSourcing}
-            onOpenSupplierDirectory={onOpenSupplierDirectory}
-          />
           <PlanLockOperation
             details={details}
             plan={draftPlan}
@@ -576,6 +607,11 @@ function BuildingGovernanceOperation({
   const [officialFile, setOfficialFile] = useState<RepairProjectAttachment | null>(null);
   const [reviewFile, setReviewFile] = useState<RepairProjectAttachment | null>(null);
   const [sealedFile, setSealedFile] = useState<RepairProjectAttachment | null>(null);
+  const [supplierSelectionMethod, setSupplierSelectionMethod] = useState<RepairProjectSupplierSelectionMethod | "">("");
+  const [supplierEvaluationRule, setSupplierEvaluationRule] = useState<RepairProjectSupplierEvaluationRule | "">("");
+  const [minimumInvitedSupplierCount, setMinimumInvitedSupplierCount] = useState("");
+  const [minimumValidQuoteCount, setMinimumValidQuoteCount] = useState("");
+  const [nonCompetitiveSelectionBasis, setNonCompetitiveSelectionBasis] = useState("");
   const [decisionRule, setDecisionRule] = useState<RepairDecisionRule | null>(null);
   const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy | null>(null);
   const [ruleLoading, setRuleLoading] = useState(true);
@@ -593,6 +629,38 @@ function BuildingGovernanceOperation({
     && hasPermission("repair:decision:verify");
   const isCommitteePriceReviewer = ["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "")
     && hasPermission("repair:workorder:governance");
+  const maySealSupplierAuthorization = hasPermission("repair:workorder:governance")
+    && hasPermission("committee:seal:use");
+  const competitiveSupplierSelection = supplierSelectionMethod === "COMPETITIVE_QUOTATION";
+  const parsedMinimumInvitedSupplierCount = optionalPositiveInteger(minimumInvitedSupplierCount);
+  const parsedMinimumValidQuoteCount = optionalPositiveInteger(minimumValidQuoteCount);
+  const supplierSelectionCountsValid = parsedMinimumInvitedSupplierCount !== null
+    && parsedMinimumValidQuoteCount !== null
+    && (parsedMinimumInvitedSupplierCount === undefined
+      || parsedMinimumValidQuoteCount === undefined
+      || parsedMinimumValidQuoteCount <= parsedMinimumInvitedSupplierCount);
+  const supplierEvaluationRuleValid = competitiveSupplierSelection
+    ? supplierEvaluationRule === "LOWEST_COMPLIANT_QUOTE" || supplierEvaluationRule === "COMPREHENSIVE_EVALUATION"
+    : supplierEvaluationRule === "AUTHORIZED_DIRECT_SELECTION";
+  const supplierSelectionAuthorization: RepairProjectSupplierSelectionAuthorizationInput | null = (
+    supplierSelectionMethod
+    && supplierEvaluationRule
+    && supplierEvaluationRuleValid
+    && supplierSelectionCountsValid
+    && (competitiveSupplierSelection || Boolean(nonCompetitiveSelectionBasis.trim()))
+  ) ? {
+    selectionMethod: supplierSelectionMethod,
+    evaluationRule: supplierEvaluationRule,
+    ...(parsedMinimumInvitedSupplierCount === undefined
+      ? {}
+      : { minimumInvitedSupplierCount: parsedMinimumInvitedSupplierCount }),
+    ...(parsedMinimumValidQuoteCount === undefined
+      ? {}
+      : { minimumValidQuoteCount: parsedMinimumValidQuoteCount }),
+    ...(!competitiveSupplierSelection
+      ? { nonCompetitiveSelectionBasis: nonCompetitiveSelectionBasis.trim() }
+      : {}),
+  } : null;
   const decisionEvidence = governance?.decision.evidenceAttachmentHash
     ? details.attachments.find((attachment) => attachment.sha256 === governance.decision.evidenceAttachmentHash)
     : null;
@@ -1054,7 +1122,96 @@ function BuildingGovernanceOperation({
         )
       )}
       {status === "PRICE_REVIEWED" && <div className="space-y-3"><Textarea placeholder="主任或副主任确认意见" value={opinion} onChange={(event) => setOpinion(event.target.value)} /><Button disabled={busy !== null} onClick={() => void governanceRun("building-approve", () => postRepairProjectAction(project.projectId, "building-governance/committee-approval", { expectedProcessVersion: governance.process.processVersion, opinion }), "主任或副主任已在线确认")}>在线确认</Button></div>}
-      {status === "COMMITTEE_APPROVED" && <div className="space-y-4"><FileUpload projectId={project.projectId} label="已盖章正式文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} /><Button disabled={busy !== null || !sealedFile} onClick={() => void governanceRun("building-seal", () => postRepairProjectAction(project.projectId, "building-governance/seal", { expectedProcessVersion: governance.process.processVersion, sealedAttachmentId: sealedFile?.attachmentId, remark: opinion }), "楼栋维修用印已登记")}>登记用印</Button></div>}
+      {status === "COMMITTEE_APPROVED" && (
+        maySealSupplierAuthorization ? (
+          <div className="space-y-5">
+            <div>
+              <h5 className="text-sm font-semibold">用印并固化定商授权</h5>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">选择方式和评审规则必须与本次已盖章文件一致；未明确的最小数量不填写，系统不会补设默认值。</p>
+            </div>
+            <div className="grid gap-x-4 gap-y-5 rounded-md border bg-muted/20 p-4 md:grid-cols-2">
+              <FileUpload projectId={project.projectId} label="已盖章正式文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} />
+              <div className="space-y-2">
+                <Label>施工单位选择方式</Label>
+                <Select value={supplierSelectionMethod || "__UNSELECTED__"} onValueChange={(value) => {
+                  const method = value === "__UNSELECTED__" ? "" : value as RepairProjectSupplierSelectionMethod;
+                  setSupplierSelectionMethod(method);
+                  setSupplierEvaluationRule("");
+                  setMinimumInvitedSupplierCount("");
+                  setMinimumValidQuoteCount("");
+                  setNonCompetitiveSelectionBasis("");
+                }}>
+                  <SelectTrigger><SelectValue placeholder="选择文件载明方式" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__UNSELECTED__">选择文件载明方式</SelectItem>
+                    {Object.entries(SUPPLIER_SELECTION_METHOD_LABEL).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>评审规则</Label>
+                <Select value={supplierEvaluationRule || "__UNSELECTED__"} disabled={!supplierSelectionMethod} onValueChange={(value) => {
+                  setSupplierEvaluationRule(value === "__UNSELECTED__" ? "" : value as RepairProjectSupplierEvaluationRule);
+                }}>
+                  <SelectTrigger><SelectValue placeholder="选择文件载明规则" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__UNSELECTED__">选择文件载明规则</SelectItem>
+                    {competitiveSupplierSelection ? (
+                      <>
+                        <SelectItem value="LOWEST_COMPLIANT_QUOTE">{SUPPLIER_EVALUATION_RULE_LABEL.LOWEST_COMPLIANT_QUOTE}</SelectItem>
+                        <SelectItem value="COMPREHENSIVE_EVALUATION">{SUPPLIER_EVALUATION_RULE_LABEL.COMPREHENSIVE_EVALUATION}</SelectItem>
+                      </>
+                    ) : supplierSelectionMethod ? (
+                      <SelectItem value="AUTHORIZED_DIRECT_SELECTION">{SUPPLIER_EVALUATION_RULE_LABEL.AUTHORIZED_DIRECT_SELECTION}</SelectItem>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {competitiveSupplierSelection ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="building-minimum-invited-suppliers">文件明确的最小邀价数（可选）</Label>
+                    <Input id="building-minimum-invited-suppliers" type="number" min="1" max="1000" step="1" inputMode="numeric" value={minimumInvitedSupplierCount} onChange={(event) => setMinimumInvitedSupplierCount(event.target.value)} placeholder="未明确则留空" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="building-minimum-valid-quotes">文件明确的最小有效报价数（可选）</Label>
+                    <Input id="building-minimum-valid-quotes" type="number" min="1" max="1000" step="1" inputMode="numeric" value={minimumValidQuoteCount} onChange={(event) => setMinimumValidQuoteCount(event.target.value)} placeholder="未明确则留空" />
+                  </div>
+                </>
+              ) : supplierSelectionMethod ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="building-non-competitive-selection-basis">非竞争定商依据</Label>
+                  <Textarea id="building-non-competitive-selection-basis" rows={3} value={nonCompetitiveSelectionBasis} onChange={(event) => setNonCompetitiveSelectionBasis(event.target.value)} placeholder="按已盖章文件中的授权依据填写" />
+                </div>
+              ) : null}
+            </div>
+            {!supplierSelectionCountsValid && <p className="text-sm text-destructive">最小数量须为 1 至 1000 的整数；最小有效报价数不得大于最小邀价数，文件未明确时请留空。</p>}
+            <div className="border-t pt-4">
+              <Button disabled={busy !== null || !sealedFile || !supplierSelectionAuthorization} onClick={() => {
+                if (!sealedFile || !supplierSelectionAuthorization) return;
+                void governanceRun(
+                  "building-seal",
+                  () => postRepairProjectAction(project.projectId, "building-governance/seal", {
+                    expectedProcessVersion: governance.process.processVersion,
+                    sealedAttachmentId: sealedFile.attachmentId,
+                    supplierSelectionAuthorization,
+                    remark: opinion || undefined,
+                  }),
+                  "楼栋维修用印及定商授权已登记",
+                );
+              }}>
+                登记用印并固化授权
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">待具备用印权限的业委会经办人依据已通过决定和盖章文件办理授权。</div>
+        )
+      )}
     </OperationSection>
   );
 }
