@@ -567,7 +567,7 @@ function BuildingGovernanceOperation({
             {isPropertyVerifier ? (
               <>
                 <div className="max-w-xl">
-                  <FileUpload projectId={project.projectId} label="微信接龙原始截图" value={evidenceFile} accept="image/*" onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
+                  <FileUpload projectId={project.projectId} label="微信接龙原始截图或导出 PDF" value={evidenceFile} accept="image/*,application/pdf,.pdf" onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
                 </div>
                 <fieldset>
                   <legend className="text-sm font-medium">物业核验结论</legend>
