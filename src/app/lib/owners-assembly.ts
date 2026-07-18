@@ -1,8 +1,14 @@
-import { apiPost } from "./api";
-import type { SubjectType, VoteChoice, VotingScope } from "./voting";
+// 关联业务：为业主大会办理页提供会议筹备、材料归档、公示、纸质送达和计票的业务接口，屏蔽内部包号与文件摘要。
+import { apiGet, apiPost, apiUpload } from "./api";
+import type { SubjectType, VoteChoice } from "./voting";
 
 export type OwnersAssemblyPreparationMode = "OFFLINE_MEETING" | "WRITTEN_DECISION" | "ONLINE_AND_OFFLINE";
-export type OwnersAssemblyVotingChannelPolicy = "PAPER_ONLY" | "ONLINE_ONLY" | "PAPER_AND_ONLINE";
+export type OwnersAssemblyMaterialType =
+  | "PUBLIC_NOTICE"
+  | "PLAN_ATTACHMENT"
+  | "PAPER_BALLOT_TEMPLATE"
+  | "DELIVERY_EVIDENCE"
+  | "PAPER_BALLOT";
 
 export interface OwnersAssemblySession {
   sessionId: number;
@@ -14,54 +20,80 @@ export interface OwnersAssemblySession {
   createTime: string;
 }
 
-export interface OwnersAssemblyPackage {
-  packageId: number;
-  sessionId: number;
-  tenantId: number;
-  packageVersion: number;
-  status: string;
-  votingChannelPolicy: OwnersAssemblyVotingChannelPolicy;
+export interface OwnersAssemblyArrangement {
+  status: "PACKAGE_DRAFT" | "PUBLIC_NOTICE" | "VOTING" | "SETTLED";
+  votingChannelPolicy: "PAPER_ONLY";
   publicNoticeDays: number;
-  announcementHash: string;
-  attachmentManifestHash: string;
-  ballotTemplateHash: string;
-  electronicSealHash?: string | null;
-  packageHash?: string | null;
-  publicNoticeStartAt?: string | null;
-  publicNoticeEndAt?: string | null;
+  publicNoticeStartAt: string | null;
+  publicNoticeEndAt: string | null;
   voteStartAt: string;
   voteEndAt: string;
-  lockedByUserId?: number | null;
-  lockedAt?: string | null;
+  lockedAt: string | null;
 }
 
-export interface OwnersAssemblySubject {
-  subjectId: number;
+export interface OwnersAssemblySubjectDraft {
+  draftId: number;
+  subjectType: Extract<SubjectType, "GENERAL" | "MAJOR">;
   title: string;
-  subjectType: SubjectType;
-  status: string;
-  scope: VotingScope;
-  scopeReferenceId: number | null;
+  content: string | null;
+  createTime: string;
 }
 
-export interface OwnersAssemblyDelivery {
-  deliveryId: number;
-  packageId: number;
-  opid: number;
-  uid: number;
-  deliveryChannel: string;
-  deliveryMethod: string;
-  evidenceHash: string;
-  deliveredAt: string;
-}
-
-export interface OwnersAssemblyVote {
-  assemblyVoteId: number;
-  packageId: number;
+export interface OwnersAssemblyFormalSubject {
   subjectId: number;
-  voteId: number;
-  voteChannel: string;
-  valid: boolean;
+  subjectType: Extract<SubjectType, "GENERAL" | "MAJOR">;
+  title: string;
+  status: string;
+}
+
+export interface OwnersAssemblyMaterial {
+  materialId: number;
+  materialType: OwnersAssemblyMaterialType;
+  originalFileName: string;
+  contentType: string;
+  fileSize: number;
+  createTime: string;
+}
+
+export interface OwnersAssemblyWorkspace {
+  assembly: OwnersAssemblySession;
+  arrangement: OwnersAssemblyArrangement | null;
+  draftSubjects: OwnersAssemblySubjectDraft[];
+  formalSubjects: OwnersAssemblyFormalSubject[];
+  materials: OwnersAssemblyMaterial[];
+}
+
+export interface OwnerListItem {
+  uid: number;
+  realName: string;
+  phoneMasked: string;
+  propertyCount: number;
+}
+
+export interface OwnerPropertyOption {
+  opid: number;
+  buildingName: string;
+  unitName: string | null;
+  roomName: string;
+  communityName: string;
+}
+
+interface PageResponse<T> {
+  items: T[];
+  total: number;
+}
+
+interface OwnerDetailResponse {
+  profile: OwnerListItem;
+  properties: OwnerPropertyOption[];
+}
+
+export function listOwnersAssemblies(): Promise<OwnersAssemblySession[]> {
+  return apiGet<OwnersAssemblySession[]>("/owners-assemblies");
+}
+
+export function getOwnersAssemblyWorkspace(sessionId: number): Promise<OwnersAssemblyWorkspace> {
+  return apiGet<OwnersAssemblyWorkspace>(`/owners-assemblies/${sessionId}/workspace`);
 }
 
 export function createOwnersAssemblySession(input: {
@@ -71,56 +103,71 @@ export function createOwnersAssemblySession(input: {
   return apiPost<OwnersAssemblySession>("/owners-assemblies", input);
 }
 
-export function createOwnersAssemblyPackage(sessionId: number, input: {
-  votingChannelPolicy: OwnersAssemblyVotingChannelPolicy;
-  publicNoticeDays: number;
-  announcementHash: string;
-  attachmentManifestHash: string;
-  ballotTemplateHash: string;
-  electronicSealHash?: string | null;
-  voteStartAt: string;
-  voteEndAt: string;
-}): Promise<OwnersAssemblyPackage> {
-  return apiPost<OwnersAssemblyPackage>(`/owners-assemblies/${sessionId}/packages`, input);
-}
-
-export function addOwnersAssemblySubject(packageId: number, input: {
-  subjectType: SubjectType;
-  scope: VotingScope;
-  scopeReferenceId?: number | null;
+export function createOwnersAssemblySubjectDraft(sessionId: number, input: {
+  subjectType: Extract<SubjectType, "GENERAL" | "MAJOR">;
   title: string;
   content?: string | null;
-  partyRatioFloor?: number | null;
-}): Promise<OwnersAssemblySubject> {
-  return apiPost<OwnersAssemblySubject>(`/owners-assembly-packages/${packageId}/subjects`, input);
+}): Promise<OwnersAssemblySubjectDraft> {
+  return apiPost<OwnersAssemblySubjectDraft>(`/owners-assemblies/${sessionId}/subjects`, input);
 }
 
-export function lockOwnersAssemblyPackage(packageId: number): Promise<OwnersAssemblyPackage> {
-  return apiPost<OwnersAssemblyPackage>(`/owners-assembly-packages/${packageId}/lock`);
+export function uploadOwnersAssemblyMaterial(
+  sessionId: number,
+  materialType: OwnersAssemblyMaterialType,
+  file: File,
+): Promise<OwnersAssemblyMaterial> {
+  const form = new FormData();
+  form.set("materialType", materialType);
+  form.set("file", file);
+  return apiUpload<OwnersAssemblyMaterial>(`/owners-assemblies/${sessionId}/materials`, form);
 }
 
-export function openOwnersAssemblyVoting(packageId: number): Promise<OwnersAssemblyPackage> {
-  return apiPost<OwnersAssemblyPackage>(`/owners-assembly-packages/${packageId}/open-voting`);
+export function confirmOwnersAssemblyArrangement(sessionId: number, input: {
+  publicNoticeDays: number;
+  voteStartAt: string;
+  voteEndAt: string;
+  publicNoticeMaterialId: number;
+  planAttachmentMaterialIds: number[];
+  ballotTemplateMaterialId: number;
+}): Promise<OwnersAssemblyArrangement> {
+  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/arrangement`, input);
 }
 
-export function settleOwnersAssemblyPackage(packageId: number): Promise<OwnersAssemblyPackage> {
-  return apiPost<OwnersAssemblyPackage>(`/owners-assembly-packages/${packageId}/settle`);
+export function publishOwnersAssemblyArrangement(sessionId: number): Promise<OwnersAssemblyArrangement> {
+  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/publish`);
 }
 
-export function recordOwnersAssemblyDelivery(packageId: number, input: {
+export function startOwnersAssemblyVoting(sessionId: number): Promise<OwnersAssemblyArrangement> {
+  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/start-voting`);
+}
+
+export function settleOwnersAssembly(sessionId: number): Promise<OwnersAssemblyArrangement> {
+  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/settle`);
+}
+
+export function recordOwnersAssemblyPaperDelivery(sessionId: number, input: {
   opid: number;
-  deliveryChannel: string;
   deliveryMethod: string;
-  evidenceHash: string;
-}): Promise<OwnersAssemblyDelivery> {
-  return apiPost<OwnersAssemblyDelivery>(`/owners-assembly-packages/${packageId}/deliveries`, input);
+  evidenceMaterialId: number;
+}): Promise<void> {
+  return apiPost<void>(`/owners-assemblies/${sessionId}/paper-deliveries`, input);
 }
 
-export function castOwnersAssemblyPaperVote(packageId: number, input: {
+export function castOwnersAssemblyPaperVote(sessionId: number, input: {
   subjectId: number;
   opid: number;
   choice: VoteChoice;
-  ballotFileHash: string;
-}): Promise<OwnersAssemblyVote> {
-  return apiPost<OwnersAssemblyVote>(`/owners-assembly-packages/${packageId}/paper-votes`, input);
+  ballotMaterialId: number;
+}): Promise<void> {
+  return apiPost<void>(`/owners-assemblies/${sessionId}/paper-votes`, input);
+}
+
+/** 纸质办理仅用于定位房屋，页面不展示或要求手工输入内部房产编号。 */
+export function searchOwnersByPhone(phonePrefix: string): Promise<OwnerListItem[]> {
+  const query = new URLSearchParams({ page: "1", size: "20", phone: phonePrefix.trim() });
+  return apiGet<PageResponse<OwnerListItem>>(`/owners?${query.toString()}`).then((page) => page.items);
+}
+
+export function getOwnerPropertyOptions(uid: number): Promise<OwnerDetailResponse> {
+  return apiGet<OwnerDetailResponse>(`/owners/${uid}`);
 }
