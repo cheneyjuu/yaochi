@@ -108,7 +108,7 @@ function formatDate(value?: string | null): string {
 }
 
 export function Engineering() {
-  const { hasPermission, setPage } = useStore();
+  const { hasPermission, roleKey, setPage } = useStore();
   const [projects, setProjects] = useState<RepairProject[]>([]);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState("");
@@ -308,6 +308,7 @@ export function Engineering() {
                       execution={execution}
                       suppliers={suppliers}
                       hasPermission={hasPermission}
+                      roleKey={roleKey}
                       onChanged={refreshSelected}
                       onOpenSupplierDirectory={() => {
                         setSheetOpen(false);

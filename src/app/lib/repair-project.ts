@@ -260,6 +260,12 @@ export interface RepairProjectDetails {
     ownerUid?: number | null;
     buildArea: number;
   }>;
+  currentPlanAllocationBasis?: {
+    scopeLabel: string;
+    roomCount: number;
+    ownerCount: number;
+    totalBuildArea: number;
+  } | null;
   currentPlanAffectedOwners: Array<{
     roomId: number;
     buildingId: number;
@@ -519,7 +525,11 @@ export interface RepairBuildingGovernanceDetails {
     processVersion: number;
   };
   policySnapshot: {
+    ruleId?: number | null;
+    ruleName?: string | null;
     ruleVersion: string;
+    ruleEffectiveAt?: string | null;
+    decisionChannel: "ONLINE" | "WECHAT";
     deliveryRule: string;
     nonResponseRule: string;
   };
@@ -527,13 +537,25 @@ export interface RepairBuildingGovernanceDetails {
     decisionId: number;
     scopeLabel: string;
     totalOwnerCount: number;
+    totalArea: number;
     participatedOwnerCount?: number | null;
+    participatedArea?: number | null;
     agreeOwnerCount?: number | null;
+    agreeArea?: number | null;
     disagreeOwnerCount?: number | null;
+    disagreeArea?: number | null;
     abstainOwnerCount?: number | null;
+    abstainArea?: number | null;
+    invalidOwnerCount?: number | null;
+    invalidArea?: number | null;
     result: string;
   };
-  entries: Array<{ roomId: number; ownerUid?: number | null; choice: string; originalText: string }>;
+  entries: Array<{
+    roomId: number;
+    buildArea: number;
+    participated: boolean;
+    choice?: "AGREE" | "DISAGREE" | "ABSTAIN" | "INVALID" | null;
+  }>;
 }
 
 export interface RepairCommunityAssemblyLink {
@@ -728,6 +750,10 @@ export function lockRepairProjectPlan(
 
 export function getBuildingRepairGovernance(projectId: number): Promise<RepairBuildingGovernanceDetails> {
   return apiGet(`/admin/repair-projects/${projectId}/building-governance`);
+}
+
+export function auditBuildingRepairDecision(projectId: number): Promise<RepairBuildingGovernanceDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/building-governance/decision-audit`, {});
 }
 
 export function getCommunityRepairAssembly(projectId: number): Promise<RepairCommunityAssemblyLink> {

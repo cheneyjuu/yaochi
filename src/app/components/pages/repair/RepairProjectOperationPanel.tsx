@@ -1,6 +1,9 @@
 // 关联业务：按维修项目状态和真实工作身份执行方案锁定、两类治理、合同、施工、结算、验收、付款及归档。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
+  Eye,
+  FileText,
   Loader2,
   Play,
   ShieldCheck,
@@ -18,8 +21,18 @@ import {
 } from "../../ui/select";
 import { Textarea } from "../../ui/textarea";
 import { StatusChip } from "../../gov/common";
-import type { RepairSupplierOrganization } from "../../../lib/repair";
 import {
+  getRepairPlanningPolicy,
+  type RepairPlanningPolicy,
+  type RepairSupplierOrganization,
+} from "../../../lib/repair";
+import {
+  getActiveRepairDecisionRule,
+  getRepairDecisionRulePreviewTicket,
+  type RepairDecisionRule,
+} from "../../../lib/repair-decision-rule";
+import {
+  auditBuildingRepairDecision,
   getBuildingRepairGovernance,
   getCommunityRepairAssembly,
   getRepairProjectSourcing,
@@ -64,6 +77,42 @@ function today(): string {
   return nowLocal().slice(0, 10);
 }
 
+function nonResponseRuleLabel(value: string): string {
+  switch (value) {
+    case "NOT_PARTICIPATED":
+      return "未表态不计入参与";
+    case "FOLLOW_MAJORITY":
+      return "未表态随多数意见";
+    case "ABSTAIN":
+      return "未表态计为弃权";
+    default:
+      return value;
+  }
+}
+
+function formatRuleDate(value?: string | null): string {
+  return value ? value.slice(0, 10) : "未记录";
+}
+
+function decisionChannelLabel(value?: "ONLINE" | "WECHAT" | null): string {
+  return value === "ONLINE" ? "C 端小程序在线表决" : "微信接龙截图";
+}
+
+function decisionChoiceLabel(value?: string | null): string {
+  switch (value) {
+    case "AGREE":
+      return "同意";
+    case "DISAGREE":
+      return "不同意";
+    case "ABSTAIN":
+      return "弃权";
+    case "INVALID":
+      return "无效";
+    default:
+      return "未表决";
+  }
+}
+
 function OperationSection({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
   return (
     <section className="border-t py-5 first:border-t-0 first:pt-0">
@@ -81,6 +130,7 @@ export function RepairProjectOperationPanel({
   execution,
   suppliers,
   hasPermission,
+  roleKey,
   onChanged,
   onOpenSupplierDirectory,
 }: {
@@ -88,6 +138,7 @@ export function RepairProjectOperationPanel({
   execution: RepairProjectExecutionDetails | null;
   suppliers: RepairSupplierOrganization[];
   hasPermission: (permission: string) => boolean;
+  roleKey: string | null;
   onChanged: () => Promise<void>;
   onOpenSupplierDirectory: () => void;
 }) {
@@ -200,6 +251,8 @@ export function RepairProjectOperationPanel({
             busy={busy}
             run={run}
             afterGovernance={reloadGovernance}
+            hasPermission={hasPermission}
+            roleKey={roleKey}
           />
         ) : (
           <CommunityGovernanceOperation
@@ -208,6 +261,8 @@ export function RepairProjectOperationPanel({
             busy={busy}
             run={run}
             afterGovernance={reloadGovernance}
+            hasPermission={hasPermission}
+            roleKey={roleKey}
           />
         )
       )}
@@ -329,20 +384,79 @@ function BuildingGovernanceOperation({
   busy,
   run,
   afterGovernance,
-}: OperationProps & { governance: RepairBuildingGovernanceDetails | null; afterGovernance: () => Promise<void> }) {
+  hasPermission,
+  roleKey,
+}: OperationProps & {
+  governance: RepairBuildingGovernanceDetails | null;
+  afterGovernance: () => Promise<void>;
+  hasPermission: (permission: string) => boolean;
+  roleKey: string | null;
+}) {
   const project = details.project;
-  const [ruleFile, setRuleFile] = useState<RepairProjectAttachment | null>(null);
   const [evidenceFile, setEvidenceFile] = useState<RepairProjectAttachment | null>(null);
   const [officialFile, setOfficialFile] = useState<RepairProjectAttachment | null>(null);
   const [reviewFile, setReviewFile] = useState<RepairProjectAttachment | null>(null);
   const [sealedFile, setSealedFile] = useState<RepairProjectAttachment | null>(null);
-  const [ruleVersion, setRuleVersion] = useState("");
-  const [deliveryRule, setDeliveryRule] = useState("物业将纸质征询及方案送达费用承担范围房屋");
-  const [scopeLabel, setScopeLabel] = useState("");
+  const [decisionRule, setDecisionRule] = useState<RepairDecisionRule | null>(null);
+  const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy | null>(null);
+  const [ruleLoading, setRuleLoading] = useState(true);
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [rulePreviewing, setRulePreviewing] = useState(false);
   const [reviewAmount, setReviewAmount] = useState("");
   const [opinion, setOpinion] = useState("");
-  const [entries, setEntries] = useState<Record<number, { choice: string; originalText: string }>>({});
+  const [confirmedResult, setConfirmedResult] = useState<"PASSED" | "FAILED" | null>(null);
+  const [auditedGovernance, setAuditedGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const status = governance?.process.status;
+  const allocationBasis = details.currentPlanAllocationBasis;
+  const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
+    && hasPermission("repair:decision:verify");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (governance) {
+      setRuleLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setRuleLoading(true);
+    setRuleError(null);
+    void Promise.all([getActiveRepairDecisionRule(), getRepairPlanningPolicy()])
+      .then(([rule, policy]) => {
+        if (cancelled) return;
+        setDecisionRule(rule);
+        setPlanningPolicy(policy);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDecisionRule(null);
+        setPlanningPolicy(null);
+        setRuleError(error instanceof Error ? error.message : "当前小区维修征询规则读取失败");
+      })
+      .finally(() => {
+        if (!cancelled) setRuleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [governance, project.projectId]);
+
+  useEffect(() => {
+    setAuditedGovernance(null);
+    setConfirmedResult(null);
+  }, [governance?.decision.decisionId, governance?.decision.result]);
+
+  async function previewDecisionRule(ruleId: number) {
+    setRulePreviewing(true);
+    try {
+      const ticket = await getRepairDecisionRulePreviewTicket(ruleId);
+      window.open(ticket.previewUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "规则原件预览失败");
+    } finally {
+      setRulePreviewing(false);
+    }
+  }
 
   async function governanceRun<T>(key: string, action: () => Promise<T>, success: string) {
     await run(key, action, success);
@@ -350,23 +464,85 @@ function BuildingGovernanceOperation({
   }
 
   if (!governance) {
+    const unsupportedNonResponseRule = decisionRule?.nonResponseRule !== undefined
+      && decisionRule.nonResponseRule !== "NOT_PARTICIPATED";
+    const canStart = Boolean(
+      decisionRule
+      && planningPolicy
+      && allocationBasis
+      && allocationBasis.roomCount > 0
+      && !unsupportedNonResponseRule,
+    );
     return (
-      <OperationSection title="发起楼栋维修微信接龙" desc="按备案议事规则锁定送达、未表态规则和费用承担范围。系统不把未回复推定为同意。">
-        <div className="grid gap-4 md:grid-cols-2">
-          <FileUpload projectId={project.projectId} label="备案议事规则" value={ruleFile} onUploaded={(file) => { remember(file); setRuleFile(file); }} />
-          <div><Label>规则版本</Label><Input value={ruleVersion} onChange={(event) => setRuleVersion(event.target.value)} /></div>
-          <div className="md:col-span-2"><Label>送达规则</Label><Input value={deliveryRule} onChange={(event) => setDeliveryRule(event.target.value)} /></div>
-          <div className="md:col-span-2"><Label>征询范围名称</Label><Input value={scopeLabel} onChange={(event) => setScopeLabel(event.target.value)} placeholder="例如：16号楼全体费用承担业主" /></div>
+      <OperationSection title="发起楼栋维修征询" desc="系统按社区配置生成微信接龙或 C 端在线表决，并锁定备案规则与费用承担范围。未回复不会被推定为同意。">
+        <div className="grid overflow-hidden rounded-md border bg-border md:grid-cols-2 md:gap-px">
+          <div className="bg-background p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <FileText className="size-4 text-primary" />
+                当前有效备案规则
+              </div>
+              {decisionRule && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={rulePreviewing}
+                  onClick={() => void previewDecisionRule(decisionRule.ruleId)}
+                >
+                  {rulePreviewing ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Eye className="mr-1 size-4" />}
+                  查看原件
+                </Button>
+              )}
+            </div>
+            {ruleLoading ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />正在读取小区备案规则
+              </div>
+            ) : decisionRule ? (
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">规则名称</dt><dd className="mt-1 font-medium">{decisionRule.ruleName}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">规则版本</dt><dd className="mt-1">{decisionRule.ruleVersion}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">生效日期</dt><dd className="mt-1">{formatRuleDate(decisionRule.effectiveAt)}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">本次征询方式</dt><dd className="mt-1 font-medium">{decisionChannelLabel(planningPolicy?.buildingRepairDefaultDecisionChannel)}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">送达规则</dt><dd className="mt-1 leading-6">{decisionRule.deliveryRule}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">未表态处理</dt><dd className="mt-1">{nonResponseRuleLabel(decisionRule.nonResponseRule)}</dd></div>
+              </dl>
+            ) : (
+              <div className="flex gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-900">
+                <AlertTriangle className="mt-1 size-4 shrink-0" />
+                <span>{ruleError ?? "当前小区尚未备案有效的维修征询规则"}。请由业委会主任在“系统管理 - 社区设置 - 自治与财务规则”中备案后再发起。</span>
+              </div>
+            )}
+          </div>
+          <div className="bg-background p-4">
+            <div className="mb-3 text-sm font-semibold">系统锁定的征询范围</div>
+            {allocationBasis && allocationBasis.roomCount > 0 ? (
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">范围名称</dt><dd className="mt-1 font-medium">{allocationBasis.scopeLabel} · 费用承担范围内业主</dd></div>
+                <div><dt className="text-xs text-muted-foreground">费用承担房屋</dt><dd className="mt-1">{allocationBasis.roomCount} 套</dd></div>
+                <div><dt className="text-xs text-muted-foreground">已登记业主</dt><dd className="mt-1">{allocationBasis.ownerCount} 人</dd></div>
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">建筑面积合计</dt><dd className="mt-1">{Number(allocationBasis.totalBuildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡</dd></div>
+              </dl>
+            ) : (
+              <div className="flex gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-900">
+                <AlertTriangle className="mt-1 size-4 shrink-0" />
+                <span>锁定方案中没有可用的费用承担房屋快照，不能发起征询。</span>
+              </div>
+            )}
+            <p className="mt-4 text-xs leading-5 text-muted-foreground">征询范围由锁定方案的费用承担房屋快照生成，项目办理人不能手工扩大或缩小。</p>
+          </div>
         </div>
-        <Button className="mt-4" disabled={busy !== null || !ruleFile || !ruleVersion.trim() || !scopeLabel.trim()} onClick={() => void governanceRun(
+        {unsupportedNonResponseRule && (
+          <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+            <AlertTriangle className="mt-1 size-4 shrink-0" />
+            当前有效规则为“{nonResponseRuleLabel(decisionRule?.nonResponseRule ?? "")}”，现有计票能力尚不支持该未表态处理方式，禁止发起征询。
+          </div>
+        )}
+        <Button className="mt-4" disabled={busy !== null || ruleLoading || !canStart} onClick={() => void governanceRun(
           "building-start",
           () => postRepairProjectAction(project.projectId, "building-governance/start", {
             expectedProjectVersion: project.version,
-            ruleDocumentAttachmentId: ruleFile?.attachmentId,
-            ruleVersion,
-            deliveryRule,
-            nonResponseRule: "NOT_PARTICIPATED",
-            scopeLabel,
           }),
           "楼栋维修征询已发起",
         )}>发起征询</Button>
@@ -376,32 +552,90 @@ function BuildingGovernanceOperation({
 
   return (
     <OperationSection title="楼栋维修治理" desc={`当前节点：${status}；物业、业委会审价确认和用印分别留痕，业委会不代替楼栋业主验收。`}>
+      <div className="mb-4 grid gap-3 rounded-md border bg-muted/20 p-3 text-sm md:grid-cols-2">
+        <div><span className="text-muted-foreground">备案规则：</span>{governance.policySnapshot.ruleName ?? "历史项目规则"} · {governance.policySnapshot.ruleVersion}</div>
+        <div><span className="text-muted-foreground">征询方式：</span>{decisionChannelLabel(governance.policySnapshot.decisionChannel)}</div>
+        <div><span className="text-muted-foreground">征询范围：</span>{governance.decision.scopeLabel}</div>
+        <div><span className="text-muted-foreground">送达规则：</span>{governance.policySnapshot.deliveryRule}</div>
+        <div><span className="text-muted-foreground">未表态处理：</span>{nonResponseRuleLabel(governance.policySnapshot.nonResponseRule)}</div>
+      </div>
       {status === "DECISION_COLLECTING" && (
-        <div className="space-y-4">
-          <FileUpload projectId={project.projectId} label="微信接龙原始截图" value={evidenceFile} accept="image/*,.pdf" onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
-          <div className="max-h-72 overflow-y-auto rounded-md border">
-            {details.currentPlanAllocationRooms.map((room) => {
-              const value = entries[room.roomId] ?? { choice: "AGREE", originalText: "" };
-              return (
-                <div key={room.roomId} className="grid gap-2 border-b p-3 last:border-b-0 md:grid-cols-[120px_150px_1fr]">
-                  <div className="text-sm">房屋 {room.roomId}</div>
-                  <Select value={value.choice} onValueChange={(choice) => setEntries((current) => ({ ...current, [room.roomId]: { ...value, choice } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="AGREE">同意</SelectItem><SelectItem value="DISAGREE">不同意</SelectItem><SelectItem value="ABSTAIN">弃权</SelectItem><SelectItem value="INVALID">无效</SelectItem></SelectContent></Select>
-                  <Input placeholder="逐户接龙原文" value={value.originalText} onChange={(event) => setEntries((current) => ({ ...current, [room.roomId]: { ...value, originalText: event.target.value } }))} />
+        governance.policySnapshot.decisionChannel === "WECHAT" ? (
+          <div className="space-y-4">
+            {isPropertyVerifier ? (
+              <>
+                <div className="max-w-xl">
+                  <FileUpload projectId={project.projectId} label="微信接龙原始截图" value={evidenceFile} accept="image/*" onUploaded={(file) => { remember(file); setEvidenceFile(file); }} />
                 </div>
-              );
-            })}
+                <div>
+                  <Label>物业核验结论</Label>
+                  <div className="mt-2 inline-flex rounded-md border p-1">
+                    <Button type="button" size="sm" variant={confirmedResult === "PASSED" ? "default" : "ghost"} onClick={() => setConfirmedResult("PASSED")}>通过</Button>
+                    <Button type="button" size="sm" variant={confirmedResult === "FAILED" ? "destructive" : "ghost"} onClick={() => setConfirmedResult("FAILED")}>未通过</Button>
+                  </div>
+                </div>
+                <Button disabled={busy !== null || !evidenceFile || !confirmedResult} onClick={() => void governanceRun(
+                  "building-complete",
+                  () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
+                    expectedProcessVersion: governance.process.processVersion,
+                    evidenceAttachmentId: evidenceFile?.attachmentId,
+                    confirmedResult,
+                  }),
+                  "微信接龙结果已由物业核验",
+                )}>确认核验结果</Button>
+              </>
+            ) : (
+              <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">微信接龙结果由物业上传原始截图并确认通过或未通过，当前身份仅可查看。</p>
+            )}
           </div>
-          <Button disabled={busy !== null || !evidenceFile || details.currentPlanAllocationRooms.some((room) => !(entries[room.roomId]?.originalText ?? "").trim())} onClick={() => void governanceRun(
-            "building-complete",
-            () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
-              expectedProcessVersion: governance.process.processVersion,
-              evidenceAttachmentId: evidenceFile?.attachmentId,
-              entries: details.currentPlanAllocationRooms.map((room) => ({ roomId: room.roomId, ...entries[room.roomId] })),
-            }),
-            "楼栋微信接龙结果已核验",
-          )}>核验接龙结果</Button>
-        </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid overflow-hidden rounded-md border bg-border sm:grid-cols-2 lg:grid-cols-4 lg:gap-px">
+              {[
+                ["应参与业主", governance.decision.totalOwnerCount],
+                ["已参与", governance.decision.participatedOwnerCount ?? 0],
+                ["同意", governance.decision.agreeOwnerCount ?? 0],
+                ["不同意 / 弃权", `${governance.decision.disagreeOwnerCount ?? 0} / ${governance.decision.abstainOwnerCount ?? 0}`],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-background p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-1 text-xl font-semibold">{value}</div></div>
+              ))}
+            </div>
+            <div className="overflow-hidden rounded-md border">
+              <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-3 py-2">
+                <div><div className="text-sm font-medium">费用承担房屋参与情况</div><div className="text-xs text-muted-foreground">默认不显示个人具体选择</div></div>
+                {hasPermission("repair:decision:audit") && (
+                  <Button type="button" size="sm" variant="outline" disabled={busy !== null || Boolean(auditedGovernance)} onClick={() => void run(
+                    "decision-audit",
+                    async () => setAuditedGovernance(await auditBuildingRepairDecision(project.projectId)),
+                    "已按审计权限读取逐户选择",
+                  )}><Eye className="mr-1 size-4" />{auditedGovernance ? "已显示审计结果" : "审计查看选择"}</Button>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {(auditedGovernance?.entries ?? governance.entries).map((entry) => (
+                  <div key={entry.roomId} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b px-3 py-2 text-sm last:border-b-0">
+                    <span>房屋 {entry.roomId}</span>
+                    <span className="text-muted-foreground">{Number(entry.buildArea).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ㎡</span>
+                    <StatusChip tone={entry.participated ? "success" : "neutral"}>{auditedGovernance ? decisionChoiceLabel(entry.choice) : entry.participated ? "已参与" : "未参与"}</StatusChip>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {isPropertyVerifier ? (
+              <Button disabled={busy !== null} onClick={() => void governanceRun(
+                "building-complete",
+                () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
+                  expectedProcessVersion: governance.process.processVersion,
+                }),
+                "C 端在线表决结果已由物业核验",
+              )}>核验并锁定在线表决结果</Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">业主可继续在 C 端表决；最终结果仅由物业核验。</p>
+            )}
+          </div>
+        )
       )}
+      {status === "DECISION_FAILED" && <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">本次楼栋维修征询未通过，项目不能继续进入报审与签约。</p>}
       {status === "DECISION_PASSED" && (
         <div className="space-y-4"><FileUpload projectId={project.projectId} label="物业正式报审文件" value={officialFile} onUploaded={(file) => { remember(file); setOfficialFile(file); }} /><Button disabled={busy !== null || !officialFile} onClick={() => void governanceRun("building-official", () => postRepairProjectAction(project.projectId, "building-governance/official-document", { expectedProcessVersion: governance.process.processVersion, attachmentId: officialFile?.attachmentId }), "物业正式报审文件已归档")}>提交正式文件</Button></div>
       )}
@@ -419,10 +653,25 @@ function BuildingGovernanceOperation({
   );
 }
 
-function CommunityGovernanceOperation({ details, link, busy, run, afterGovernance }: OperationProps & { link: RepairCommunityAssemblyLink | null; afterGovernance: () => Promise<void> }) {
+function CommunityGovernanceOperation({
+  details,
+  link,
+  busy,
+  run,
+  afterGovernance,
+  hasPermission,
+  roleKey,
+}: OperationProps & {
+  link: RepairCommunityAssemblyLink | null;
+  afterGovernance: () => Promise<void>;
+  hasPermission: (permission: string) => boolean;
+  roleKey: string | null;
+}) {
   const [packageId, setPackageId] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const project = details.project;
+  const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "");
+  const isCommitteeVerifier = ["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "");
 
   async function execute<T>(key: string, action: () => Promise<T>, success: string) {
     await run(key, action, success);
@@ -435,12 +684,27 @@ function CommunityGovernanceOperation({ details, link, busy, run, afterGovernanc
         <div className="grid gap-4 md:grid-cols-2">
           <div><Label>表决包 ID</Label><Input type="number" min="1" value={packageId} onChange={(event) => setPackageId(event.target.value)} /></div>
           <div><Label>表决事项 ID</Label><Input type="number" min="1" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} /></div>
-          <Button disabled={busy !== null || !packageId || !subjectId} onClick={() => void execute("community-link", () => postRepairProjectAction(project.projectId, "community-assembly/link", { expectedProjectVersion: project.version, packageId: Number(packageId), subjectId: Number(subjectId) }), "业主大会维修事项已关联")}>关联正式表决事项</Button>
+          {hasPermission("repair:workorder:governance") && <Button disabled={busy !== null || !packageId || !subjectId} onClick={() => void execute("community-link", () => postRepairProjectAction(project.projectId, "community-assembly/link", { expectedProjectVersion: project.version, packageId: Number(packageId), subjectId: Number(subjectId) }), "业主大会维修事项已关联")}>关联正式表决事项</Button>}
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
-          <div className="text-sm"><div className="font-medium">表决包 {link.packageId} · 事项 {link.subjectId}</div><div className="mt-1 text-muted-foreground">状态 {link.status}{link.result ? ` · 结果 ${link.result}` : ""}</div></div>
-          {link.status === "LINKED" && <Button disabled={busy !== null} onClick={() => void execute("community-settle", () => postRepairProjectAction(project.projectId, "community-assembly/settle", { expectedProjectVersion: project.version }), "业主大会事项结果已写入项目")}>读取正式计票结果</Button>}
+        <div className="rounded-md border p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm"><div className="font-medium">表决包 {link.packageId} · 事项 {link.subjectId}</div><div className="mt-1 text-muted-foreground">状态 {link.status}{link.result ? ` · 结果 ${link.result}` : ""}</div></div>
+            {link.status === "LINKED" && hasPermission("repair:decision:verify") && (isPropertyVerifier || isCommitteeVerifier) && (
+              <Button
+                variant={isPropertyVerifier ? "default" : "outline"}
+                disabled={busy !== null}
+                onClick={() => void execute(
+                  "community-settle",
+                  () => postRepairProjectAction(project.projectId, "community-assembly/settle", { expectedProjectVersion: project.version }),
+                  "业主大会事项结果已由核验人写入项目",
+                )}
+              >核验并写入正式计票结果</Button>
+            )}
+          </div>
+          {link.status === "LINKED" && isCommitteeVerifier && !isPropertyVerifier && hasPermission("repair:decision:verify") && (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">本流程以物业核验为主；物业尚未办理时，业委会可按正式结算快照补充核验。</p>
+          )}
         </div>
       )}
     </OperationSection>
