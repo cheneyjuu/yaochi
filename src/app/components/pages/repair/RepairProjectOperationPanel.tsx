@@ -47,6 +47,7 @@ import {
   auditBuildingRepairDecision,
   getBuildingRepairGovernance,
   getCommunityRepairAssembly,
+  getRepairProjectAttachmentTicket,
   getRepairProjectSourcing,
   linkRepairPlanAttachment,
   lockRepairProjectPlan,
@@ -104,6 +105,58 @@ function nonResponseRuleLabel(value: string): string {
 
 function formatRuleDate(value?: string | null): string {
   return value ? value.slice(0, 10) : "未记录";
+}
+
+function formatDateTime(value?: string | null): string {
+  return value ? value.replace("T", " ").slice(0, 16) : "未记录";
+}
+
+function buildingProcessStatusLabel(value?: string | null): string {
+  switch (value) {
+    case "DECISION_COLLECTING":
+      return "正在收集业主征询结果";
+    case "DECISION_PASSED":
+      return "业主征询已通过，待提交物业正式报审文件";
+    case "DECISION_FAILED":
+      return "业主征询未通过，已退回已锁定方案";
+    case "OFFICIAL_DOCUMENT_READY":
+      return "正式报审文件已提交，待业委会审价";
+    case "PRICE_REVIEWED":
+      return "审价已通过，待主任或副主任在线确认";
+    case "PRICE_REVIEW_REJECTED":
+      return "审价未通过，已退回已锁定方案";
+    case "COMMITTEE_APPROVED":
+      return "主任或副主任已确认，待办理业委会用印";
+    case "AUTHORIZED":
+      return "业委会用印已完成，项目已获授权";
+    default:
+      return "楼栋维修治理正在办理";
+  }
+}
+
+function decisionResultLabel(value?: string | null): string {
+  return value === "PASSED" ? "核验通过" : value === "FAILED" ? "核验未通过" : "待核验";
+}
+
+function reviewModeLabel(value?: string | null): string {
+  switch (value) {
+    case "THIRD_PARTY_AUDIT":
+      return "第三方审价";
+    case "INTERNAL_PRICE_REVIEW":
+      return "内部审价";
+    case "NOT_REQUIRED":
+      return "无需审价";
+    default:
+      return "未记录";
+  }
+}
+
+function priceReviewConclusionLabel(value?: string | null): string {
+  return value === "APPROVED" ? "审价通过" : value === "REJECTED" ? "审价未通过" : "未记录";
+}
+
+function committeePositionLabel(value?: string | null): string {
+  return value === "DIRECTOR" ? "业委会主任" : value === "VICE_DIRECTOR" ? "业委会副主任" : "业委会成员";
 }
 
 function decisionChannelLabel(value?: "ONLINE" | "WECHAT" | null): string {
@@ -423,6 +476,23 @@ function BuildingGovernanceOperation({
   const allocationBasis = details.currentPlanAllocationBasis;
   const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
     && hasPermission("repair:decision:verify");
+  const decisionEvidence = governance?.decision.evidenceAttachmentHash
+    ? details.attachments.find((attachment) => attachment.sha256 === governance.decision.evidenceAttachmentHash)
+    : null;
+  const officialDocument = governance?.process.officialDocumentAttachmentId
+    ? details.attachments.find((attachment) => attachment.attachmentId === governance.process.officialDocumentAttachmentId)
+    : null;
+  const priceReviewReport = governance?.process.priceReviewReportAttachmentId
+    ? details.attachments.find((attachment) => attachment.attachmentId === governance.process.priceReviewReportAttachmentId)
+    : null;
+  const decisionCompleted = ["PASSED", "FAILED"].includes(governance?.decision.result ?? "");
+  const hasCompletedGovernanceStep = Boolean(
+    decisionCompleted
+    || governance?.process.officialDocumentAttachmentId
+    || governance?.process.reviewedAmount !== null && governance?.process.reviewedAmount !== undefined
+    || governance?.process.approverPosition
+    || governance?.process.sealUsageId,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -468,6 +538,15 @@ function BuildingGovernanceOperation({
       toast.error(error instanceof Error ? error.message : "规则原件预览失败");
     } finally {
       setRulePreviewing(false);
+    }
+  }
+
+  async function openProjectAttachment(attachment: RepairProjectAttachment, fallbackMessage: string) {
+    try {
+      const ticket = await getRepairProjectAttachmentTicket(project.projectId, attachment.attachmentId);
+      window.open(ticket.downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : fallbackMessage);
     }
   }
 
@@ -581,7 +660,7 @@ function BuildingGovernanceOperation({
   }
 
   return (
-    <OperationSection title="楼栋维修治理" desc={`当前节点：${status}；物业、业委会审价确认和用印分别留痕，业委会不代替楼栋业主验收。`}>
+    <OperationSection title="楼栋维修治理" desc={`${buildingProcessStatusLabel(status)}。已完成环节和原始材料会持续保留，业委会不代替楼栋业主验收。`}>
       <div className="mb-4 grid gap-3 rounded-md border bg-muted/20 p-3 text-sm md:grid-cols-2">
         <div><span className="text-muted-foreground">备案规则：</span>{governance.policySnapshot.ruleName ?? "历史项目规则"} · {governance.policySnapshot.ruleVersion}</div>
         <div><span className="text-muted-foreground">征询方式：</span>{decisionChannelLabel(governance.policySnapshot.decisionChannel)}</div>
@@ -589,6 +668,84 @@ function BuildingGovernanceOperation({
         <div><span className="text-muted-foreground">送达规则：</span>{governance.policySnapshot.deliveryRule}</div>
         <div><span className="text-muted-foreground">未表态处理：</span>{nonResponseRuleLabel(governance.policySnapshot.nonResponseRule)}</div>
       </div>
+      {hasCompletedGovernanceStep && (
+        <section className="mb-5 border-y py-4" aria-labelledby="completed-governance-steps">
+          <div>
+            <h5 id="completed-governance-steps" className="text-sm font-semibold">已完成环节</h5>
+            <p className="mt-1 text-xs text-muted-foreground">结论、原始材料和关键办理信息会在后续环节持续保留，只读查看。</p>
+          </div>
+          <ol className="mt-4 space-y-4 border-l border-border pl-5">
+            {decisionCompleted && (
+              <li className="relative">
+                <span className={`absolute -left-[1.64rem] top-1 size-3 rounded-full border-2 border-background ${governance.decision.result === "PASSED" ? "bg-emerald-600" : "bg-destructive"}`} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <h6 className="text-sm font-medium">业主征询核验</h6>
+                  <StatusChip tone={governance.decision.result === "PASSED" ? "success" : "danger"}>{decisionResultLabel(governance.decision.result)}</StatusChip>
+                </div>
+                <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  <div><dt className="text-xs text-muted-foreground">征询方式</dt><dd className="mt-0.5">{decisionChannelLabel(governance.policySnapshot.decisionChannel)}</dd></div>
+                  <div><dt className="text-xs text-muted-foreground">核验时间</dt><dd className="mt-0.5">{formatDateTime(governance.decision.updateTime)}</dd></div>
+                  {governance.policySnapshot.decisionChannel === "ONLINE" && (
+                    <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">表决汇总</dt><dd className="mt-0.5">已参与 {governance.decision.participatedOwnerCount ?? 0} 户，其中同意 {governance.decision.agreeOwnerCount ?? 0} 户</dd></div>
+                  )}
+                </dl>
+                {decisionEvidence && (
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void openProjectAttachment(decisionEvidence, "微信接龙原始证据暂时无法打开")}>
+                    <Eye className="mr-1 size-4" />查看原始证据
+                  </Button>
+                )}
+              </li>
+            )}
+            {governance.process.officialDocumentAttachmentId && (
+              <li className="relative">
+                <span className="absolute -left-[1.64rem] top-1 size-3 rounded-full border-2 border-background bg-emerald-600" />
+                <div className="flex flex-wrap items-center gap-2"><h6 className="text-sm font-medium">物业正式报审文件</h6><StatusChip tone="success">已归档</StatusChip></div>
+                <p className="mt-2 text-sm text-muted-foreground">物业已提交正式报审文件，后续审价以该文件为依据。</p>
+                {officialDocument && (
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void openProjectAttachment(officialDocument, "物业正式报审文件暂时无法打开")}>
+                    <Eye className="mr-1 size-4" />查看正式文件
+                  </Button>
+                )}
+              </li>
+            )}
+            {governance.process.reviewedAmount !== null && governance.process.reviewedAmount !== undefined && (
+              <li className="relative">
+                <span className={`absolute -left-[1.64rem] top-1 size-3 rounded-full border-2 border-background ${governance.process.priceReviewConclusion === "APPROVED" ? "bg-emerald-600" : "bg-destructive"}`} />
+                <div className="flex flex-wrap items-center gap-2"><h6 className="text-sm font-medium">业委会审价</h6><StatusChip tone={governance.process.priceReviewConclusion === "APPROVED" ? "success" : "danger"}>{priceReviewConclusionLabel(governance.process.priceReviewConclusion)}</StatusChip></div>
+                <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  <div><dt className="text-xs text-muted-foreground">审价方式</dt><dd className="mt-0.5">{reviewModeLabel(governance.process.reviewMode)}</dd></div>
+                  <div><dt className="text-xs text-muted-foreground">审定金额</dt><dd className="mt-0.5">¥{Number(governance.process.reviewedAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd></div>
+                  <div><dt className="text-xs text-muted-foreground">审价时间</dt><dd className="mt-0.5">{formatDateTime(governance.process.priceReviewedAt)}</dd></div>
+                  {governance.process.priceReviewOpinion && <div><dt className="text-xs text-muted-foreground">审价意见</dt><dd className="mt-0.5">{governance.process.priceReviewOpinion}</dd></div>}
+                </dl>
+                {priceReviewReport && (
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void openProjectAttachment(priceReviewReport, "审价报告暂时无法打开")}>
+                    <Eye className="mr-1 size-4" />查看审价报告
+                  </Button>
+                )}
+              </li>
+            )}
+            {governance.process.approverPosition && (
+              <li className="relative">
+                <span className="absolute -left-[1.64rem] top-1 size-3 rounded-full border-2 border-background bg-emerald-600" />
+                <div className="flex flex-wrap items-center gap-2"><h6 className="text-sm font-medium">主任或副主任在线确认</h6><StatusChip tone="success">已确认</StatusChip></div>
+                <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  <div><dt className="text-xs text-muted-foreground">确认角色</dt><dd className="mt-0.5">{committeePositionLabel(governance.process.approverPosition)}</dd></div>
+                  <div><dt className="text-xs text-muted-foreground">确认时间</dt><dd className="mt-0.5">{formatDateTime(governance.process.approvedAt)}</dd></div>
+                  {governance.process.approvalOpinion && <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">确认意见</dt><dd className="mt-0.5">{governance.process.approvalOpinion}</dd></div>}
+                </dl>
+              </li>
+            )}
+            {governance.process.sealUsageId && (
+              <li className="relative">
+                <span className="absolute -left-[1.64rem] top-1 size-3 rounded-full border-2 border-background bg-emerald-600" />
+                <div className="flex flex-wrap items-center gap-2"><h6 className="text-sm font-medium">业委会用印</h6><StatusChip tone="success">已登记</StatusChip></div>
+                <p className="mt-2 text-sm text-muted-foreground">用印记录已关联本项目，可在工程档案中继续查看。</p>
+              </li>
+            )}
+          </ol>
+        </section>
+      )}
       {status === "DECISION_COLLECTING" && (
         governance.policySnapshot.decisionChannel === "WECHAT" ? (
           <div className="space-y-4">

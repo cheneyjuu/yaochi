@@ -518,9 +518,13 @@ export interface RepairBuildingGovernanceDetails {
     officialDocumentAttachmentId?: number | null;
     reviewMode?: string | null;
     reviewedAmount?: number | null;
+    priceReviewReportAttachmentId?: number | null;
     priceReviewConclusion?: string | null;
+    priceReviewOpinion?: string | null;
+    priceReviewedAt?: string | null;
     approvalOpinion?: string | null;
     approverPosition?: string | null;
+    approvedAt?: string | null;
     sealUsageId?: number | null;
     processVersion: number;
   };
@@ -548,7 +552,9 @@ export interface RepairBuildingGovernanceDetails {
     abstainArea?: number | null;
     invalidOwnerCount?: number | null;
     invalidArea?: number | null;
+    evidenceAttachmentHash?: string | null;
     result: string;
+    updateTime?: string | null;
   };
   entries: Array<{
     roomId: number;
