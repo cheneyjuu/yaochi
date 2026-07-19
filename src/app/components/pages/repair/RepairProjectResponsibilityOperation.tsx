@@ -17,7 +17,7 @@ import {
   type RepairResponsibilityDetermination,
   type RepairResponsibilityPath,
 } from "../../../lib/repair-project";
-import { RepairProjectFileUpload } from "./RepairProjectFileUpload";
+import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
 
 const RESPONSIBILITY_PATH_LABEL: Record<RepairResponsibilityPath, string> = {
   PROPERTY_SERVICE_CONTRACT: "物业服务合同责任",

@@ -63,3 +63,4 @@ or initiating processes. They communicate interactivity and should have clear, a
 ## Agent Error Log
 
 - 2026-07-02: Multi-file hand-written `git apply` patches failed repeatedly because hunk boundaries and nested template literals were fragile. For cross-repo frontend edits, apply small checked patches or deterministic file transforms, and avoid nested backticks inside script-embedded TSX.
+- 2026-07-19: A production Vite build did not catch an unresolved JSX component identifier in the repair action panel, causing the entire page to render blank. For changes to the repair project action flow, run `npm run test:repair-draft-render` and `npm run build` before deployment.

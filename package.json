@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "test:repair-draft-render": "node scripts/verify-repair-draft-render.mjs",
     "dev": "vite"
   },
   "dependencies": {
