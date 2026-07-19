@@ -1,4 +1,4 @@
-// 关联业务：维护社区组织备案、建筑名册、计票基数、自治规则及独立变更记录视图。
+// 关联业务：维护社区组织备案、建筑名册、计票基数、维修事项议事依据及公示提醒。
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -117,6 +117,19 @@ function booleanTone(value: boolean) {
   return value ? "success" : "warning";
 }
 
+function governanceStatusMeta(value: string) {
+  switch (value) {
+    case "NORMAL":
+      return { label: "正常运行", chip: "正常", tone: "success" as const };
+    case "HANDOVER_LOCK":
+      return { label: "业委会换届交接中", chip: "部分操作暂缓", tone: "warning" as const };
+    case "FINANCIAL_LOCKED":
+      return { label: "资金事项办理暂缓", chip: "部分操作暂缓", tone: "warning" as const };
+    default:
+      return { label: "状态待核对", chip: "请核对", tone: "warning" as const };
+  }
+}
+
 function displayTime(value: string | null | undefined) {
   if (!value) return "未记录";
   return value.replace("T", " ").slice(0, 16);
@@ -130,11 +143,11 @@ function localDate(): string {
 function nonResponseRuleLabel(value: RepairDecisionNonResponseRule): string {
   switch (value) {
     case "NOT_PARTICIPATED":
-      return "未表态不计入参与";
+      return "未反馈不计入参与";
     case "FOLLOW_MAJORITY":
-      return "未表态随多数意见";
+      return "未反馈按多数意见认定";
     case "ABSTAIN":
-      return "未表态计为弃权";
+      return "未反馈认定为弃权";
   }
 }
 
@@ -165,7 +178,7 @@ function auditSectionMeta(sectionCode: CommunityAuditLog["sectionCode"]) {
     case "DENOMINATOR":
       return { label: "计票基数", tone: "warning" as const };
     case "RULES":
-      return { label: "自治与财务规则", tone: "success" as const };
+      return { label: "维修筹备要求", tone: "success" as const };
     default:
       return { label: "其他设置", tone: "neutral" as const };
   }
@@ -296,7 +309,7 @@ export function CommunitySettings() {
     if (data?.organization) tabs.push({ key: "organization", label: "组织备案", mobileLabel: "备案" });
     tabs.push({ key: "building", label: "建筑名册", mobileLabel: "名册" });
     tabs.push({ key: "denominator", label: "法定计票基数", mobileLabel: "计票基数" });
-    if (data?.rules) tabs.push({ key: "rules", label: "自治与财务规则", mobileLabel: "自治规则" });
+    if (data?.rules) tabs.push({ key: "rules", label: "议事与公示规则", mobileLabel: "议事规则" });
     if (hasPermission("property:management-mode:read")) {
       tabs.push({ key: "propertyMode", label: "物业管理模式", mobileLabel: "管理模式" });
     }
@@ -359,17 +372,12 @@ export function CommunitySettings() {
     setSaving("rules");
     try {
       const next = await updateCommunityRules({
-        ruleConfigId: rulesDraft.currentPolicy?.policyId ?? null,
-        sharedOwnershipStrategy: rulesDraft.sharedOwnershipStrategy,
         repairEstimateRequired: rulesDraft.repairEstimateRequired,
-        buildingRepairDefaultDecisionChannel: rulesDraft.buildingRepairDefaultDecisionChannel,
-        fundManagedEnabled: rulesDraft.fundManagedEnabled,
-        financialControlConfigId: rulesDraft.financialControlConfigId,
-        quarterlyDisclosureDeadlineDay: rulesDraft.quarterlyDisclosureDeadlineDay,
+        buildingRepairDefaultDecisionChannel: "ONLINE",
       });
       setData(next);
       setRulesDraft(next.rules);
-      toast.success("自治规则已保存");
+      toast.success("维修项目筹备要求已保存");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -381,7 +389,7 @@ export function CommunitySettings() {
     const draft = decisionRuleDraft;
     if (!draft.ruleName.trim() || !draft.ruleVersion.trim() || !draft.effectiveDate
       || !draft.deliveryRule.trim() || !decisionRuleFile) {
-      toast.error("请完整填写规则名称、版本、生效日期、送达规则并选择备案原件");
+      toast.error("请完整填写依据名称、版本标识、生效日期、送达方式并选择依据原件");
       return;
     }
     setSaving("decision-rule");
@@ -397,9 +405,9 @@ export function CommunitySettings() {
       setDecisionRuleDialogOpen(false);
       setDecisionRuleDraft(emptyRepairDecisionRuleDraft());
       setDecisionRuleFile(null);
-      toast.success("维修征询规则已备案并启用");
+      toast.success("维修事项表决依据已登记并设为当前采用版本");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "维修征询规则备案失败");
+      toast.error(e instanceof Error ? e.message : "维修事项表决依据登记失败");
     } finally {
       setSaving(null);
     }
@@ -477,6 +485,7 @@ export function CommunitySettings() {
   const rules = rulesDraft;
   const activeDecisionRule = decisionRules.find((rule) => rule.status === "ACTIVE") ?? null;
   const liveAreaGap = Math.abs(Number(data.assetLedger.liveLedgerStats.totalArea) - Number(data.denominator.legalTotalExclusiveArea));
+  const governanceStatus = governanceStatusMeta(data.header.governanceStatus);
 
   function exportDenominatorReport() {
     const report = {
@@ -499,8 +508,8 @@ export function CommunitySettings() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="社区法权与基数配置"
-        desc={`租户编码：${data.header.tenantCode} · 统计版本：第 ${data.header.statisticsVersion} 版 · 最后更新：${displayTime(data.header.lastUpdatedAt)}`}
+        title="小区基础资料与议事规则"
+        desc={`小区编号：${data.header.tenantCode} · 计票基数：第 ${data.header.statisticsVersion} 版 · 最后更新：${displayTime(data.header.lastUpdatedAt)}`}
         actions={
           <Button variant="outline" onClick={load}>
             <RefreshCcw className="size-4 mr-2" />
@@ -518,8 +527,8 @@ export function CommunitySettings() {
             <div>
               <p className="text-sm text-muted-foreground">治理状态</p>
               <div className="mt-1 flex items-center gap-2">
-                <span className="text-base font-semibold">{data.header.governanceStatus === "NORMAL" ? "运行正常" : data.header.governanceStatus}</span>
-                <StatusChip tone="success" dot>已生效</StatusChip>
+                <span className="text-base font-semibold">{governanceStatus.label}</span>
+                <StatusChip tone={governanceStatus.tone} dot>{governanceStatus.chip}</StatusChip>
               </div>
             </div>
           </div>
@@ -802,97 +811,49 @@ export function CommunitySettings() {
         <TabsContent value="rules" className="space-y-4">
           {rules && (
             <SectionCard
-              title="自治规则与财务公示"
-              desc="治理规则模板、共有产权表决策略、资金托管与季度公示督办。"
+              title="维修项目筹备要求"
+              desc="设置物业在形成维修方案和开展前期询价前，需要完成的内部准备。"
               extra={permissions.canEditRules ? (
                 <Button onClick={saveRules} disabled={saving === "rules"}>
                   <Save className="size-4 mr-2" />
-                  保存规则
+                  保存筹备要求
                 </Button>
               ) : <StatusChip tone="warning">只读</StatusChip>}
             >
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label>治理规则模板</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                      disabled={!permissions.canEditRules}
-                      value={rules.currentPolicy?.policyId ?? ""}
-                      onChange={(event) => {
-                        const policy = rules.policyOptions.find((item) => item.policyId === Number(event.target.value)) ?? null;
-                        setRulesDraft((d) => d && { ...d, currentPolicy: policy });
-                      }}
-                    >
-                      {rules.policyOptions.map((policy) => (
-                        <option key={policy.policyId} value={policy.policyId}>{policy.policyName}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>共有产权代表策略</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                      disabled={!permissions.canEditRules}
-                      value={rules.sharedOwnershipStrategy}
-                      onChange={(event) => setRulesDraft((d) => d && { ...d, sharedOwnershipStrategy: event.target.value })}
-                    >
-                      <option value="REPRESENTATIVE_ONLY">唯一代表制</option>
-                      <option value="PROPORTIONAL_SPLIT">按份额拆分</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>楼栋维修默认表决方式</Label>
-                    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="楼栋维修默认表决方式">
-                      {([
-                        ["ONLINE", "C 端在线表决"],
-                        ["WECHAT", "微信接龙"],
-                      ] as const).map(([value, label]) => {
-                        const selected = rules.buildingRepairDefaultDecisionChannel === value;
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected}
-                            disabled={!permissions.canEditRules}
-                            onClick={() => setRulesDraft((draft) => draft && {
-                              ...draft,
-                              buildingRepairDefaultDecisionChannel: value,
-                            })}
-                            className={`rounded-md border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${selected
-                              ? "border-primary bg-primary/5 font-medium text-primary"
-                              : "border-border bg-background hover:bg-muted/40"}`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      作为新楼栋维修工单的默认值；物业可在发起表决前为单个工单调整，发起后不可切换渠道。
+                <div className="flex items-start justify-between gap-4 border-b py-3 lg:border-b-0 lg:border-r lg:pr-4">
+                  <div>
+                    <div className="font-medium">前期询价前编制参考估算</div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      参考估算只供物业编制方案和核对报价，不向施工单位公开，也不作为最高限价。
                     </p>
                   </div>
-                  <div className="rounded-md border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
-                    {rules.currentPolicy?.summaryJson ?? "暂无规则摘要"}
-                  </div>
+                  <Switch
+                    checked={rules.repairEstimateRequired}
+                    disabled={!permissions.canEditRules}
+                    onCheckedChange={(checked) => setRulesDraft((draft) => draft && {
+                      ...draft,
+                      repairEstimateRequired: checked,
+                    })}
+                    aria-label="前期询价前编制参考估算"
+                  />
                 </div>
-                <div className="space-y-4">
-                  <SwitchRow label="邀价前必须填写物业内部估算" checked={rules.repairEstimateRequired} disabled={!permissions.canEditRules} onCheckedChange={(v) => setRulesDraft((d) => d && { ...d, repairEstimateRequired: v })} />
-                  <SwitchRow label="启用第三方资金托管" checked={rules.fundManagedEnabled} disabled={!permissions.canEditFinancialControl} onCheckedChange={(v) => setRulesDraft((d) => d && { ...d, fundManagedEnabled: v })} />
-                  <Field label="财务审批配置" value={rules.financialControlConfigId} disabled={!permissions.canEditFinancialControl} onChange={(v) => setRulesDraft((d) => d && { ...d, financialControlConfigId: v })} />
-                  <Field label="季度收益公示期限日" type="number" value={rules.quarterlyDisclosureDeadlineDay} disabled={!permissions.canEditFinancialControl} onChange={(v) => setRulesDraft((d) => d && { ...d, quarterlyDisclosureDeadlineDay: Number(v) })} />
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    距离本季公示截止还有 {rules.daysUntilDisclosureDeadline} 天。逾期仍未发布时，系统将按规则锁定自治端资金划拨权限。
+                <div className="py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">系统内表决收集方式</span>
+                    <StatusChip tone="info">线上实名投票</StatusChip>
                   </div>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    系统逐户记录表决人的身份、房屋和选择，避免同一专有部分重复计票。线下书面征询应按本小区生效的议事规则另行留存逐户材料。
+                  </p>
                 </div>
               </div>
             </SectionCard>
           )}
 
           <SectionCard
-            title="楼栋维修征询规则备案"
-            desc="保存本小区实际生效的规则原件和版本。项目发起征询时由后端读取并形成不可变快照，物业不能在项目中临时改写。"
+            title="维修事项表决依据"
+            desc="登记本小区已经表决生效、适用于维修事项的议事规则或补充条款。项目发起后继续采用当时的版本，后续换版不改变已发起项目。"
             extra={permissions.canEditRules ? (
               <Button
                 type="button"
@@ -903,7 +864,7 @@ export function CommunitySettings() {
                 }}
               >
                 <FileUp className="mr-2 size-4" />
-                备案新版本
+                登记新版本
               </Button>
             ) : <StatusChip tone="warning">只读</StatusChip>}
           >
@@ -913,7 +874,7 @@ export function CommunitySettings() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{activeDecisionRule.ruleName}</span>
-                      <StatusChip tone="success">当前有效</StatusChip>
+                      <StatusChip tone="success">当前采用</StatusChip>
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
                       {activeDecisionRule.originalFileName}
@@ -922,7 +883,7 @@ export function CommunitySettings() {
                   <dl className="grid grid-cols-2 gap-3 text-sm">
                     <div><dt className="text-xs text-muted-foreground">版本</dt><dd className="mt-1 font-medium">{activeDecisionRule.ruleVersion}</dd></div>
                     <div><dt className="text-xs text-muted-foreground">生效日期</dt><dd className="mt-1 font-medium">{activeDecisionRule.effectiveAt.slice(0, 10)}</dd></div>
-                    <div className="col-span-2"><dt className="text-xs text-muted-foreground">未表态处理</dt><dd className="mt-1 font-medium">{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}</dd></div>
+                    <div className="col-span-2"><dt className="text-xs text-muted-foreground">未反馈表决票的认定方式</dt><dd className="mt-1 font-medium">{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}</dd></div>
                   </dl>
                   <Button
                     type="button"
@@ -938,20 +899,20 @@ export function CommunitySettings() {
                   </Button>
                 </div>
                 <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">备案送达规则</div>
+                  <div className="text-xs text-muted-foreground">规则约定的送达方式</div>
                   <div className="mt-1 leading-6">{activeDecisionRule.deliveryRule}</div>
                 </div>
                 {activeDecisionRule.nonResponseRule !== "NOT_PARTICIPATED" && (
                   <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
                     <AlertTriangle className="mt-1 size-4 shrink-0" />
-                    当前维修接龙计票能力尚不支持“{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}”，该规则有效期间将禁止发起楼栋维修征询。
+                    当前系统只能按“未反馈不计入参与”完成计票。这份依据约定“{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}”，暂不能用它发起系统内表决。
                   </div>
                 )}
               </div>
             ) : (
               <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
                 <AlertTriangle className="mt-1 size-4 shrink-0" />
-                <div><div className="font-medium">尚未备案有效规则</div><div>在完成规则原件备案前，物业不能发起楼栋维修征询。</div></div>
+                <div><div className="font-medium">尚未登记生效依据</div><div>正式发起相关业主表决前，需要先登记本小区已经表决生效的议事规则或补充条款。</div></div>
               </div>
             )}
 
@@ -970,7 +931,7 @@ export function CommunitySettings() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          title="查看备案原件"
+                          title="查看依据原件"
                           disabled={previewingRuleId === rule.ruleId}
                           onClick={() => void previewDecisionRule(rule.ruleId)}
                         >
@@ -983,6 +944,20 @@ export function CommunitySettings() {
               </div>
             )}
           </SectionCard>
+
+          {rules && (
+            <SectionCard
+              title="公共收益公示提醒"
+              desc="按上海市现行规定提示季度公示日期；实际是否完成公示，以财务监督中的发布记录为准。"
+              extra={<StatusChip tone="info">法定期限</StatusChip>}
+            >
+              <dl className="grid gap-4 text-sm sm:grid-cols-3">
+                <div><dt className="text-muted-foreground">公示要求</dt><dd className="mt-1 font-medium">每季度第一个月 15 日前</dd></div>
+                <div><dt className="text-muted-foreground">下一次期限</dt><dd className="mt-1 font-medium">{rules.nextPublicIncomeDisclosureDeadline}</dd></div>
+                <div><dt className="text-muted-foreground">剩余时间</dt><dd className="mt-1 font-medium">{rules.daysUntilDisclosureDeadline} 天</dd></div>
+              </dl>
+            </SectionCard>
+          )}
         </TabsContent>
 
         <TabsContent value="propertyMode" className="space-y-4">
@@ -992,7 +967,7 @@ export function CommunitySettings() {
         <TabsContent value="changes" className="space-y-4">
           <SectionCard
             title="社区设置变更记录"
-            desc="记录组织备案、建筑名册、计票基数及自治规则的变更，供追溯与监管复核。"
+            desc="记录组织备案、建筑名册、计票基数和维修筹备要求的变更，供追溯与复核。"
             extra={<StatusChip tone="neutral">最近 {data.auditLogs.length} 条</StatusChip>}
           >
             {data.auditLogs.length === 0 ? (
@@ -1045,9 +1020,9 @@ export function CommunitySettings() {
       >
         <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>备案楼栋维修征询规则</DialogTitle>
+            <DialogTitle>登记维修事项表决依据</DialogTitle>
             <DialogDescription>
-              上传本小区已经审议并生效的规则原件。项目征询表、报价单、微信接龙截图或单次维修意见不能作为通用规则备案。
+              上传本小区已经表决生效的业主大会议事规则或有效补充条款。单次维修意见、询价单或报价单不能作为通用表决依据。
             </DialogDescription>
           </DialogHeader>
           <form
@@ -1059,16 +1034,16 @@ export function CommunitySettings() {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="repair-decision-rule-name">规则名称</Label>
+                <Label htmlFor="repair-decision-rule-name">依据名称</Label>
                 <Input
                   id="repair-decision-rule-name"
                   value={decisionRuleDraft.ruleName}
                   onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, ruleName: event.target.value }))}
-                  placeholder="按备案原件填写完整名称"
+                  placeholder="按原件填写完整名称"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-rule-version">规则版本</Label>
+                <Label htmlFor="repair-decision-rule-version">版本标识</Label>
                 <Input
                   id="repair-decision-rule-version"
                   value={decisionRuleDraft.ruleVersion}
@@ -1087,17 +1062,17 @@ export function CommunitySettings() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="repair-decision-delivery-rule">有效送达规则</Label>
+                <Label htmlFor="repair-decision-delivery-rule">规则约定的送达方式</Label>
                 <Textarea
                   id="repair-decision-delivery-rule"
                   rows={3}
                   value={decisionRuleDraft.deliveryRule}
                   onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, deliveryRule: event.target.value }))}
-                  placeholder="按备案规则填写纸质、线上或其他有效送达方式"
+                  placeholder="按原件填写纸质、线上或其他送达方式"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-non-response-rule">未表态处理方式</Label>
+                <Label htmlFor="repair-decision-non-response-rule">未反馈表决票的认定方式</Label>
                 <select
                   id="repair-decision-non-response-rule"
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -1107,13 +1082,13 @@ export function CommunitySettings() {
                     nonResponseRule: event.target.value as RepairDecisionNonResponseRule,
                   }))}
                 >
-                  <option value="NOT_PARTICIPATED">未表态不计入参与</option>
-                  <option value="FOLLOW_MAJORITY">未表态随多数意见</option>
-                  <option value="ABSTAIN">未表态计为弃权</option>
+                  <option value="NOT_PARTICIPATED">未反馈不计入参与</option>
+                  <option value="FOLLOW_MAJORITY">未反馈按多数意见认定</option>
+                  <option value="ABSTAIN">未反馈认定为弃权</option>
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-rule-file">备案原件</Label>
+                <Label htmlFor="repair-decision-rule-file">依据原件</Label>
                 <Input
                   id="repair-decision-rule-file"
                   type="file"
@@ -1126,14 +1101,14 @@ export function CommunitySettings() {
             {decisionRuleDraft.nonResponseRule !== "NOT_PARTICIPATED" && (
               <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
                 <AlertTriangle className="mt-1 size-4 shrink-0" />
-                规则可以如实备案，但当前维修接龙计票尚不支持“{nonResponseRuleLabel(decisionRuleDraft.nonResponseRule)}”。启用后将暂时禁止发起楼栋维修征询。
+                依据可以如实登记，但当前系统只能按“未反馈不计入参与”完成计票。登记该认定方式后，暂不能用它发起系统内表决。
               </div>
             )}
             <div className="flex justify-end gap-2 border-t pt-4">
               <Button type="button" variant="outline" disabled={saving === "decision-rule"} onClick={() => setDecisionRuleDialogOpen(false)}>取消</Button>
               <Button type="submit" disabled={saving === "decision-rule"}>
                 {saving === "decision-rule" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <FileUp className="mr-2 size-4" />}
-                备案并启用
+                登记并设为当前依据
               </Button>
             </div>
           </form>

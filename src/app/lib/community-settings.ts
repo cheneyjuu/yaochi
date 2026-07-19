@@ -1,4 +1,4 @@
-// 关联业务：封装社区组织备案、建筑名册、法定计票基数、自治规则和变更记录接口。
+// 关联业务：封装社区组织备案、建筑名册、法定计票基数、维修筹备要求和公示提醒接口。
 import { apiGet, apiPatch, apiPost } from "./api";
 
 export interface CommunitySettingsResponse {
@@ -105,28 +105,10 @@ export interface DenominatorReviewRequest {
 }
 
 export interface CommunityRules {
-  currentPolicy: GovernancePolicy | null;
-  policyOptions: GovernancePolicy[];
-  sharedOwnershipStrategy: string;
   repairEstimateRequired: boolean;
-  buildingRepairDefaultDecisionChannel: "ONLINE" | "WECHAT";
-  fundManagedEnabled: boolean;
-  financialControlConfigId: string;
-  quarterlyDisclosureDeadlineDay: number;
+  buildingRepairDefaultDecisionChannel: "ONLINE";
+  nextPublicIncomeDisclosureDeadline: string;
   daysUntilDisclosureDeadline: number;
-}
-
-export interface GovernancePolicy {
-  policyId: number;
-  policyCode: string;
-  policyName: string;
-  policyVersion: string;
-  abstentionStrategy: string;
-  sharedOwnershipStrategy: string;
-  ownerRepresentativeStrategy: string;
-  unvotedOwnerStrategy: string;
-  summaryJson: string;
-  effectiveAt: string;
 }
 
 export interface CommunityAuditLog {
@@ -162,7 +144,6 @@ export interface CommunitySettingsPermissions {
   canEditAssetLedger: boolean;
   canEditLegalArea: boolean;
   canEditRules: boolean;
-  canEditFinancialControl: boolean;
   canReconcileDenominator: boolean;
   canRequestDenominatorReview: boolean;
   canSubmitPageChanges: boolean;
@@ -180,13 +161,8 @@ export type UpdateCommunityAssetLedgerRequest = Partial<Omit<
 };
 
 export type UpdateCommunityRulesRequest = Partial<{
-  ruleConfigId: number | null;
-  sharedOwnershipStrategy: string;
   repairEstimateRequired: boolean;
-  buildingRepairDefaultDecisionChannel: "ONLINE" | "WECHAT";
-  fundManagedEnabled: boolean;
-  financialControlConfigId: string;
-  quarterlyDisclosureDeadlineDay: number;
+  buildingRepairDefaultDecisionChannel: "ONLINE";
 }>;
 
 export interface SubmitDenominatorReviewRequest {

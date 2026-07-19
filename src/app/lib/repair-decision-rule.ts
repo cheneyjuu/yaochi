@@ -1,4 +1,4 @@
-// 关联业务：封装小区维修征询规则的备案、历史查询和私有原件预览接口。
+// 关联业务：封装小区维修事项表决依据的登记、历史查询和私有原件预览接口。
 import { apiGet, apiUpload } from "./api";
 
 export type RepairDecisionNonResponseRule =

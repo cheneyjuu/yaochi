@@ -278,7 +278,7 @@ function fundingProcessDescription(order: RepairWorkOrder) {
     case "PROPERTY_INTERNAL":
       return "本工单由物业包干成本承担，不动用楼栋维修资金或小区公共维修资金；确认维修范围后由物业按内部流程执行。";
     case "BUILDING_MAINTENANCE_FUND":
-      return "本工单拟使用楼栋维修资金。物业推荐供应商后，可选择 C 端在线表决或微信接龙；表决通过后，物业整理正式报审材料，经业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
+      return "本工单拟使用楼栋维修资金。物业推荐供应商后，由费用承担范围内业主进行实名表决；表决通过后，物业整理正式报审材料，经业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
     case "COMMUNITY_MAINTENANCE_FUND":
       return "本工单拟使用小区公共维修资金。物业推荐供应商后，须经业主大会表决，并完成物业报审、业委会审价、主任或副主任任一人确认，再由业委会盖章后，方可签订合同并安排施工。";
     case "PUBLIC_REVENUE":
@@ -548,7 +548,7 @@ export function WorkOrders() {
   const [riskLevel, setRiskLevel] = useState("LOW");
   const [planningPolicy, setPlanningPolicy] = useState<RepairPlanningPolicy>({
     internalEstimateRequired: false,
-    buildingRepairDefaultDecisionChannel: "WECHAT",
+    buildingRepairDefaultDecisionChannel: "ONLINE",
   });
   const [planBudget, setPlanBudget] = useState("");
   const [publicCeilingEnabled, setPublicCeilingEnabled] = useState(false);
@@ -585,7 +585,7 @@ export function WorkOrders() {
         canField ? listRepairLocationOptions() : Promise.resolve({ communities: [] }),
         canField ? getRepairPlanningPolicy() : Promise.resolve({
           internalEstimateRequired: false,
-          buildingRepairDefaultDecisionChannel: "WECHAT" as const,
+          buildingRepairDefaultDecisionChannel: "ONLINE" as const,
         }),
       ]);
       setOrders(page.items);
@@ -1572,7 +1572,6 @@ function ActionPanel(props: {
   const [inspectionUploading, setInspectionUploading] = useState(false);
   const [localScopeType, setLocalScopeType] = useState("BUILDING");
   const [localUnitName, setLocalUnitName] = useState("");
-  const [localDecisionChannel, setLocalDecisionChannel] = useState<"ONLINE" | "WECHAT">("ONLINE");
   const [activeLocalDecision, setActiveLocalDecision] = useState<RepairLocalDecision | null>(null);
   const [decisionRooms, setDecisionRooms] = useState<RepairDecisionRoom[]>([]);
   const [decisionChoices, setDecisionChoices] = useState<Record<number, string>>({});
@@ -1622,7 +1621,6 @@ function ActionPanel(props: {
   useEffect(() => {
     setLocalScopeType("BUILDING");
     setLocalUnitName("");
-    setLocalDecisionChannel(props.planningPolicy.buildingRepairDefaultDecisionChannel);
     setActiveLocalDecision(null);
     setDecisionConfirmation(null);
     setApprovalDocument(null);
@@ -1643,7 +1641,7 @@ function ActionPanel(props: {
     setVerificationDialogOpen(false);
     setVerificationSupplier(null);
     setVerificationHistory([]);
-  }, [props.canUseElectronicSeal, props.planningPolicy.buildingRepairDefaultDecisionChannel, props.selected.workOrderId]);
+  }, [props.canUseElectronicSeal, props.selected.workOrderId]);
 
   useEffect(() => {
     if (props.selected.status !== "GOVERNANCE_CONFIRMED" || !props.canSealGovernance) {
@@ -2546,32 +2544,13 @@ function ActionPanel(props: {
             {props.canField && props.selected.fundSource === "BUILDING_MAINTENANCE_FUND" && (
               <div className="space-y-2 border-l pl-3">
                 <div className="space-y-2">
-                  <Label>表决方式</Label>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => setLocalDecisionChannel("ONLINE")}
-                      className={`rounded-md border px-3 py-3 text-left transition-colors ${localDecisionChannel === "ONLINE"
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "border-border bg-background hover:bg-muted/40"}`}
-                    >
-                      <span className="block text-sm font-medium">C 端在线表决</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">范围内实名业主登录 C 端查看方案并表决</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLocalDecisionChannel("WECHAT")}
-                      className={`rounded-md border px-3 py-3 text-left transition-colors ${localDecisionChannel === "WECHAT"
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "border-border bg-background hover:bg-muted/40"}`}
-                    >
-                      <span className="block text-sm font-medium">微信接龙</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">楼栋长在微信群发起，完成后由物业上传并核验</span>
-                    </button>
+                  <Label>表决收集方式</Label>
+                  <div className="border-y py-3">
+                    <span className="block text-sm font-medium">线上实名投票</span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">费用承担范围内的业主登录业主端查看方案并逐户表决</span>
                   </div>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    社区默认：{props.planningPolicy.buildingRepairDefaultDecisionChannel === "ONLINE" ? "C 端在线表决" : "微信接龙"}。
-                    当前工单可在发起前调整，发起后渠道锁定且不能混用。
+                    线下书面征询须按本小区生效的议事规则另行留存逐户材料，不能用汇总截图代替记名表决记录。
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2611,18 +2590,16 @@ function ActionPanel(props: {
                 <Button
                   onClick={() => props.doAction("start-local-decision", {
                     scopeType: localScopeType,
-                    decisionChannel: localDecisionChannel,
+                    decisionChannel: "ONLINE",
                     unitName: localScopeType === "BUILDING_UNIT" ? localUnitName : undefined,
                     scopeLabel: localDecisionScopeLabel,
-                    remark: localDecisionChannel === "ONLINE"
-                      ? "物业选择C端在线表决"
-                      : "物业登记由楼栋长发起微信接龙",
+                    remark: "物业发起线上实名表决",
                   })}
                   disabled={props.acting
                     || (localScopeType === "BUILDING_UNIT" && (!localUnitName || localDecisionUnits.length === 0))}
                 >
                   <ClipboardList className="size-4 mr-1" />
-                  {localDecisionChannel === "ONLINE" ? "发起 C 端表决" : "登记微信接龙"}
+                  发起线上实名表决
                 </Button>
               </div>
             )}
@@ -2650,14 +2627,14 @@ function ActionPanel(props: {
             {activeLocalDecision?.decisionChannel === "ONLINE" && activeLocalDecision.result === "PAUSED" ? (
               <>
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-                  <div className="text-sm font-medium text-amber-900">C 端在线表决已暂停</div>
+                  <div className="text-sm font-medium text-amber-900">线上实名表决已暂停</div>
                   <div className="mt-1 text-xs leading-5 text-amber-800">
                     已提交的选票完整保留，暂停期间业主无法继续表决。恢复后仍沿用原表决范围和已有选票。
                   </div>
                   {onlineDecisionProgress}
                 </div>
                 <Button
-                  onClick={() => props.doAction("resume-local-decision", { remark: "物业恢复C端在线表决" }, "在线表决已恢复")}
+                  onClick={() => props.doAction("resume-local-decision", { remark: "物业恢复线上实名表决" }, "在线表决已恢复")}
                   disabled={props.acting}
                 >
                   <Play className="mr-1 size-4" />恢复表决
@@ -2666,7 +2643,7 @@ function ActionPanel(props: {
             ) : activeLocalDecision?.decisionChannel === "ONLINE" ? (
               <>
                 <div className="rounded-md border bg-muted/30 px-4 py-3">
-                  <div className="text-sm font-medium">C 端在线表决进行中</div>
+                  <div className="text-sm font-medium">线上实名表决进行中</div>
                   <div className="mt-1 text-xs leading-5 text-muted-foreground">
                     已向范围内 {activeLocalDecision.totalOwnerCount} 名产权人开放。结束表决后，系统按已提交选择计票，未提交的产权人记为未参与。
                   </div>
@@ -2691,7 +2668,7 @@ function ActionPanel(props: {
             ) : activeLocalDecision?.decisionChannel === "WECHAT" ? (
               <>
                 <div className="rounded-md border bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
-                  楼栋长在微信群完成接龙并将截图交给物业。物业在此逐户核对结果并上传原始截图，系统不会向业主开放 C 端表决入口。
+                  这是历史微信材料记录。物业在此逐户核对原始记录；该方式不再用于新发起的维修事项表决。
                 </div>
                 <div className="max-h-80 divide-y overflow-y-auto rounded-md border">
                   {decisionRooms.map((room) => (

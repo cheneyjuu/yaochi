@@ -123,11 +123,11 @@ function today(): string {
 function nonResponseRuleLabel(value: string): string {
   switch (value) {
     case "NOT_PARTICIPATED":
-      return "未表态不计入参与";
+      return "未反馈不计入参与";
     case "FOLLOW_MAJORITY":
-      return "未表态随多数意见";
+      return "未反馈按多数意见认定";
     case "ABSTAIN":
-      return "未表态计为弃权";
+      return "未反馈认定为弃权";
     default:
       return value;
   }
@@ -205,7 +205,7 @@ function committeePositionLabel(value?: string | null): string {
 }
 
 function decisionChannelLabel(value?: "ONLINE" | "WECHAT" | null): string {
-  return value === "ONLINE" ? "业主小程序在线表决" : "微信接龙截图";
+  return value === "ONLINE" ? "线上实名投票" : "历史微信材料记录";
 }
 
 function decisionChoiceLabel(value?: string | null): string {
@@ -898,21 +898,21 @@ function BuildingGovernanceOperation({
             </div>
             {ruleLoading ? (
               <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />正在读取小区备案规则
+                <Loader2 className="size-4 animate-spin" />正在读取小区表决依据
               </div>
             ) : decisionRule ? (
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">规则名称</dt><dd className="mt-1 font-medium">{decisionRule.ruleName}</dd></div>
-                <div><dt className="text-xs text-muted-foreground">规则版本</dt><dd className="mt-1">{decisionRule.ruleVersion}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">依据名称</dt><dd className="mt-1 font-medium">{decisionRule.ruleName}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">版本标识</dt><dd className="mt-1">{decisionRule.ruleVersion}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">生效日期</dt><dd className="mt-1">{formatRuleDate(decisionRule.effectiveAt)}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">本次征询方式</dt><dd className="mt-1 font-medium">{decisionChannelLabel(planningPolicy?.buildingRepairDefaultDecisionChannel)}</dd></div>
                 <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">送达规则</dt><dd className="mt-1 leading-6">{decisionRule.deliveryRule}</dd></div>
-                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">未表态处理</dt><dd className="mt-1">{nonResponseRuleLabel(decisionRule.nonResponseRule)}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">未反馈表决票的认定方式</dt><dd className="mt-1">{nonResponseRuleLabel(decisionRule.nonResponseRule)}</dd></div>
               </dl>
             ) : (
               <div className="flex gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-900">
                 <AlertTriangle className="mt-1 size-4 shrink-0" />
-                <span>{ruleError ?? "当前小区尚未备案有效的维修征询规则"}。请由业委会主任在“系统管理 - 社区设置 - 自治与财务规则”中备案后再发起。</span>
+                <span>{ruleError ?? "当前小区尚未登记有效的维修事项表决依据"}。请由业委会主任在“系统管理 - 社区设置 - 议事与公示规则”中登记后再发起。</span>
               </div>
             )}
           </div>
@@ -928,7 +928,7 @@ function BuildingGovernanceOperation({
         {unsupportedNonResponseRule && (
           <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
             <AlertTriangle className="mt-1 size-4 shrink-0" />
-            当前有效规则为“{nonResponseRuleLabel(decisionRule?.nonResponseRule ?? "")}”，现有计票能力尚不支持该未表态处理方式，禁止发起征询。
+            当前系统只能按“未反馈不计入参与”完成计票。这份依据约定“{nonResponseRuleLabel(decisionRule?.nonResponseRule ?? "")}”，暂不能用它发起系统内表决。
           </div>
         )}
         <Button className="mt-4" disabled={busy !== null || !canStart} onClick={() => void governanceRun(
@@ -945,11 +945,11 @@ function BuildingGovernanceOperation({
   return (
     <OperationSection title="相关业主表决" desc={`${buildingProcessStatusLabel(status)}。已完成环节和原始材料会持续保留，业委会不代替楼栋业主验收。`}>
       <div className="mb-4 grid gap-3 rounded-md border bg-muted/20 p-3 text-sm md:grid-cols-2">
-        <div><span className="text-muted-foreground">备案规则：</span>{governance.policySnapshot.ruleName ?? "历史项目规则"} · {governance.policySnapshot.ruleVersion}</div>
+        <div><span className="text-muted-foreground">表决依据：</span>{governance.policySnapshot.ruleName ?? "历史项目依据"} · {governance.policySnapshot.ruleVersion}</div>
         <div><span className="text-muted-foreground">征询方式：</span>{decisionChannelLabel(governance.policySnapshot.decisionChannel)}</div>
         <div><span className="text-muted-foreground">征询范围：</span>{governance.decision.scopeLabel}</div>
         <div><span className="text-muted-foreground">送达规则：</span>{governance.policySnapshot.deliveryRule}</div>
-        <div><span className="text-muted-foreground">未表态处理：</span>{nonResponseRuleLabel(governance.policySnapshot.nonResponseRule)}</div>
+        <div><span className="text-muted-foreground">未反馈表决票认定：</span>{nonResponseRuleLabel(governance.policySnapshot.nonResponseRule)}</div>
       </div>
       {hasCompletedGovernanceStep && (
         <section className="mb-5 border-y py-4" aria-labelledby="completed-governance-steps">
