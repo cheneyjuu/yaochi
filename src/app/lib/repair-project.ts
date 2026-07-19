@@ -722,6 +722,89 @@ export interface RepairCommunityAssemblyLink {
   result?: "PASSED" | "FAILED" | null;
 }
 
+/** 关联业务：一次维修方案只能关联一个冻结规则、精确房屋名册和统一收票窗口。 */
+export type RepairVotingCollectionMode = "PAPER" | "ONLINE_WITH_PAPER_ASSISTANCE" | "PAPER_AND_ONLINE";
+
+export interface RepairProjectVotingDetails {
+  project: RepairProject;
+  plan: RepairProjectPlan;
+  voting: {
+    linkId: number;
+    projectId: number;
+    planId: number;
+    status: "PREPARED" | "VOTING" | "SETTLED" | "VOIDED";
+    result?: "PASSED" | "FAILED" | null;
+    collectionMode: RepairVotingCollectionMode;
+    preparedAt: string;
+    openedAt?: string | null;
+    settledAt?: string | null;
+    version: number;
+  };
+  subject: {
+    subjectId: number;
+    title: string;
+    content: string;
+    status: string;
+  };
+  executionPackage: {
+    packageId: number;
+    collectionMode: RepairVotingCollectionMode;
+    status: "DRAFT" | "FROZEN" | "VOTING" | "CLOSED" | "SETTLED" | "VOIDED";
+    voteStartAt: string;
+    voteEndAt: string;
+    packageHash: string;
+  };
+  ruleName: string;
+  ruleVersion: string;
+  result?: {
+    passed: boolean;
+    quorumSatisfied: boolean;
+    denominatorOwnerCount: number;
+    denominatorArea: number;
+    participatedOwnerCount: number;
+    participatedArea: number;
+    agreeOwnerCount: number;
+    agreeArea: number;
+  } | null;
+}
+
+export interface RepairVotingWorkbench {
+  electorate: Array<{
+    snapshotItemId: number;
+    roomId: number;
+    buildingId: number;
+    certifiedArea: number;
+    representativeOpid: number;
+  }>;
+  paper: {
+    deliveries: Array<{
+      paperDeliveryId: number;
+      electorateItemId: number;
+      opid: number;
+      recipientName: string;
+      deliveryMethod: string;
+      deliveredAt: string;
+      status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
+    }>;
+    ballots: Array<{
+      ballot: {
+        paperBallotId: number;
+        opid: number;
+        ballotNumber: string;
+        receivedAt: string;
+        status: "RECEIVED" | "IN_ENTRY" | "COMPLETED" | "VOIDED";
+      };
+      latestEntry?: {
+        entryId: number;
+        status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
+        enteredByUserId: number;
+      } | null;
+    }>;
+  };
+  online: { acceptedSubmissionCount: number; rejectedConflictCount: number };
+  paperAssistanceRequests: Array<{ requestId: number; representativeOpid: number; status: string }>;
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -762,6 +845,96 @@ export function getRepairProjectExecution(projectId: number): Promise<RepairProj
 
 export function getRepairProjectSourcing(projectId: number): Promise<RepairProjectSourcingDetails> {
   return apiGet<RepairProjectSourcingDetails>(`/admin/repair-projects/${projectId}/sourcing`);
+}
+
+export function getRepairProjectVoting(projectId: number): Promise<RepairProjectVotingDetails> {
+  return apiGet(`/admin/repair-projects/${projectId}/voting`);
+}
+
+export function prepareRepairProjectVoting(
+  projectId: number,
+  input: {
+    expectedProjectVersion: number;
+    collectionMode: RepairVotingCollectionMode;
+    voteStartAt: string;
+    voteEndAt: string;
+  },
+): Promise<RepairProjectVotingDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/prepare`, input);
+}
+
+export function openRepairProjectVoting(
+  projectId: number,
+  expectedLinkVersion: number,
+): Promise<RepairProjectVotingDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/open`, { expectedLinkVersion });
+}
+
+export function settleRepairProjectVoting(
+  projectId: number,
+  expectedLinkVersion: number,
+): Promise<RepairProjectVotingDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/settle`, { expectedLinkVersion });
+}
+
+export function getRepairVotingWorkbench(projectId: number): Promise<RepairVotingWorkbench> {
+  return apiGet(`/admin/repair-projects/${projectId}/voting/workbench`);
+}
+
+export function recordRepairVotingDelivery(
+  projectId: number,
+  input: {
+    opid: number;
+    recipientName: string;
+    deliveryMethod: "DOOR_TO_DOOR" | "POSTAL" | "ELECTRONIC" | "PUBLIC_NOTICE_BOARD";
+    evidenceAttachmentId: number;
+    deliveredAt: string;
+  },
+): Promise<unknown> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/paper-deliveries`, input);
+}
+
+export function reviewRepairVotingDelivery(
+  projectId: number,
+  deliveryId: number,
+  decision: "CONFIRM" | "REJECT",
+  reviewNote?: string,
+): Promise<unknown> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/paper-deliveries/${deliveryId}/review`, {
+    decision,
+    reviewNote,
+  });
+}
+
+export function registerRepairVotingPaperBallot(
+  projectId: number,
+  input: { opid: number; ballotNumber: string; attachmentId: number; receivedAt: string },
+): Promise<unknown> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/paper-ballots`, input);
+}
+
+export function submitRepairVotingPaperBallotEntry(
+  projectId: number,
+  ballotId: number,
+  subjectId: number,
+  choice: "AGREE" | "DISAGREE" | "ABSTAIN",
+): Promise<unknown> {
+  return apiPost(`/admin/repair-projects/${projectId}/voting/paper-ballots/${ballotId}/entries`, {
+    items: [{ subjectId, determination: "VALID", choice }],
+  });
+}
+
+export function reviewRepairVotingPaperBallotEntry(
+  projectId: number,
+  ballotId: number,
+  entryId: number,
+  decision: "CONFIRM" | "REJECT",
+  reviewNote?: string,
+): Promise<unknown> {
+  return apiPost(
+    `/admin/repair-projects/${projectId}/voting/paper-ballots/${ballotId}/entries/${entryId}/review`,
+    { decision, reviewNote },
+  );
 }
 
 export function inviteRepairProjectSuppliers(

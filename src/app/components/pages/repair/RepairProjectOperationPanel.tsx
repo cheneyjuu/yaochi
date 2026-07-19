@@ -81,6 +81,7 @@ import {
 import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
 import { RepairProjectResponsibilityOperation } from "./RepairProjectResponsibilityOperation";
 import { RepairProjectSourcingOperation } from "./RepairProjectSourcingOperation";
+import { RepairProjectVotingOperation } from "./RepairProjectVotingOperation";
 
 const STAGE_LABEL: Record<RepairProjectStage, string> = {
   BEFORE_CONSTRUCTION: "施工前",
@@ -327,7 +328,7 @@ export function RepairProjectOperationPanel({
   }
 
   async function reloadGovernance() {
-    if (!["AUTHORIZATION_IN_PROGRESS", "GOVERNANCE_IN_PROGRESS"].includes(project.status)) {
+    if (project.status !== "GOVERNANCE_IN_PROGRESS") {
       setBuildingGovernance(null);
       setAssemblyLink(null);
       return;
@@ -418,7 +419,16 @@ export function RepairProjectOperationPanel({
         />
       )}
 
-      {!draftPlan && ["AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
+      {!draftPlan && project.status === "AUTHORIZATION_IN_PROGRESS" && (
+        <RepairProjectVotingOperation
+          details={details}
+          roleKey={roleKey}
+          hasPermission={hasPermission}
+          onChanged={onChanged}
+        />
+      )}
+
+      {!draftPlan && ["PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
         project.workflowType === "BUILDING_REPAIR" ? (
           <BuildingGovernanceOperation
             details={details}
@@ -444,7 +454,7 @@ export function RepairProjectOperationPanel({
         )
       )}
 
-      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && !directResponsibilityExecution && (
+      {project.status === "AUTHORIZED" && !directResponsibilityExecution && (
         <RepairProjectSourcingOperation
           mode="SELECTION"
           details={details}
