@@ -936,7 +936,8 @@ export function WorkOrders() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>工单</TableHead>
+                  <TableHead>报修标题</TableHead>
+                  <TableHead>维修分类</TableHead>
                   <TableHead>范围</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">预算</TableHead>
@@ -954,6 +955,11 @@ export function WorkOrders() {
                     <TableCell>
                       <div className="text-sm font-medium">{order.title}</div>
                       <div className="text-xs text-muted-foreground font-mono-num">{order.orderNo}</div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm">
+                        {order.category ? REPAIR_CATEGORY_LABEL[order.category] ?? order.category : "未分类"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">

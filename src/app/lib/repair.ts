@@ -325,7 +325,6 @@ export interface CreateRepairInput {
   title: string;
   description?: string;
   category?: string;
-  evidenceText?: string;
 }
 
 export function pageRepairWorkOrders(params: {
