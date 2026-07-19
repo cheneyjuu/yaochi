@@ -218,7 +218,7 @@ export interface RepairFundingSlice {
   createTime: string;
 }
 
-/** 关联业务：责任、资金承担和服务端派生执行状态的版本化事实；仅 CONFIRMED 版本可进入冻结或锁定。 */
+/** 关联业务：责任、资金承担和服务端派生执行状态的版本化事实；决定提案预算由冻结的方案快照形成。 */
 export interface RepairResponsibilityDetermination {
   determinationId: number;
   versionNo: number;
@@ -230,7 +230,6 @@ export interface RepairResponsibilityDetermination {
   basisReference: string;
   responsiblePartyName?: string | null;
   responsiblePartyReference?: string | null;
-  approvedAmount: number;
   proposedAt: string;
   confirmedAt?: string | null;
   confirmationNote?: string | null;
@@ -903,7 +902,7 @@ export function freezeRepairProjectPlanForAuthorization(
   });
 }
 
-/** 物业只提交待确认的责任与资金初判；执行状态由服务端派生，不能通过本请求锁定方案或写入资金切片。 */
+/** 物业只提交待确认的责任与资金初判；方案预算在后续冻结提案时固化，不能通过本请求锁定方案或写入资金切片。 */
 export function proposeRepairProjectResponsibilityDetermination(
   projectId: number,
   input: {
@@ -914,7 +913,6 @@ export function proposeRepairProjectResponsibilityDetermination(
     basisReference: string;
     responsiblePartyName?: string;
     responsiblePartyReference?: string;
-    approvedAmount: number;
   },
 ): Promise<RepairProjectDetails> {
   return apiPost(`/admin/repair-projects/${projectId}/responsibility-determinations`, input);

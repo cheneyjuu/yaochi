@@ -126,10 +126,6 @@ function DeterminationFacts({
         <dt className="text-xs text-muted-foreground">后续执行路径</dt>
         <dd className="mt-1 font-medium">{EXECUTION_AUTHORITY_LABEL[determination.executionAuthorityType]}</dd>
       </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">责任承担上限</dt>
-        <dd className="mt-1">{money(Number(determination.approvedAmount))}</dd>
-      </div>
       {determination.responsiblePartyName && (
         <div>
           <dt className="text-xs text-muted-foreground">责任承担方</dt>
@@ -184,7 +180,6 @@ export function RepairProjectResponsibilityOperation({
   const [basisReference, setBasisReference] = useState("");
   const [responsiblePartyName, setResponsiblePartyName] = useState("");
   const [responsiblePartyReference, setResponsiblePartyReference] = useState("");
-  const [approvedAmount, setApprovedAmount] = useState("");
   const [confirmationNote, setConfirmationNote] = useState("");
 
   const canPropose = project.status === "DRAFT"
@@ -195,11 +190,6 @@ export function RepairProjectResponsibilityOperation({
     && hasPermission("repair:workorder:governance");
   const directResponsibility = isDirectResponsibility(responsibilityPath);
   const derivedAuthority = derivedExecutionAuthority(responsibilityPath);
-  const approvedAmountValue = Number(approvedAmount);
-  const approvedAmountValid = draftPlan !== null
-    && Number.isFinite(approvedAmountValue)
-    && approvedAmountValue > 0
-    && approvedAmountValue >= Number(draftPlan.budgetTotal);
   const sharedFundingOptions: RepairFundingSourceType[] = [
     "SPECIAL_MAINTENANCE_LEDGER",
     ...(project.scopeType === "COMMUNITY" ? ["PUBLIC_REVENUE_LEDGER" as const] : []),
@@ -211,7 +201,6 @@ export function RepairProjectResponsibilityOperation({
     && fundingSourceType
     && basisAttachment
     && basisReference.trim()
-    && approvedAmountValid
     && (!directResponsibility || responsiblePartyName.trim()),
   );
 
@@ -222,7 +211,6 @@ export function RepairProjectResponsibilityOperation({
       setBasisReference("");
       setResponsiblePartyName("");
       setResponsiblePartyReference("");
-      setApprovedAmount("");
     }
   }, [responsibilityPath]);
 
@@ -371,6 +359,13 @@ export function RepairProjectResponsibilityOperation({
                 这不是现有的执行依据。初判确认后，须先冻结包含工程范围、预算和费用承担范围的提案，再取得相关业主决定；在此之前不能锁定、定商或施工。
               </p>
             </div>
+            <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-sm leading-6">
+              <div className="text-xs text-muted-foreground">相关业主决定提案预算</div>
+              <div className="mt-1 font-medium">{money(Number(draftPlan.budgetTotal))}</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                金额来自当前实施方案预算，不是物业或业委会在责任初判时作出的承担承诺。冻结提案时才会与工程范围、费用承担房屋一并固化。
+              </p>
+            </div>
           </>
         ) : null}
 
@@ -418,21 +413,6 @@ export function RepairProjectResponsibilityOperation({
             }}
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="responsibility-approved-amount">责任承担上限（不得低于当前方案预算）*</Label>
-          <Input
-            id="responsibility-approved-amount"
-            type="number"
-            min={Number(draftPlan.budgetTotal)}
-            step="0.01"
-            value={approvedAmount}
-            onChange={(event) => setApprovedAmount(event.target.value)}
-            placeholder={`不得低于当前预算 ${money(Number(draftPlan.budgetTotal))}`}
-          />
-          {!approvedAmountValid && approvedAmount.trim() && (
-            <p className="text-xs text-destructive">责任承担上限不得低于当前方案预算。</p>
-          )}
-        </div>
       </div>
       <div className="mt-4 flex justify-end">
         <Button
@@ -449,7 +429,6 @@ export function RepairProjectResponsibilityOperation({
                 basisReference: basisReference.trim(),
                 ...(responsiblePartyName.trim() ? { responsiblePartyName: responsiblePartyName.trim() } : {}),
                 ...(responsiblePartyReference.trim() ? { responsiblePartyReference: responsiblePartyReference.trim() } : {}),
-                approvedAmount: approvedAmountValue,
               }),
               "工程责任初判已提交治理确认",
             );
