@@ -556,11 +556,11 @@ function PlanLockOperation({
     && details.fundingSlices.every((slice) => slice.verificationStatus === "CONFIRMED");
 
   return (
-    <OperationSection title="请求锁定当前实施方案" desc="锁定时由后端重新核验决定范围、资金承担、验收与证据依据，并固化真实快照。本页不以定商结果或附件上传替代这些核验。">
+    <OperationSection title="请求锁定当前实施方案" desc="锁定时由后端核验决定范围、费用承担房屋与面积、专项维修资金账簿和预算承担上限，并固化快照。定商授权、合同、验收与付款在后续节点形成。">
       <div className="mt-4 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>决定范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核验"}</StatusChip>
-          <StatusChip tone={fundingSlicesConfirmed ? "success" : "warning"}>资金承担快照{fundingSlicesConfirmed ? "已确认" : "待后端核验"}</StatusChip>
+          <StatusChip tone={fundingSlicesConfirmed ? "success" : "warning"}>资金承担快照{fundingSlicesConfirmed ? "已确认" : "锁定时核验"}</StatusChip>
         </div>
         <div className="flex shrink-0 gap-2">
           {decisionScopePending && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
