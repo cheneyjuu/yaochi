@@ -18,12 +18,14 @@ import {
   Loader2,
   MapPinned,
   RefreshCcw,
+  Save,
   ShieldCheck,
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusChip, EmptyState } from "../gov/common";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { useStore } from "../../lib/store";
@@ -161,7 +163,7 @@ function buildBoundaryNodes(asset: CommunityAssetLedger): BoundaryNode[] {
   const originX = -((columns - 1) * gapX) / 2;
   const originZ = -((rows - 1) * gapZ) / 2;
   const averageArea = buildingCount > 0 ? totalArea / buildingCount : 0;
-  const nodes = Array.from({ length: buildingCount }, (_, index) => {
+  const nodes: BoundaryNode[] = Array.from({ length: buildingCount }, (_, index) => {
     const building = directory[index];
     const col = index % columns;
     const row = Math.floor(index / columns);
@@ -522,7 +524,7 @@ export function CommunitySettings() {
             extra={<StatusChip tone="info">共 {asset.buildings.length} 栋</StatusChip>}
           >
             {asset.buildings.length === 0 ? (
-              <EmptyState title="暂无在册楼栋" description="请先通过小区空间名册导入有效房屋数据。" />
+              <EmptyState title="暂无在册楼栋" desc="请先通过小区空间名册导入有效房屋数据。" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left text-sm">

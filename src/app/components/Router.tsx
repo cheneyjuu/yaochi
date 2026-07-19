@@ -1,4 +1,5 @@
 // 关联业务：根据后端菜单 routeId 将管理端导航到对应业务页面。
+import type { ReactElement } from "react";
 import { useStore } from "../lib/store";
 import { Overview } from "./pages/Overview";
 import { Voting } from "./pages/Voting";
@@ -40,7 +41,7 @@ import { CommunityRegistrationReview } from "./pages/CommunityRegistrationReview
 import { PropertyServiceOrganization } from "./pages/PropertyServiceOrganization";
 import { RepairSuppliers } from "./pages/RepairSuppliers";
 
-const PAGES: Record<string, () => JSX.Element> = {
+const PAGES: Record<string, () => ReactElement> = {
   overview: Overview,
   voting: Voting,
   "dual-sign": DualSign,

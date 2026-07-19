@@ -1,4 +1,4 @@
-// 关联业务：校验物业打开维修草稿时，页面按责任意见、前期询价、方案表决、施工单位选择的业务顺序呈现。
+// 关联业务：校验维修草稿只呈现责任意见和前期询价；相关业主表决通过后才出现施工单位选择。
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
@@ -55,7 +55,6 @@ try {
     "本次维修由谁负责",
     "判断依据附件",
     "前期询价",
-    "确定施工单位",
   ];
   const forbiddenCopy = [
     "选择执行依据",
@@ -72,16 +71,16 @@ try {
     "锁定",
     "受阻",
   ];
-  if (requiredCopy.some((copy) => !html.includes(copy))
-    || forbiddenCopy.some((copy) => html.includes(copy))) {
-    throw new Error("草稿项目没有按真实业务顺序渲染，或仍暴露内部技术用语");
+  const missingCopy = requiredCopy.filter((copy) => !html.includes(copy));
+  const exposedTechnicalCopy = forbiddenCopy.filter((copy) => html.includes(copy));
+  if (missingCopy.length > 0 || exposedTechnicalCopy.length > 0) {
+    throw new Error(`草稿项目文案校验失败：缺少 ${missingCopy.join("、") || "无"}；暴露 ${exposedTechnicalCopy.join("、") || "无"}`);
   }
 
   const responsibilityIndex = html.indexOf("填写责任与费用初步意见");
   const preparationIndex = html.indexOf("前期询价");
-  const selectionIndex = html.indexOf("确定施工单位");
-  if (!(responsibilityIndex < preparationIndex && preparationIndex < selectionIndex)) {
-    throw new Error("草稿项目的责任意见、前期询价和施工单位选择顺序不正确");
+  if (!(responsibilityIndex < preparationIndex) || html.includes("确定施工单位")) {
+    throw new Error("草稿项目应先办理责任意见和前期询价，不能提前显示施工单位选择");
   }
 
   const { RepairProjectSourcingOperation } = await vite.ssrLoadModule(
@@ -115,10 +114,11 @@ try {
       canManageReferenceQuotes: false,
     }),
   );
-  if (!selectionHtml.includes("尚未到确定施工单位环节")
-    || !selectionHtml.includes("后续办理")
-    || forbiddenCopy.some((copy) => selectionHtml.includes(copy))) {
-    throw new Error("施工单位选择的等待状态仍像操作错误，或仍暴露内部技术用语");
+  const missingSelectionCopy = ["尚未到确定施工单位环节", "后续办理"]
+    .filter((copy) => !selectionHtml.includes(copy));
+  const exposedSelectionCopy = forbiddenCopy.filter((copy) => selectionHtml.includes(copy));
+  if (missingSelectionCopy.length > 0 || exposedSelectionCopy.length > 0) {
+    throw new Error(`施工单位等待状态文案校验失败：缺少 ${missingSelectionCopy.join("、") || "无"}；暴露 ${exposedSelectionCopy.join("、") || "无"}`);
   }
 
   console.log("维修草稿业务顺序和施工单位选择文案校验通过");

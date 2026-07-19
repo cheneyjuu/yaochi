@@ -37,7 +37,7 @@ export function StatusChip({
   dot = false,
   className,
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   tone?: Tone;
   dot?: boolean;
   className?: string;

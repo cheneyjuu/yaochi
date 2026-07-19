@@ -351,7 +351,7 @@ export function PropertyServiceOrganization() {
               <Loader2 className="mr-2 size-4 animate-spin" />加载中
             </div>
           ) : organizations.length === 0 ? (
-            <EmptyState title="尚未登记物业服务组织" description="完成登记、材料上传和属地核验后，系统将自动创建本小区物业项目部。" />
+            <EmptyState title="尚未登记物业服务组织" desc="完成登记、材料上传和属地核验后，系统将自动创建本小区物业项目部。" />
           ) : (
             <div className="divide-y">
               {organizations.map((organization) => (

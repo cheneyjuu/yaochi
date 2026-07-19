@@ -29,6 +29,7 @@ export interface AdminSubject {
   scope: VotingScope;
   scopeReferenceId: number | null;
   partyRatioFloor: number | null;
+  maxWinners: number | null;
   voteStartAt: string | null;
   voteEndAt: string | null;
   clockSuspendedAt: string | null;
