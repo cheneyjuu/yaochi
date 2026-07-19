@@ -632,10 +632,10 @@ export interface RepairWorkPointCreateInput {
   locationType: RepairWorkPointLocationType;
   referenceRoomId?: number;
   commonAreaName?: string;
-  spaceName: string;
+  spaceName?: string;
   orientation?: string;
-  component: string;
-  specificPart: string;
+  component?: string;
+  specificPart?: string;
   symptom: string;
   causeStatus: RepairWorkPointCauseStatus;
   causeBasis?: string;

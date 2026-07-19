@@ -267,6 +267,8 @@ export function RepairProjectOperationPanel({
   const [buildingGovernance, setBuildingGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const [assemblyLink, setAssemblyLink] = useState<RepairCommunityAssemblyLink | null>(null);
   const [sourcing, setSourcing] = useState<RepairProjectSourcingDetails | null>(null);
+  const [sourcingLoading, setSourcingLoading] = useState(true);
+  const [sourcingError, setSourcingError] = useState<string | null>(null);
   const [processHistory, setProcessHistory] = useState<RepairProjectProcessHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -299,10 +301,15 @@ export function RepairProjectOperationPanel({
   }
 
   async function reloadSourcing() {
+    setSourcingLoading(true);
     try {
       setSourcing(await getRepairProjectSourcing(project.projectId));
-    } catch {
+      setSourcingError(null);
+    } catch (error) {
       setSourcing(null);
+      setSourcingError(error instanceof Error ? error.message : "参考询价记录读取失败");
+    } finally {
+      setSourcingLoading(false);
     }
   }
 
@@ -364,6 +371,8 @@ export function RepairProjectOperationPanel({
         <RepairProjectSourcingOperation
           details={details}
           sourcing={sourcing}
+          sourcingLoading={sourcingLoading}
+          sourcingError={sourcingError}
           suppliers={suppliers}
           remember={remember}
           busy={busy}

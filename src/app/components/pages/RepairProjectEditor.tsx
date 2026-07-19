@@ -150,10 +150,10 @@ function toWorkPointCreateInput(
     locationType,
     referenceRoomId,
     commonAreaName: locationType === "COMMON_AREA" ? optionalText(point.commonAreaName) : undefined,
-    spaceName: point.spaceName.trim(),
+    spaceName: optionalText(point.spaceName),
     orientation: optionalText(point.orientation),
-    component: point.component.trim(),
-    specificPart: point.specificPart.trim(),
+    component: optionalText(point.component),
+    specificPart: optionalText(point.specificPart),
     symptom: point.symptom.trim(),
     causeStatus: point.causeStatus,
     causeBasis: optionalText(point.causeBasis),
@@ -172,6 +172,27 @@ function ReviewField({ label, children }: { label: string; children: ReactNode }
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-1 break-words text-sm text-foreground">{children}</dd>
+    </div>
+  );
+}
+
+/** 建项字段的必填状态以服务端草稿契约为准，避免把报价阶段资料提前强加给物业。 */
+function FieldLabel({
+  children,
+  required = false,
+  hint,
+}: {
+  children: ReactNode;
+  required?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="mb-1">
+      <Label>
+        {children}
+        {required && <span className="ml-1 text-destructive" aria-hidden="true">*</span>}
+      </Label>
+      {hint && <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -207,7 +228,7 @@ export function RepairProjectEditor() {
   const [buildingId, setBuildingId] = useState("");
   const [unitName, setUnitName] = useState("");
   const [planDescription, setPlanDescription] = useState("");
-  const [decisionBudget, setDecisionBudget] = useState("");
+  const [preliminaryBudget, setPreliminaryBudget] = useState("");
   const [workPoints, setWorkPoints] = useState<DraftWorkPoint[]>([emptyWorkPoint()]);
   const [eligibleCases, setEligibleCases] = useState<RepairWorkOrder[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
@@ -400,9 +421,9 @@ export function RepairProjectEditor() {
         toast.error("请填写问题与维修方案");
         return false;
       }
-      const budget = Number(decisionBudget);
-      if (!decisionBudget.trim() || !Number.isFinite(budget) || budget <= 0) {
-        toast.error("请填写送审/决定预算（含税）");
+      const budget = Number(preliminaryBudget);
+      if (!preliminaryBudget.trim() || !Number.isFinite(budget) || budget <= 0) {
+        toast.error("请填写项目初步预算（含税）");
         return false;
       }
       return true;
@@ -412,33 +433,67 @@ export function RepairProjectEditor() {
         toast.error("请至少录入一个维修点位");
         return false;
       }
-      const hasInvalidWorkPoint = workPoints.some((point) => {
+      for (const [index, point] of workPoints.entries()) {
         const hasPairQuantity = Boolean(point.quantity.trim()) === Boolean(point.unit.trim());
         const quantity = Number(point.quantity);
         const amount = Number(point.preliminaryEstimatedAmount);
         const hasEstimate = point.preliminaryEstimatedAmount.trim() !== "";
-        const hasBuilding = workflow === "BUILDING_REPAIR"
-          ? Number(buildingId) > 0
-          : !point.buildingId || Number(point.buildingId) > 0;
-        return !point.businessName.trim()
-          || !hasBuilding
-          || !point.locationType
-          || (point.locationType === "REFERENCE_ROOM" && Number(point.referenceRoomId) <= 0)
-          || (point.locationType === "COMMON_AREA" && !point.commonAreaName.trim())
-          || !point.spaceName.trim()
-          || !point.component.trim()
-          || !point.specificPart.trim()
-          || !point.symptom.trim()
-          || (point.causeStatus === "CONFIRMED" && !point.causeBasis.trim())
-          || !point.proposedMeasure.trim()
-          || !hasPairQuantity
-          || (Boolean(point.quantity.trim()) && (!Number.isFinite(quantity) || quantity <= 0))
-          || (hasEstimate && (!Number.isFinite(amount) || amount < 0 || !point.estimateSource.trim()))
-          || (!hasEstimate && point.estimateSource.trim() !== "");
-      });
-      if (hasInvalidWorkPoint) {
-        toast.error("请完整核对每个维修点位的位置、现象、原因状态、措施及可选金额信息");
-        return false;
+        const pointLabel = `维修点位 ${index + 1}`;
+        if (!point.businessName.trim()) {
+          toast.error(`${pointLabel}：请填写维修对象名称`);
+          return false;
+        }
+        if (!point.locationType) {
+          toast.error(`${pointLabel}：请选择位置类别`);
+          return false;
+        }
+        if (workflow === "COMMUNITY_PUBLIC_REPAIR" && point.buildingId && Number(point.buildingId) <= 0) {
+          toast.error(`${pointLabel}：所选楼栋无效`);
+          return false;
+        }
+        if (point.locationType === "REFERENCE_ROOM") {
+          const pointBuildingId = workflow === "BUILDING_REPAIR" ? buildingId : point.buildingId;
+          if (Number(pointBuildingId) <= 0) {
+            toast.error(`${pointLabel}：关联房屋位置需要先选择所在楼栋`);
+            return false;
+          }
+          if (Number(point.referenceRoomId) <= 0) {
+            toast.error(`${pointLabel}：请选择关联房屋`);
+            return false;
+          }
+        }
+        if (point.locationType === "COMMON_AREA" && !point.commonAreaName.trim()) {
+          toast.error(`${pointLabel}：请填写公共部位名称`);
+          return false;
+        }
+        if (!point.symptom.trim()) {
+          toast.error(`${pointLabel}：请填写现场问题`);
+          return false;
+        }
+        if (point.causeStatus === "CONFIRMED" && !point.causeBasis.trim()) {
+          toast.error(`${pointLabel}：已确认原因时必须填写原因依据`);
+          return false;
+        }
+        if (!point.proposedMeasure.trim()) {
+          toast.error(`${pointLabel}：请填写拟定维修措施`);
+          return false;
+        }
+        if (!hasPairQuantity) {
+          toast.error(`${pointLabel}：范围数量和单位必须同时填写或同时留空`);
+          return false;
+        }
+        if (point.quantity.trim() && (!Number.isFinite(quantity) || quantity <= 0)) {
+          toast.error(`${pointLabel}：范围数量必须大于 0`);
+          return false;
+        }
+        if (hasEstimate && (!Number.isFinite(amount) || amount < 0 || !point.estimateSource.trim())) {
+          toast.error(`${pointLabel}：填写初步估算后必须填写有效金额和估算依据`);
+          return false;
+        }
+        if (!hasEstimate && point.estimateSource.trim()) {
+          toast.error(`${pointLabel}：未填写初步估算时不能单独填写估算依据`);
+          return false;
+        }
       }
       return true;
     }
@@ -473,7 +528,7 @@ export function RepairProjectEditor() {
     }));
     const plan: RepairPlanDraftInput = {
       planDescription: planDescriptionHtml,
-      budgetTotal: Number(decisionBudget),
+      budgetTotal: Number(preliminaryBudget),
       workPoints: workPointInputs,
     };
     const payload: RepairProjectCreateInput = {
@@ -570,7 +625,7 @@ export function RepairProjectEditor() {
           <SectionCard title="问题与初步方案">
             <div className="space-y-4">
               <RichTextEditor
-                label="问题与维修方案"
+                label="问题与维修方案（必填）"
                 value={planDescription}
                 onChange={setPlanDescription}
                 rows={14}
@@ -578,7 +633,10 @@ export function RepairProjectEditor() {
                 imageUploadHandler={uploadPlanImage}
                 imagePreviewHandler={previewPlanImage}
               />
-              <div><Label>送审/决定预算（含税）</Label><Input className="max-w-sm" type="number" min="0.01" step="0.01" value={decisionBudget} onChange={(event) => setDecisionBudget(event.target.value)} /></div>
+              <div className="max-w-xl">
+                <FieldLabel required hint="用于建项、方案比较和后续送审准备，不是业主已经决定、授权或签约的最终金额。">项目初步预算（含税）</FieldLabel>
+                <Input type="number" min="0.01" step="0.01" value={preliminaryBudget} onChange={(event) => setPreliminaryBudget(event.target.value)} />
+              </div>
             </div>
           </SectionCard>
         )}
@@ -595,7 +653,7 @@ export function RepairProjectEditor() {
           >
             <div className="space-y-4">
               <div className="border-l-2 border-primary bg-muted/30 px-4 py-3 text-sm leading-6">
-                只能关联当前决定范围内的已勘验来源。不同范围应分别建项；仅服务多个特定楼栋的共同设施当前不能进入本流程。
+                带 <span className="font-medium text-destructive">*</span> 的字段必须填写；没有可靠现场依据的补充信息可以留空。只能关联当前决定范围内的已勘验来源。不同范围应分别建项；仅服务多个特定楼栋的共同设施当前不能进入本流程。
               </div>
               {workPoints.map((point, index) => {
                 const pointBuilding = locationBuildingForWorkPoint(point);
@@ -609,40 +667,75 @@ export function RepairProjectEditor() {
                       <span className="text-sm font-medium">维修点位 {index + 1}</span>
                       <Button type="button" size="icon" variant="ghost" title="删除维修点位" disabled={workPoints.length === 1} onClick={() => setWorkPoints((current) => current.filter((_, pointIndex) => pointIndex !== index))}><Trash2 className="size-4" /></Button>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-6">
-                      <div className="md:col-span-3"><Label>业务可读名称</Label><Input value={point.businessName} placeholder="例如：16 号楼 403 室北次卧窗户与外墙交界" onChange={(event) => updateWorkPoint(index, "businessName", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>位置类型</Label><Select value={point.locationType || "__UNSELECTED__"} onValueChange={(value) => updateWorkPointLocationType(index, value === "__UNSELECTED__" ? "" : value as DraftWorkPoint["locationType"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__UNSELECTED__">选择参照房屋或公区</SelectItem><SelectItem value="REFERENCE_ROOM">参照房屋</SelectItem><SelectItem value="COMMON_AREA">公共区域</SelectItem></SelectContent></Select></div>
-                      {workflow === "BUILDING_REPAIR" ? (
-                        <div className="md:col-span-2"><Label>楼栋</Label><Input value={selectedBuilding ? `${selectedBuilding.communityName} · ${selectedBuilding.buildingName}` : "请先选择项目楼栋"} disabled /></div>
-                      ) : (
-                        <div className="md:col-span-2"><Label>楼栋</Label><Select value={point.buildingId || "__COMMUNITY_AREA__"} onValueChange={(value) => updateWorkPointBuilding(index, value === "__COMMUNITY_AREA__" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__COMMUNITY_AREA__">全小区公共区域（无特定楼栋）</SelectItem>{locationBuildings.map((building) => <SelectItem key={building.buildingId} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
-                      )}
-                      {workflow === "BUILDING_REPAIR" && unitName ? (
-                        <div className="md:col-span-2"><Label>单元</Label><Input value={unitName} disabled /></div>
-                      ) : (
-                        <div className="md:col-span-2"><Label>单元</Label><Select value={point.unitName || "__NO_UNIT__"} onValueChange={(value) => updateWorkPointUnit(index, value === "__NO_UNIT__" ? "" : value)} disabled={!pointBuilding}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__NO_UNIT__">未限定单元</SelectItem>{pointBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>
-                      )}
-                      {point.locationType === "REFERENCE_ROOM" ? (
-                        <div className="md:col-span-2"><Label>参照房屋</Label>{pointRooms.length > 0 ? <Select value={point.referenceRoomId || "__NO_ROOM__"} onValueChange={(value) => { const nextRoomId = value === "__NO_ROOM__" ? "" : value; const room = pointRooms.find((candidate) => String(candidate.roomId) === nextRoomId); updateWorkPointReferenceRoom(index, nextRoomId, room?.unitName); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__NO_ROOM__">选择房屋</SelectItem>{pointRooms.map((room) => <SelectItem key={room.roomId} value={String(room.roomId)}>{room.unitName} · {room.roomName}</SelectItem>)}</SelectContent></Select> : <Input value={pointBuilding ? "当前范围没有可选房屋" : "请先选择楼栋"} disabled />}</div>
-                      ) : (
-                        <div className="md:col-span-2"><Label>参照公区</Label><Input value={point.commonAreaName} disabled={point.locationType !== "COMMON_AREA"} placeholder="例如：一层大厅、地库泵房、东大门" onChange={(event) => updateWorkPoint(index, "commonAreaName", event.target.value)} /></div>
-                      )}
-                      <div className="md:col-span-2"><Label>空间</Label><Input value={point.spaceName} placeholder="例如：北次卧、门厅、泵房" onChange={(event) => updateWorkPoint(index, "spaceName", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>朝向（如适用）</Label><Input value={point.orientation} placeholder="例如：北侧、东面" onChange={(event) => updateWorkPoint(index, "orientation", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>构件</Label><Input value={point.component} placeholder="例如：窗框、外墙、玻璃、排水泵" onChange={(event) => updateWorkPoint(index, "component", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>具体部位</Label><Input value={point.specificPart} placeholder="例如：窗框与外墙交界、玻璃左上角" onChange={(event) => updateWorkPoint(index, "specificPart", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>问题现象</Label><Textarea value={point.symptom} rows={3} placeholder="仅记录可观察到的现象" onChange={(event) => updateWorkPoint(index, "symptom", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>原因状态</Label><Select value={point.causeStatus} onValueChange={(value) => updateWorkPoint(index, "causeStatus", value as DraftWorkPoint["causeStatus"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PENDING_INVESTIGATION">待勘验</SelectItem><SelectItem value="CONFIRMED">已确认</SelectItem><SelectItem value="UNCONFIRMED">未能确认</SelectItem></SelectContent></Select></div>
-                      <div className="md:col-span-4"><Label>{point.causeStatus === "CONFIRMED" ? "原因依据" : "原因依据或未能确认说明"}</Label><Input value={point.causeBasis} placeholder={point.causeStatus === "CONFIRMED" ? "填写可靠勘验或鉴定依据" : "可填写已核验材料或待补充事项"} onChange={(event) => updateWorkPoint(index, "causeBasis", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>拟定维修措施</Label><Textarea value={point.proposedMeasure} rows={3} placeholder="填写拟实施的维修措施" onChange={(event) => updateWorkPoint(index, "proposedMeasure", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>技术要求（可选）</Label><Textarea value={point.technicalRequirements} rows={3} placeholder="例如：材料规格、施工边界、过程要求" onChange={(event) => updateWorkPoint(index, "technicalRequirements", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>范围数量（可选）</Label><Input type="number" min="0.001" step="0.001" value={point.quantity} onChange={(event) => updateWorkPoint(index, "quantity", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>单位（与数量同时填写）</Label><Input value={point.unit} onChange={(event) => updateWorkPoint(index, "unit", event.target.value)} /></div>
-                      <div className="md:col-span-2"><Label>初步暂估金额（可选）</Label><Input type="number" min="0" step="0.01" value={point.preliminaryEstimatedAmount} onChange={(event) => updateWorkPoint(index, "preliminaryEstimatedAmount", event.target.value)} /></div>
-                      <div className="md:col-span-3"><Label>暂估来源</Label><Input value={point.estimateSource} disabled={!point.preliminaryEstimatedAmount.trim()} placeholder="有暂估金额时必填，例如：历史结算、第三方估算" onChange={(event) => updateWorkPoint(index, "estimateSource", event.target.value)} /></div>
-                      <div className="md:col-span-6">
-                        <Label>关联的已勘验来源</Label>
-                        <div className="mt-1 max-h-40 overflow-y-auto rounded-md border">
+                    <div className="space-y-6">
+                      <section>
+                        <div className="mb-3">
+                          <h5 className="text-sm font-medium">定位与维修对象</h5>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">关联房屋只用于准确定位，不决定共用范围、费用承担、资金账户或表决范围。</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-6">
+                          <div className="md:col-span-3"><FieldLabel required>维修对象名称</FieldLabel><Input aria-required value={point.businessName} placeholder="例如：设备门、污水总排水管、地库排水泵" onChange={(event) => updateWorkPoint(index, "businessName", event.target.value)} /></div>
+                          <div className="md:col-span-3">
+                            <FieldLabel required>位置类别</FieldLabel>
+                            <div className="inline-flex rounded-md border bg-muted/30 p-1">
+                              <Button type="button" size="sm" variant={point.locationType === "REFERENCE_ROOM" ? "default" : "ghost"} aria-pressed={point.locationType === "REFERENCE_ROOM"} onClick={() => updateWorkPointLocationType(index, "REFERENCE_ROOM")}>关联房屋位置</Button>
+                              <Button type="button" size="sm" variant={point.locationType === "COMMON_AREA" ? "default" : "ghost"} aria-pressed={point.locationType === "COMMON_AREA"} onClick={() => updateWorkPointLocationType(index, "COMMON_AREA")}>公共部位</Button>
+                            </div>
+                          </div>
+                          {workflow === "BUILDING_REPAIR" ? (
+                            <div className="md:col-span-2"><FieldLabel>楼栋</FieldLabel><Input value={selectedBuilding ? `${selectedBuilding.communityName} · ${selectedBuilding.buildingName}` : "请先选择项目楼栋"} disabled /></div>
+                          ) : (
+                            <div className="md:col-span-2"><FieldLabel hint={point.locationType === "REFERENCE_ROOM" ? "选择关联房屋时必须选择所在楼栋。" : "全小区公共部位可不限定到单栋。"}>所在楼栋</FieldLabel><Select value={point.buildingId || "__COMMUNITY_AREA__"} onValueChange={(value) => updateWorkPointBuilding(index, value === "__COMMUNITY_AREA__" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__COMMUNITY_AREA__">不限定到楼栋</SelectItem>{locationBuildings.map((building) => <SelectItem key={building.buildingId} value={String(building.buildingId)}>{building.communityName} · {building.buildingName}</SelectItem>)}</SelectContent></Select></div>
+                          )}
+                          {workflow === "BUILDING_REPAIR" && unitName ? (
+                            <div className="md:col-span-2"><FieldLabel>单元</FieldLabel><Input value={unitName} disabled /></div>
+                          ) : (
+                            <div className="md:col-span-2"><FieldLabel>单元（可选）</FieldLabel><Select value={point.unitName || "__NO_UNIT__"} onValueChange={(value) => updateWorkPointUnit(index, value === "__NO_UNIT__" ? "" : value)} disabled={!pointBuilding}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__NO_UNIT__">未限定单元</SelectItem>{pointBuilding?.units.map((unit) => <SelectItem key={unit.unitName} value={unit.unitName}>{unit.unitName}</SelectItem>)}</SelectContent></Select></div>
+                          )}
+                          {point.locationType === "REFERENCE_ROOM" ? (
+                            <div className="md:col-span-2"><FieldLabel required>关联房屋（用于定位）</FieldLabel>{pointRooms.length > 0 ? <Select value={point.referenceRoomId || "__NO_ROOM__"} onValueChange={(value) => { const nextRoomId = value === "__NO_ROOM__" ? "" : value; const room = pointRooms.find((candidate) => String(candidate.roomId) === nextRoomId); updateWorkPointReferenceRoom(index, nextRoomId, room?.unitName); }}><SelectTrigger aria-required><SelectValue placeholder="选择关联房屋" /></SelectTrigger><SelectContent><SelectItem value="__NO_ROOM__">选择房屋</SelectItem>{pointRooms.map((room) => <SelectItem key={room.roomId} value={String(room.roomId)}>{room.unitName} · {room.roomName}</SelectItem>)}</SelectContent></Select> : <Input value={pointBuilding ? "当前范围没有可选房屋" : "请先选择所在楼栋"} disabled />}</div>
+                          ) : point.locationType === "COMMON_AREA" ? (
+                            <div className="md:col-span-2"><FieldLabel required>公共部位名称</FieldLabel><Input aria-required value={point.commonAreaName} placeholder="例如：一层大厅、地库泵房、东大门" onChange={(event) => updateWorkPoint(index, "commonAreaName", event.target.value)} /></div>
+                          ) : (
+                            <div className="md:col-span-2"><FieldLabel>位置明细</FieldLabel><Input value="请先选择位置类别" disabled /></div>
+                          )}
+                          <div className="md:col-span-2"><FieldLabel>空间/具体位置（可选）</FieldLabel><Input value={point.spaceName} placeholder="例如：北次卧、门厅、泵房" onChange={(event) => updateWorkPoint(index, "spaceName", event.target.value)} /></div>
+                          <div className="md:col-span-2"><FieldLabel>朝向（可选）</FieldLabel><Input value={point.orientation} placeholder="例如：北侧、东面" onChange={(event) => updateWorkPoint(index, "orientation", event.target.value)} /></div>
+                        </div>
+                      </section>
+
+                      <section className="border-t pt-5">
+                        <div className="mb-3">
+                          <h5 className="text-sm font-medium">现场问题与拟定措施</h5>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">只记录已观察到的事实和拟采取的措施；原因未确认时不要把推测写成结论。</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-6">
+                          <div className="md:col-span-3"><FieldLabel required>现场问题</FieldLabel><Textarea aria-required value={point.symptom} rows={3} placeholder="仅记录可观察到的现象" onChange={(event) => updateWorkPoint(index, "symptom", event.target.value)} /></div>
+                          <div className="md:col-span-3"><FieldLabel required>拟定维修措施</FieldLabel><Textarea aria-required value={point.proposedMeasure} rows={3} placeholder="填写拟实施的维修措施" onChange={(event) => updateWorkPoint(index, "proposedMeasure", event.target.value)} /></div>
+                          <div className="md:col-span-2"><FieldLabel required>原因状态</FieldLabel><Select value={point.causeStatus} onValueChange={(value) => updateWorkPoint(index, "causeStatus", value as DraftWorkPoint["causeStatus"])}><SelectTrigger aria-required><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PENDING_INVESTIGATION">待勘验</SelectItem><SelectItem value="CONFIRMED">已确认</SelectItem><SelectItem value="UNCONFIRMED">未能确认</SelectItem></SelectContent></Select></div>
+                          <div className="md:col-span-4"><FieldLabel required={point.causeStatus === "CONFIRMED"}>{point.causeStatus === "CONFIRMED" ? "原因依据" : "原因依据或未能确认说明（可选）"}</FieldLabel><Input aria-required={point.causeStatus === "CONFIRMED"} value={point.causeBasis} placeholder={point.causeStatus === "CONFIRMED" ? "填写可靠勘验或鉴定依据" : "可填写已核验材料或待补充事项"} onChange={(event) => updateWorkPoint(index, "causeBasis", event.target.value)} /></div>
+                          <div className="md:col-span-2"><FieldLabel>构件（可选）</FieldLabel><Input value={point.component} placeholder="例如：窗框、外墙、玻璃、排水泵" onChange={(event) => updateWorkPoint(index, "component", event.target.value)} /></div>
+                          <div className="md:col-span-4"><FieldLabel>具体部位（可选）</FieldLabel><Input value={point.specificPart} placeholder="例如：窗框与外墙交界、玻璃左上角" onChange={(event) => updateWorkPoint(index, "specificPart", event.target.value)} /></div>
+                          <div className="md:col-span-6"><FieldLabel>技术要求（可选）</FieldLabel><Textarea value={point.technicalRequirements} rows={3} placeholder="例如：材料规格、施工边界、过程要求；无可靠依据时留空，后续由报价清单补充。" onChange={(event) => updateWorkPoint(index, "technicalRequirements", event.target.value)} /></div>
+                        </div>
+                      </section>
+
+                      <section className="border-t pt-5">
+                        <div className="mb-3">
+                          <h5 className="text-sm font-medium">范围量与初步估算（可选）</h5>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">只在已有勘验、历史结算或其他可核验依据时填写；报价阶段再形成工程清单、单价、税率和含税报价。</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-6">
+                          <div className="md:col-span-2"><FieldLabel>范围数量（可选）</FieldLabel><Input type="number" min="0.001" step="0.001" value={point.quantity} onChange={(event) => updateWorkPoint(index, "quantity", event.target.value)} /></div>
+                          <div className="md:col-span-2"><FieldLabel required={Boolean(point.quantity.trim())}>单位</FieldLabel><Input aria-required={Boolean(point.quantity.trim())} value={point.unit} placeholder="填写数量时必填" onChange={(event) => updateWorkPoint(index, "unit", event.target.value)} /></div>
+                          <div className="md:col-span-2"><FieldLabel>初步估算金额（可选）</FieldLabel><Input type="number" min="0" step="0.01" value={point.preliminaryEstimatedAmount} onChange={(event) => updateWorkPoint(index, "preliminaryEstimatedAmount", event.target.value)} /></div>
+                          <div className="md:col-span-4"><FieldLabel required={Boolean(point.preliminaryEstimatedAmount.trim())}>初步估算依据</FieldLabel><Input aria-required={Boolean(point.preliminaryEstimatedAmount.trim())} value={point.estimateSource} disabled={!point.preliminaryEstimatedAmount.trim()} placeholder="填写初步估算后必填，例如：历史结算、第三方估算" onChange={(event) => updateWorkPoint(index, "estimateSource", event.target.value)} /></div>
+                        </div>
+                      </section>
+
+                      <section className="border-t pt-5">
+                        <FieldLabel>关联已勘验来源（可选）</FieldLabel>
+                        <div className="max-h-40 overflow-y-auto rounded-md border">
                           {casesLoading ? (
                             <div className="flex items-center justify-center px-3 py-5 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />加载已勘验来源</div>
                           ) : visibleEligibleCases.length === 0 ? (
@@ -654,7 +747,7 @@ export function RepairProjectEditor() {
                             </label>
                           ))}
                         </div>
-                      </div>
+                      </section>
                     </div>
                   </div>
                 );
@@ -680,7 +773,7 @@ export function RepairProjectEditor() {
               <ReviewBlock title="初步方案" onEdit={() => moveToStep(1)}>
                 <dl className="grid gap-4 md:grid-cols-2">
                   <ReviewField label="问题与维修方案"><span className="line-clamp-4">{richTextToPlain(toMiniappRichText(planDescription))}</span></ReviewField>
-                  <ReviewField label="送审/决定预算（含税）">¥{Number(decisionBudget || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ReviewField>
+                  <ReviewField label="项目初步预算（含税）">¥{Number(preliminaryBudget || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ReviewField>
                 </dl>
               </ReviewBlock>
 

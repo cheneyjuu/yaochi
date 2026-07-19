@@ -1,5 +1,5 @@
 // 关联业务：展示真实维修工程项目台账，并按楼栋或全小区流程办理治理、施工、验收、付款和归档。
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Banknote,
   Building2,
@@ -157,8 +157,8 @@ function formatDate(value?: string | null): string {
 
 function workPointLocation(point: RepairWorkPoint): string {
   const reference = point.locationType === "REFERENCE_ROOM"
-    ? `参照房屋 #${point.referenceRoomId ?? "-"}`
-    : point.commonAreaName || "公共区域";
+    ? "关联房屋（档案已关联）"
+    : point.commonAreaName || "公共部位";
   return [point.buildingId ? `${point.buildingId} 号楼` : "", point.unitName || "", reference, point.spaceName, point.orientation, point.component, point.specificPart]
     .filter(Boolean)
     .join(" · ");
@@ -178,7 +178,9 @@ export function Engineering() {
   const [execution, setExecution] = useState<RepairProjectExecutionDetails | null>(null);
   const [sourcing, setSourcing] = useState<RepairProjectSourcingDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<RepairSupplierOrganization[]>([]);
+  const detailRequestRef = useRef(0);
 
   async function reloadList() {
     setLoading(true);
@@ -194,22 +196,34 @@ export function Engineering() {
   }
 
   async function loadDetail(projectId: number) {
+    const requestId = ++detailRequestRef.current;
     setDetailLoading(true);
+    setDetailError(null);
     try {
-      const [projectDetails, sourcingDetails] = await Promise.all([
-        getRepairProject(projectId),
-        getRepairProjectSourcing(projectId),
-      ]);
-      const executionDetails = projectDetails.project.status === "DRAFT"
-        ? null
-        : await getRepairProjectExecution(projectId);
+      const projectDetails = await getRepairProject(projectId);
+      if (requestId !== detailRequestRef.current) return;
+
+      // 项目主档是询价、档案和验收页的共同前提，不能被其中一个附属查询阻断。
       setDetails(projectDetails);
-      setExecution(executionDetails);
-      setSourcing(sourcingDetails);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "工程项目详情加载失败");
-    } finally {
       setDetailLoading(false);
+
+      const [sourcingResult, executionResult] = await Promise.allSettled([
+        getRepairProjectSourcing(projectId),
+        projectDetails.project.status === "DRAFT"
+          ? Promise.resolve(null)
+          : getRepairProjectExecution(projectId),
+      ]);
+      if (requestId !== detailRequestRef.current) return;
+
+      setSourcing(sourcingResult.status === "fulfilled" ? sourcingResult.value : null);
+      setExecution(executionResult.status === "fulfilled" ? executionResult.value : null);
+    } catch (error) {
+      if (requestId !== detailRequestRef.current) return;
+      const message = error instanceof Error ? error.message : "工程项目详情加载失败";
+      setDetailError(message);
+      toast.error(message);
+    } finally {
+      if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
   }
 
@@ -241,6 +255,7 @@ export function Engineering() {
     setDetails(null);
     setExecution(null);
     setSourcing(null);
+    setDetailError(null);
     setSheetOpen(true);
     void loadDetail(project.projectId);
   }
@@ -314,15 +329,32 @@ export function Engineering() {
         )}
       </SectionCard>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet open={sheetOpen} onOpenChange={(open) => {
+        setSheetOpen(open);
+        if (!open) detailRequestRef.current += 1;
+      }}>
         <SheetContent className="w-screen gap-0 overflow-hidden bg-card p-0 sm:w-[min(94vw,1200px)] sm:max-w-[1200px]">
-          {detailLoading || !details ? (
+          {detailLoading ? (
             <>
               <SheetHeader className="sr-only">
                 <SheetTitle>正在读取工程档案</SheetTitle>
                 <SheetDescription>请稍候，系统正在读取维修工程项目及供应商邀价记录。</SheetDescription>
               </SheetHeader>
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取工程档案</div>
+            </>
+          ) : !details ? (
+            <>
+              <SheetHeader className="sr-only">
+                <SheetTitle>工程档案读取失败</SheetTitle>
+                <SheetDescription>{detailError || "暂时无法读取工程项目详情"}</SheetDescription>
+              </SheetHeader>
+              <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                <div>
+                  <div className="text-sm font-medium">工程档案暂时无法读取</div>
+                  <p className="mt-1 max-w-md text-sm text-muted-foreground">{detailError || "请重新读取项目详情后再办理询价。"}</p>
+                </div>
+                {selectedId != null && <Button variant="outline" onClick={() => void loadDetail(selectedId)}><RefreshCw className="size-4" />重新读取</Button>}
+              </div>
             </>
           ) : (
             <>

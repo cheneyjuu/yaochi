@@ -33,8 +33,8 @@ function money(value: number): string {
 
 function workPointLocation(point: RepairSupplierQuoteOpportunity["workPoints"][number]): string {
   const reference = point.locationType === "REFERENCE_ROOM"
-    ? `参照房屋 #${point.referenceRoomId ?? "-"}`
-    : point.commonAreaName || "公共区域";
+    ? "关联房屋（档案已关联）"
+    : point.commonAreaName || "公共部位";
   return [point.buildingId ? `${point.buildingId} 号楼` : "", point.unitName || "", reference, point.spaceName, point.component, point.specificPart]
     .filter(Boolean)
     .join(" · ");

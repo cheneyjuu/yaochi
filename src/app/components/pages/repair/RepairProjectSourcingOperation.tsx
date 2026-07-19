@@ -162,6 +162,8 @@ function SelectionAuthorizationSnapshot({
 export function RepairProjectSourcingOperation({
   details,
   sourcing,
+  sourcingLoading,
+  sourcingError,
   suppliers,
   remember,
   busy,
@@ -172,6 +174,8 @@ export function RepairProjectSourcingOperation({
 }: {
   details: RepairProjectDetails;
   sourcing: RepairProjectSourcingDetails | null;
+  sourcingLoading: boolean;
+  sourcingError: string | null;
   suppliers: RepairSupplierOrganization[];
   remember: (attachment: RepairProjectAttachment) => void;
   busy: string | null;
@@ -339,10 +343,18 @@ export function RepairProjectSourcingOperation({
     return (
       <section className="border-t py-5 first:border-t-0 first:pt-0">
         <div className="flex items-center justify-between gap-3">
-          <div><h4 className="text-sm font-semibold">供应商邀价与比价</h4><p className="mt-1 text-xs text-muted-foreground">正在读取当前方案的采购记录</p></div>
-          <Button size="icon" variant="ghost" title="刷新询价记录" onClick={() => void onReload()}><RefreshCw className="size-4" /></Button>
+          <div><h4 className="text-sm font-semibold">供应商邀价与比价</h4><p className="mt-1 text-xs text-muted-foreground">{sourcingError ? "采购记录读取失败，项目方案和其他办理记录不受影响。" : "正在读取当前方案的采购记录"}</p></div>
+          <Button size="icon" variant="ghost" title="重新读取询价记录" onClick={() => void onReload()} disabled={sourcingLoading}><RefreshCw className={`size-4 ${sourcingLoading ? "animate-spin" : ""}`} /></Button>
         </div>
-        <div className="flex items-center justify-center py-10 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />加载中</div>
+        {sourcingError ? (
+          <div className="mt-4 flex flex-col items-start gap-3 border-l-2 border-destructive bg-destructive/5 px-4 py-3 text-sm">
+            <div className="font-medium">参考询价暂时无法读取</div>
+            <p className="text-muted-foreground">{sourcingError}</p>
+            <Button type="button" size="sm" variant="outline" onClick={() => void onReload()} disabled={sourcingLoading}><RefreshCw className="size-4" />重新读取</Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取询价记录</div>
+        )}
       </section>
     );
   }
