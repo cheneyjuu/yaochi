@@ -48,7 +48,7 @@ export type RepairProjectQuoteLineType =
 export type RepairProjectFundSource = "BUILDING_MAINTENANCE_FUND" | "COMMUNITY_MAINTENANCE_FUND";
 
 /**
- * 关联业务：工程范围不是资金来源。责任认定确认后，服务端才按此路径核验账簿、责任方或授权依据。
+ * 关联业务：工程范围不是资金来源。责任初判确认后，服务端才按此路径核验账簿或责任方；共有维修另行取得相关业主决定。
  */
 export type RepairFundingSourceType =
   | "SPECIAL_MAINTENANCE_LEDGER"
@@ -65,14 +65,12 @@ export type RepairResponsibilityPath =
   | "LIABLE_PARTY"
   | "SHARED_COMMON_REPAIR";
 
-/** 关联业务：执行依据决定提案应进入业主授权、既有授权还是直接责任履行。 */
+/** 关联业务：执行状态由服务端按已确认责任路径派生；共有维修表示尚需取得相关业主决定。 */
 export type RepairExecutionAuthorityType =
   | "CONTRACTUAL_EXECUTION"
   | "WARRANTY_EXECUTION"
   | "LIABILITY_EXECUTION"
-  | "OWNER_DECISION"
-  | "EXISTING_AUTHORIZATION"
-  | "EMERGENCY_REPAIR";
+  | "OWNER_DECISION";
 
 export type RepairResponsibilityDeterminationStatus =
   | "PENDING_CONFIRMATION"
@@ -220,7 +218,7 @@ export interface RepairFundingSlice {
   createTime: string;
 }
 
-/** 关联业务：责任、资金承担和执行依据的版本化事实；仅 CONFIRMED 版本可进入冻结或锁定。 */
+/** 关联业务：责任、资金承担和服务端派生执行状态的版本化事实；仅 CONFIRMED 版本可进入冻结或锁定。 */
 export interface RepairResponsibilityDetermination {
   determinationId: number;
   versionNo: number;
@@ -905,14 +903,13 @@ export function freezeRepairProjectPlanForAuthorization(
   });
 }
 
-/** 物业只提交待确认认定，不能通过本请求锁定方案或写入资金切片。 */
+/** 物业只提交待确认的责任与资金初判；执行状态由服务端派生，不能通过本请求锁定方案或写入资金切片。 */
 export function proposeRepairProjectResponsibilityDetermination(
   projectId: number,
   input: {
     expectedProjectVersion: number;
     responsibilityPath: RepairResponsibilityPath;
     fundingSourceType: RepairFundingSourceType;
-    executionAuthorityType: RepairExecutionAuthorityType;
     basisAttachmentId: number;
     basisReference: string;
     responsiblePartyName?: string;

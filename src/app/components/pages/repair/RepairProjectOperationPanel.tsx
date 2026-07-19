@@ -593,15 +593,15 @@ function PlanLockOperation({
   const decisionScope = details.decisionScope;
   const determination = details.responsibilityDetermination;
   const decisionScopePending = decisionScope?.verificationStatus === "PENDING_VERIFICATION";
-  const needsOwnerDecision = determination?.responsibilityPath === "SHARED_COMMON_REPAIR"
+  const requiresOwnerDecision = determination?.responsibilityPath === "SHARED_COMMON_REPAIR"
     && determination.executionAuthorityType === "OWNER_DECISION";
   const authorizationProposal = plan.status === "AUTHORIZATION_FROZEN";
 
   if (!determination) {
     return (
-      <OperationSection title="等待工程责任认定" desc="先由物业提交责任、资金承担和执行依据，再由治理主体确认。范围、设备名称和附件上传都不能自行替代该步骤。">
+      <OperationSection title="等待工程责任初判" desc="先由物业提交责任和资金承担初判，服务端生成后续执行路径，再由治理主体确认。范围、设备名称和附件上传都不能自行替代该步骤。">
         <p className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
-          当前尚无已确认的工程责任认定，因此不能冻结授权提案或锁定最终实施方案。
+          当前尚无已确认的工程责任初判，因此不能冻结相关业主决定提案或锁定最终实施方案。
         </p>
       </OperationSection>
     );
@@ -609,7 +609,7 @@ function PlanLockOperation({
 
   if (determination.status !== "CONFIRMED") {
     return (
-      <OperationSection title="等待工程责任认定确认" desc="待治理主体确认责任、资金承担和执行依据后，后端才会允许下一步。">
+      <OperationSection title="等待工程责任初判确认" desc="待治理主体确认责任与资金承担初判后，后端才会允许下一步。">
         <p className="rounded-md border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm leading-6 text-amber-950">
           当前认定状态为待确认。它不产生资金切片、方案锁定、定商或付款资格。
         </p>
@@ -619,33 +619,33 @@ function PlanLockOperation({
 
   const title = authorizationProposal
     ? "锁定最终实施方案"
-    : needsOwnerDecision
-      ? "冻结授权提案"
+    : requiresOwnerDecision
+      ? "冻结相关业主决定提案"
       : "锁定最终实施方案";
   const description = authorizationProposal
-    ? "有效决定或授权已经形成；锁定时由后端重新核验责任认定、费用承担房屋、资金账簿和预算上限，并生成后续定商、合同、施工、验收与付款使用的最终快照。"
-    : needsOwnerDecision
-      ? "冻结的是供相关业主决定或授权审查的提案，不是可施工方案。费用承担房屋与面积在此时固化；真实资金账簿在最终实施锁定时重新核验。"
-      : "已确认直接执行依据。锁定时由后端核验责任依据、资金承担记录和预算上限；该锁定不产生业主侧定商、施工合同或付款资格。";
+    ? "有效相关业主决定已经形成；锁定时由后端重新核验责任初判、费用承担房屋、资金账簿和预算上限，并生成后续定商、合同、施工、验收与付款使用的最终快照。"
+    : requiresOwnerDecision
+      ? "冻结的是供相关业主决定审查的提案，不是可施工方案。费用承担房屋与面积在此时固化；真实资金账簿在最终实施锁定时重新核验。"
+      : "已确认直接责任履行路径。锁定时由后端核验责任依据、资金承担记录和预算上限；该锁定不产生业主侧定商、施工合同或付款资格。";
   const action = authorizationProposal
     ? () => lockRepairProjectPlan(project.projectId, plan.planId, project.version)
-    : needsOwnerDecision
+    : requiresOwnerDecision
       ? () => freezeRepairProjectPlanForAuthorization(project.projectId, plan.planId, project.version)
       : () => lockRepairProjectPlan(project.projectId, plan.planId, project.version);
   const success = authorizationProposal
     ? "后端已核验并锁定最终实施方案"
-    : needsOwnerDecision
-      ? "授权提案已冻结，可进入业主决定或授权程序"
+    : requiresOwnerDecision
+      ? "相关业主决定提案已冻结，可进入相关业主决定程序"
       : "后端已核验并锁定最终实施方案";
   const actionKey = authorizationProposal
     ? "lock-final-plan"
-    : needsOwnerDecision
+    : requiresOwnerDecision
       ? "freeze-authorization-proposal"
       : "lock-direct-plan";
   const actionLabel = authorizationProposal
     ? "锁定最终实施方案"
-    : needsOwnerDecision
-      ? "冻结授权提案"
+    : requiresOwnerDecision
+      ? "冻结相关业主决定提案"
       : "请求锁定最终实施方案";
 
   return (
@@ -653,9 +653,9 @@ function PlanLockOperation({
       <div className="mt-4 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>决定范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核验"}</StatusChip>
-          <StatusChip tone="success">责任认定已确认</StatusChip>
-          {authorizationProposal && <StatusChip tone="success">有效授权已形成</StatusChip>}
-          {needsOwnerDecision && <StatusChip tone="warning">资金账簿在最终锁定时核验</StatusChip>}
+          <StatusChip tone="success">责任初判已确认</StatusChip>
+          {authorizationProposal && <StatusChip tone="success">相关业主决定已形成</StatusChip>}
+          {requiresOwnerDecision && <StatusChip tone="warning">资金账簿在最终锁定时核验</StatusChip>}
         </div>
         <div className="flex shrink-0 gap-2">
           {decisionScopePending && plan.status === "DRAFT" && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
@@ -875,7 +875,7 @@ function BuildingGovernanceOperation({
       && ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
       && hasPermission("repair:workorder:manage");
     return (
-      <OperationSection title="楼栋维修授权程序" desc="仅已冻结的授权提案可以发起楼栋维修征询。服务器将使用冻结时的费用承担房屋和面积快照，页面不会按当前范围重新推导征询对象。">
+      <OperationSection title="楼栋维修决定程序" desc="仅已冻结的相关业主决定提案可以发起楼栋维修征询。服务器将使用冻结时的费用承担房屋和面积快照，页面不会按当前范围重新推导征询对象。">
         <div className="grid overflow-hidden rounded-md border bg-border md:grid-cols-2 md:gap-px">
           <div className="bg-background p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -920,9 +920,9 @@ function BuildingGovernanceOperation({
             <div className="mb-3 text-sm font-semibold">后端核验快照</div>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div><dt className="text-xs text-muted-foreground">项目决定范围</dt><dd className="mt-1">{decisionScopeConfirmed ? "已确认" : "待核验"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">授权提案</dt><dd className="mt-1">{authorizationProposal ? "已冻结" : "当前为历史锁定方案"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">相关业主决定提案</dt><dd className="mt-1">{authorizationProposal ? "已冻结" : "当前为历史锁定方案"}</dd></div>
             </dl>
-            {!authorizationProposal && <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950"><AlertTriangle className="mt-1 size-4 shrink-0" /><span>历史锁定方案沿用原有办理链路。新项目必须先冻结授权提案，不能通过本页补造该快照。</span></div>}
+            {!authorizationProposal && <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950"><AlertTriangle className="mt-1 size-4 shrink-0" /><span>历史锁定方案沿用原有办理链路。新项目必须先冻结相关业主决定提案，不能通过本页补造该快照。</span></div>}
           </div>
         </div>
         {unsupportedNonResponseRule && (

@@ -50,8 +50,8 @@ try {
     }),
   );
 
-  if (!html.includes("提出工程责任认定") || !html.includes("责任认定依据附件")) {
-    throw new Error("草稿项目的责任认定区域没有完整渲染");
+  if (!html.includes("提出工程责任初判") || !html.includes("初判依据附件") || html.includes("选择执行依据")) {
+    throw new Error("草稿项目的责任初判区域没有完整渲染，或仍暴露手填执行依据");
   }
 
   console.log("草稿项目参考询价面板渲染校验通过");
