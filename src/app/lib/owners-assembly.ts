@@ -1,14 +1,37 @@
-// 关联业务：为业主大会办理页提供会议筹备、材料归档、公示、纸质送达和计票的业务接口，屏蔽内部包号与文件摘要。
+// 关联业务：为业主大会办理页提供规则驱动的筹备、公示、线上/纸质收票、双人复核与计票接口。
 import { apiGet, apiPost, apiUpload } from "./api";
-import type { SubjectType, VoteChoice } from "./voting";
+import type { SubjectType } from "./voting";
 
-export type OwnersAssemblyPreparationMode = "OFFLINE_MEETING" | "WRITTEN_DECISION" | "ONLINE_AND_OFFLINE";
+export type OwnersAssemblyPreparationMode =
+  | "WRITTEN_DECISION"
+  | "INTERNET_DECISION"
+  | "ONLINE_AND_OFFLINE";
+export type OwnersAssemblyDeliveryMethod =
+  | "DOOR_TO_DOOR"
+  | "POSTAL"
+  | "ELECTRONIC"
+  | "PUBLIC_NOTICE_BOARD";
 export type OwnersAssemblyMaterialType =
   | "PUBLIC_NOTICE"
   | "PLAN_ATTACHMENT"
   | "PAPER_BALLOT_TEMPLATE"
   | "DELIVERY_EVIDENCE"
   | "PAPER_BALLOT";
+export type PaperVoteChoice = "SUPPORT" | "AGAINST" | "ABSTAIN";
+export type PaperInvalidReason = "BLANK" | "MULTIPLE_MARKS" | "UNREADABLE" | "WRONG_TEMPLATE" | "OTHER";
+
+export interface OwnersAssemblyPreparationOptions {
+  ruleName: string;
+  ruleVersion: string;
+  effectiveDate: string;
+  allowedPreparationModes: OwnersAssemblyPreparationMode[];
+  earliestVoteStartAt: string;
+  planPublicityDays: number;
+  meetingNoticeDays: number;
+  resultAnnouncementDays: number;
+  validDeliveryMethods: OwnersAssemblyDeliveryMethod[];
+  paperBallotSealRequired: boolean;
+}
 
 export interface OwnersAssemblySession {
   sessionId: number;
@@ -22,7 +45,7 @@ export interface OwnersAssemblySession {
 
 export interface OwnersAssemblyArrangement {
   status: "PACKAGE_DRAFT" | "PUBLIC_NOTICE" | "VOTING" | "SETTLED";
-  votingChannelPolicy: "PAPER_ONLY";
+  votingChannelPolicy: "PAPER_ONLY" | "ONLINE_ONLY" | "PAPER_AND_ONLINE";
   publicNoticeDays: number;
   publicNoticeStartAt: string | null;
   publicNoticeEndAt: string | null;
@@ -43,7 +66,22 @@ export interface OwnersAssemblyFormalSubject {
   subjectId: number;
   subjectType: Extract<SubjectType, "GENERAL" | "MAJOR">;
   title: string;
+  content?: string | null;
   status: string;
+  result: {
+    quorumSatisfied: boolean;
+    passed: boolean;
+    totalArea: number;
+    totalOwnerCount: number;
+    participatingArea: number;
+    participatingOwnerCount: number;
+    supportArea?: number | null;
+    supportOwnerCount?: number | null;
+    againstArea?: number | null;
+    againstOwnerCount?: number | null;
+    abstainArea?: number | null;
+    abstainOwnerCount?: number | null;
+  } | null;
 }
 
 export interface OwnersAssemblyMaterial {
@@ -55,57 +93,132 @@ export interface OwnersAssemblyMaterial {
   createTime: string;
 }
 
+export interface OwnersAssemblyRuleSnapshot {
+  ruleName: string;
+  ruleVersion: string;
+  effectiveDate: string;
+  sourceFileName: string;
+  planPublicityDays: number;
+  meetingNoticeDays: number;
+  resultAnnouncementDays: number;
+  validDeliveryMethods: OwnersAssemblyDeliveryMethod[];
+  nonResponsePolicy: "NOT_PARTICIPATED" | "FOLLOW_MAJORITY" | "ABSTAIN";
+  proxyVotingPolicy: "NOT_ALLOWED" | "WRITTEN_AUTHORIZATION_REQUIRED";
+  votingChannelPolicy: "PAPER_ONLY" | "ONLINE_ONLY" | "PAPER_AND_ONLINE";
+  paperBallotSealRequired: boolean;
+}
+
 export interface OwnersAssemblyWorkspace {
   assembly: OwnersAssemblySession;
   arrangement: OwnersAssemblyArrangement | null;
+  ruleSnapshot: OwnersAssemblyRuleSnapshot | null;
   draftSubjects: OwnersAssemblySubjectDraft[];
   formalSubjects: OwnersAssemblyFormalSubject[];
   materials: OwnersAssemblyMaterial[];
 }
 
-export interface OwnerListItem {
-  uid: number;
-  realName: string;
-  phoneMasked: string;
-  propertyCount: number;
-}
-
-export interface OwnerPropertyOption {
+export interface PaperVotingDelivery {
+  paperDeliveryId: number;
   opid: number;
-  buildingName: string;
-  unitName: string | null;
-  roomName: string;
-  communityName: string;
+  recipientName: string;
+  deliveryMethod: OwnersAssemblyDeliveryMethod;
+  status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
+  deliveredByUserId: number;
+  deliveredAt: string;
+  reviewedByUserId: number | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
 }
 
-interface PageResponse<T> {
-  items: T[];
-  total: number;
+export interface PaperBallotEntry {
+  entryId: number;
+  paperBallotId: number;
+  versionNumber: number;
+  status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
+  enteredByUserId: number;
+  enteredAt: string;
+  reviewedByUserId: number | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  items: Array<{
+    subjectId: number;
+    determination: "VALID" | "INVALID";
+    choice: PaperVoteChoice | null;
+    invalidReasonCode: PaperInvalidReason | null;
+    invalidReasonDescription: string | null;
+  }>;
 }
 
-interface OwnerDetailResponse {
-  profile: OwnerListItem;
-  properties: OwnerPropertyOption[];
+export interface PaperBallot {
+  paperBallotId: number;
+  opid: number;
+  ballotNumber: string;
+  status: "RECEIVED" | "IN_ENTRY" | "COMPLETED" | "VOIDED";
+  receivedByUserId: number;
+  receivedAt: string;
+  voidReason: string | null;
 }
+
+export interface OwnersAssemblyVotingWorkbench {
+  electorate: Array<{
+    snapshotItemId: number;
+    roomId: number;
+    buildingId: number;
+    certifiedArea: number;
+    representativeOpid: number;
+    buildingName: string;
+    unitName: string | null;
+    roomName: string;
+  }>;
+  deliveries: PaperVotingDelivery[];
+  ballots: Array<{
+    ballot: PaperBallot;
+    latestEntry: PaperBallotEntry | null;
+    outcomes: Array<{
+      outcomeId: number;
+      subjectId: number;
+      status: "COUNTED" | "INVALID" | "DUPLICATE";
+      reason: string | null;
+    }>;
+  }>;
+  paperAssistance: Array<{
+    requestId: number;
+    opid: number;
+    buildingId: number;
+    roomId: number;
+    stage: "PENDING_PAPER_PROVISION" | "PAPER_PROCESSING" | "COMPLETED" | "WITHDRAWN";
+  }>;
+  online: { completedPropertyCount: number; conflictCount: number };
+  duplicatePaperDecisionCount: number;
+  currentActorUserId: number;
+}
+
+export type PaperEntryItem =
+  | { subjectId: number; determination: "VALID"; choice: PaperVoteChoice }
+  | {
+    subjectId: number;
+    determination: "INVALID";
+    invalidReasonCode: PaperInvalidReason;
+    invalidReasonDescription?: string;
+  };
 
 export function listOwnersAssemblies(): Promise<OwnersAssemblySession[]> {
-  return apiGet<OwnersAssemblySession[]>("/owners-assemblies");
+  return apiGet("/owners-assemblies");
+}
+
+export function getOwnersAssemblyPreparationOptions(): Promise<OwnersAssemblyPreparationOptions> {
+  return apiGet("/owners-assemblies/preparation-options");
 }
 
 export function getOwnersAssemblyWorkspace(sessionId: number): Promise<OwnersAssemblyWorkspace> {
-  return apiGet<OwnersAssemblyWorkspace>(`/owners-assemblies/${sessionId}/workspace`);
+  return apiGet(`/owners-assemblies/${sessionId}/workspace`);
 }
 
-/**
- * 当前业主大会仅办理书面征求意见和盖章纸质选票；历史记录的其他形式只用于展示。
- */
 export function createOwnersAssemblySession(input: {
   title: string;
+  preparationMode: OwnersAssemblyPreparationMode;
 }): Promise<OwnersAssemblySession> {
-  return apiPost<OwnersAssemblySession>("/owners-assemblies", {
-    ...input,
-    preparationMode: "WRITTEN_DECISION",
-  });
+  return apiPost("/owners-assemblies", input);
 }
 
 export function createOwnersAssemblySubjectDraft(sessionId: number, input: {
@@ -113,7 +226,7 @@ export function createOwnersAssemblySubjectDraft(sessionId: number, input: {
   title: string;
   content?: string | null;
 }): Promise<OwnersAssemblySubjectDraft> {
-  return apiPost<OwnersAssemblySubjectDraft>(`/owners-assemblies/${sessionId}/subjects`, input);
+  return apiPost(`/owners-assemblies/${sessionId}/subjects`, input);
 }
 
 export function uploadOwnersAssemblyMaterial(
@@ -124,7 +237,7 @@ export function uploadOwnersAssemblyMaterial(
   const form = new FormData();
   form.set("materialType", materialType);
   form.set("file", file);
-  return apiUpload<OwnersAssemblyMaterial>(`/owners-assemblies/${sessionId}/materials`, form);
+  return apiUpload(`/owners-assemblies/${sessionId}/materials`, form);
 }
 
 export function confirmOwnersAssemblyArrangement(sessionId: number, input: {
@@ -134,44 +247,73 @@ export function confirmOwnersAssemblyArrangement(sessionId: number, input: {
   planAttachmentMaterialIds: number[];
   ballotTemplateMaterialId: number;
 }): Promise<OwnersAssemblyArrangement> {
-  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/arrangement`, input);
+  return apiPost(`/owners-assemblies/${sessionId}/arrangement`, input);
 }
 
 export function publishOwnersAssemblyArrangement(sessionId: number): Promise<OwnersAssemblyArrangement> {
-  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/publish`);
+  return apiPost(`/owners-assemblies/${sessionId}/publish`);
 }
 
 export function startOwnersAssemblyVoting(sessionId: number): Promise<OwnersAssemblyArrangement> {
-  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/start-voting`);
+  return apiPost(`/owners-assemblies/${sessionId}/start-voting`);
 }
 
 export function settleOwnersAssembly(sessionId: number): Promise<OwnersAssemblyArrangement> {
-  return apiPost<OwnersAssemblyArrangement>(`/owners-assemblies/${sessionId}/settle`);
+  return apiPost(`/owners-assemblies/${sessionId}/settle`);
+}
+
+export function getOwnersAssemblyVotingWorkbench(sessionId: number): Promise<OwnersAssemblyVotingWorkbench> {
+  return apiGet(`/owners-assemblies/${sessionId}/voting-workbench`);
 }
 
 export function recordOwnersAssemblyPaperDelivery(sessionId: number, input: {
   opid: number;
-  deliveryMethod: string;
+  recipientName: string;
+  deliveryMethod: OwnersAssemblyDeliveryMethod;
   evidenceMaterialId: number;
-}): Promise<void> {
-  return apiPost<void>(`/owners-assemblies/${sessionId}/paper-deliveries`, input);
+  deliveredAt: string;
+}): Promise<PaperVotingDelivery> {
+  return apiPost(`/owners-assemblies/${sessionId}/paper-deliveries`, input);
 }
 
-export function castOwnersAssemblyPaperVote(sessionId: number, input: {
-  subjectId: number;
+export function reviewOwnersAssemblyPaperDelivery(
+  sessionId: number,
+  deliveryId: number,
+  decision: "CONFIRM" | "REJECT",
+  reviewNote?: string,
+): Promise<PaperVotingDelivery> {
+  return apiPost(`/owners-assemblies/${sessionId}/paper-deliveries/${deliveryId}/review`, {
+    decision,
+    reviewNote,
+  });
+}
+
+export function registerOwnersAssemblyPaperBallot(sessionId: number, input: {
   opid: number;
-  choice: VoteChoice;
+  ballotNumber: string;
   ballotMaterialId: number;
-}): Promise<void> {
-  return apiPost<void>(`/owners-assemblies/${sessionId}/paper-votes`, input);
+  receivedAt: string;
+}): Promise<PaperBallot> {
+  return apiPost(`/owners-assemblies/${sessionId}/paper-ballots`, input);
 }
 
-/** 纸质办理仅用于定位房屋，页面不展示或要求手工输入内部房产编号。 */
-export function searchOwnersByPhone(phonePrefix: string): Promise<OwnerListItem[]> {
-  const query = new URLSearchParams({ page: "1", size: "20", phone: phonePrefix.trim() });
-  return apiGet<PageResponse<OwnerListItem>>(`/owners?${query.toString()}`).then((page) => page.items);
+export function submitOwnersAssemblyPaperBallotEntry(
+  sessionId: number,
+  ballotId: number,
+  items: PaperEntryItem[],
+): Promise<PaperBallotEntry> {
+  return apiPost(`/owners-assemblies/${sessionId}/paper-ballots/${ballotId}/entries`, { items });
 }
 
-export function getOwnerPropertyOptions(uid: number): Promise<OwnerDetailResponse> {
-  return apiGet<OwnerDetailResponse>(`/owners/${uid}`);
+export function reviewOwnersAssemblyPaperBallotEntry(
+  sessionId: number,
+  ballotId: number,
+  entryId: number,
+  decision: "CONFIRM" | "REJECT",
+  reviewNote?: string,
+): Promise<unknown> {
+  return apiPost(
+    `/owners-assemblies/${sessionId}/paper-ballots/${ballotId}/entries/${entryId}/review`,
+    { decision, reviewNote },
+  );
 }

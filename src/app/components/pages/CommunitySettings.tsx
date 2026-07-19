@@ -11,23 +11,19 @@ import {
   CheckCircle2,
   ChevronRight,
   Download,
-  Eye,
   FileClock,
-  FileUp,
   History,
   Landmark,
   Layers,
   Loader2,
   MapPinned,
   RefreshCcw,
-  Save,
   ShieldCheck,
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusChip, EmptyState } from "../gov/common";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Switch } from "../ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { useStore } from "../../lib/store";
@@ -46,20 +42,12 @@ import {
   submitDenominatorReview,
   updateCommunityAssetLedger,
   updateCommunityOrganization,
-  updateCommunityRules,
   type CommunityAssetLedger,
   type CommunityAuditLog,
   type CommunityOrganization,
-  type CommunityRules,
   type CommunitySettingsResponse,
 } from "../../lib/community-settings";
-import {
-  getRepairDecisionRulePreviewTicket,
-  getRepairDecisionRules,
-  registerRepairDecisionRule,
-  type RepairDecisionNonResponseRule,
-  type RepairDecisionRule,
-} from "../../lib/repair-decision-rule";
+import { OwnersAssemblyRuleManagement } from "./OwnersAssemblyRuleManagement";
 
 type TabKey = "organization" | "building" | "denominator" | "rules" | "propertyMode" | "changes";
 
@@ -133,40 +121,6 @@ function governanceStatusMeta(value: string) {
 function displayTime(value: string | null | undefined) {
   if (!value) return "未记录";
   return value.replace("T", " ").slice(0, 16);
-}
-
-function localDate(): string {
-  const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000);
-  return now.toISOString().slice(0, 10);
-}
-
-function nonResponseRuleLabel(value: RepairDecisionNonResponseRule): string {
-  switch (value) {
-    case "NOT_PARTICIPATED":
-      return "未反馈不计入参与";
-    case "FOLLOW_MAJORITY":
-      return "未反馈按多数意见认定";
-    case "ABSTAIN":
-      return "未反馈认定为弃权";
-  }
-}
-
-interface RepairDecisionRuleDraft {
-  ruleName: string;
-  ruleVersion: string;
-  effectiveDate: string;
-  deliveryRule: string;
-  nonResponseRule: RepairDecisionNonResponseRule;
-}
-
-function emptyRepairDecisionRuleDraft(): RepairDecisionRuleDraft {
-  return {
-    ruleName: "",
-    ruleVersion: "",
-    effectiveDate: localDate(),
-    deliveryRule: "",
-    nonResponseRule: "NOT_PARTICIPATED",
-  };
 }
 
 function auditSectionMeta(sectionCode: CommunityAuditLog["sectionCode"]) {
@@ -264,14 +218,6 @@ export function CommunitySettings() {
   const [data, setData] = useState<CommunitySettingsResponse | null>(null);
   const [organizationDraft, setOrganizationDraft] = useState<CommunityOrganization | null>(null);
   const [assetDraft, setAssetDraft] = useState<CommunityAssetLedger | null>(null);
-  const [rulesDraft, setRulesDraft] = useState<CommunityRules | null>(null);
-  const [decisionRules, setDecisionRules] = useState<RepairDecisionRule[]>([]);
-  const [decisionRuleDialogOpen, setDecisionRuleDialogOpen] = useState(false);
-  const [decisionRuleDraft, setDecisionRuleDraft] = useState<RepairDecisionRuleDraft>(
-    emptyRepairDecisionRuleDraft,
-  );
-  const [decisionRuleFile, setDecisionRuleFile] = useState<File | null>(null);
-  const [previewingRuleId, setPreviewingRuleId] = useState<number | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [selectedAuditLog, setSelectedAuditLog] = useState<CommunityAuditLog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,15 +228,10 @@ export function CommunitySettings() {
     setLoading(true);
     setError(null);
     try {
-      const [next, registeredDecisionRules] = await Promise.all([
-        getCommunitySettings(),
-        getRepairDecisionRules(),
-      ]);
+      const next = await getCommunitySettings();
       setData(next);
       setOrganizationDraft(next.organization);
       setAssetDraft(next.assetLedger);
-      setRulesDraft(next.rules);
-      setDecisionRules(registeredDecisionRules);
       if (!next.organization && activeTab === "organization") setActiveTab("building");
       if (!next.rules && activeTab === "rules") setActiveTab("building");
     } catch (e) {
@@ -367,64 +308,6 @@ export function CommunitySettings() {
     }
   }
 
-  async function saveRules() {
-    if (!rulesDraft) return;
-    setSaving("rules");
-    try {
-      const next = await updateCommunityRules({
-        repairEstimateRequired: rulesDraft.repairEstimateRequired,
-        buildingRepairDefaultDecisionChannel: "ONLINE",
-      });
-      setData(next);
-      setRulesDraft(next.rules);
-      toast.success("维修项目筹备要求已保存");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function registerDecisionRule() {
-    const draft = decisionRuleDraft;
-    if (!draft.ruleName.trim() || !draft.ruleVersion.trim() || !draft.effectiveDate
-      || !draft.deliveryRule.trim() || !decisionRuleFile) {
-      toast.error("请完整填写依据名称、版本标识、生效日期、送达方式并选择依据原件");
-      return;
-    }
-    setSaving("decision-rule");
-    try {
-      await registerRepairDecisionRule({
-        ...draft,
-        ruleName: draft.ruleName.trim(),
-        ruleVersion: draft.ruleVersion.trim(),
-        deliveryRule: draft.deliveryRule.trim(),
-        file: decisionRuleFile,
-      });
-      setDecisionRules(await getRepairDecisionRules());
-      setDecisionRuleDialogOpen(false);
-      setDecisionRuleDraft(emptyRepairDecisionRuleDraft());
-      setDecisionRuleFile(null);
-      toast.success("维修事项表决依据已登记并设为当前采用版本");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "维修事项表决依据登记失败");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function previewDecisionRule(ruleId: number) {
-    setPreviewingRuleId(ruleId);
-    try {
-      const ticket = await getRepairDecisionRulePreviewTicket(ruleId);
-      window.open(ticket.previewUrl, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "规则原件预览失败");
-    } finally {
-      setPreviewingRuleId(null);
-    }
-  }
-
   async function recalculate() {
     setSaving("recalculate");
     try {
@@ -482,8 +365,7 @@ export function CommunitySettings() {
   const permissions = data.permissions;
   const asset = assetDraft ?? data.assetLedger;
   const org = organizationDraft;
-  const rules = rulesDraft;
-  const activeDecisionRule = decisionRules.find((rule) => rule.status === "ACTIVE") ?? null;
+  const rules = data.rules;
   const liveAreaGap = Math.abs(Number(data.assetLedger.liveLedgerStats.totalArea) - Number(data.denominator.legalTotalExclusiveArea));
   const governanceStatus = governanceStatusMeta(data.header.governanceStatus);
 
@@ -809,141 +691,7 @@ export function CommunitySettings() {
         </TabsContent>
 
         <TabsContent value="rules" className="space-y-4">
-          {rules && (
-            <SectionCard
-              title="维修项目筹备要求"
-              desc="设置物业在形成维修方案和开展前期询价前，需要完成的内部准备。"
-              extra={permissions.canEditRules ? (
-                <Button onClick={saveRules} disabled={saving === "rules"}>
-                  <Save className="size-4 mr-2" />
-                  保存筹备要求
-                </Button>
-              ) : <StatusChip tone="warning">只读</StatusChip>}
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="flex items-start justify-between gap-4 border-b py-3 lg:border-b-0 lg:border-r lg:pr-4">
-                  <div>
-                    <div className="font-medium">前期询价前编制参考估算</div>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      参考估算只供物业编制方案和核对报价，不向施工单位公开，也不作为最高限价。
-                    </p>
-                  </div>
-                  <Switch
-                    checked={rules.repairEstimateRequired}
-                    disabled={!permissions.canEditRules}
-                    onCheckedChange={(checked) => setRulesDraft((draft) => draft && {
-                      ...draft,
-                      repairEstimateRequired: checked,
-                    })}
-                    aria-label="前期询价前编制参考估算"
-                  />
-                </div>
-                <div className="py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">系统内表决收集方式</span>
-                    <StatusChip tone="info">线上实名投票</StatusChip>
-                  </div>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    系统逐户记录表决人的身份、房屋和选择，避免同一专有部分重复计票。线下书面征询应按本小区生效的议事规则另行留存逐户材料。
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-          )}
-
-          <SectionCard
-            title="维修事项表决依据"
-            desc="登记本小区已经表决生效、适用于维修事项的议事规则或补充条款。项目发起后继续采用当时的版本，后续换版不改变已发起项目。"
-            extra={permissions.canEditRules ? (
-              <Button
-                type="button"
-                onClick={() => {
-                  setDecisionRuleDraft(emptyRepairDecisionRuleDraft());
-                  setDecisionRuleFile(null);
-                  setDecisionRuleDialogOpen(true);
-                }}
-              >
-                <FileUp className="mr-2 size-4" />
-                登记新版本
-              </Button>
-            ) : <StatusChip tone="warning">只读</StatusChip>}
-          >
-            {activeDecisionRule ? (
-              <div className="space-y-4">
-                <div className="grid gap-4 border-b pb-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-start">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{activeDecisionRule.ruleName}</span>
-                      <StatusChip tone="success">当前采用</StatusChip>
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {activeDecisionRule.originalFileName}
-                    </div>
-                  </div>
-                  <dl className="grid grid-cols-2 gap-3 text-sm">
-                    <div><dt className="text-xs text-muted-foreground">版本</dt><dd className="mt-1 font-medium">{activeDecisionRule.ruleVersion}</dd></div>
-                    <div><dt className="text-xs text-muted-foreground">生效日期</dt><dd className="mt-1 font-medium">{activeDecisionRule.effectiveAt.slice(0, 10)}</dd></div>
-                    <div className="col-span-2"><dt className="text-xs text-muted-foreground">未反馈表决票的认定方式</dt><dd className="mt-1 font-medium">{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}</dd></div>
-                  </dl>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={previewingRuleId === activeDecisionRule.ruleId}
-                    onClick={() => void previewDecisionRule(activeDecisionRule.ruleId)}
-                  >
-                    {previewingRuleId === activeDecisionRule.ruleId
-                      ? <Loader2 className="mr-1 size-4 animate-spin" />
-                      : <Eye className="mr-1 size-4" />}
-                    查看原件
-                  </Button>
-                </div>
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">规则约定的送达方式</div>
-                  <div className="mt-1 leading-6">{activeDecisionRule.deliveryRule}</div>
-                </div>
-                {activeDecisionRule.nonResponseRule !== "NOT_PARTICIPATED" && (
-                  <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-                    <AlertTriangle className="mt-1 size-4 shrink-0" />
-                    当前系统只能按“未反馈不计入参与”完成计票。这份依据约定“{nonResponseRuleLabel(activeDecisionRule.nonResponseRule)}”，暂不能用它发起系统内表决。
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-                <AlertTriangle className="mt-1 size-4 shrink-0" />
-                <div><div className="font-medium">尚未登记生效依据</div><div>正式发起相关业主表决前，需要先登记本小区已经表决生效的议事规则或补充条款。</div></div>
-              </div>
-            )}
-
-            {decisionRules.length > 0 && (
-              <div className="mt-5">
-                <div className="mb-2 text-sm font-semibold">版本记录</div>
-                <div className="divide-y overflow-hidden rounded-md border">
-                  {decisionRules.map((rule) => (
-                    <div key={rule.ruleId} className="grid gap-3 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_120px_120px_auto] md:items-center">
-                      <div className="min-w-0"><div className="truncate font-medium">{rule.ruleName}</div><div className="mt-1 truncate text-xs text-muted-foreground">{rule.originalFileName}</div></div>
-                      <div><div className="text-xs text-muted-foreground">版本</div><div className="mt-1">{rule.ruleVersion}</div></div>
-                      <div><div className="text-xs text-muted-foreground">生效日期</div><div className="mt-1">{rule.effectiveAt.slice(0, 10)}</div></div>
-                      <div className="flex items-center justify-end gap-2">
-                        <StatusChip tone={rule.status === "ACTIVE" ? "success" : "neutral"}>{rule.status === "ACTIVE" ? "有效" : "已替代"}</StatusChip>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          title="查看依据原件"
-                          disabled={previewingRuleId === rule.ruleId}
-                          onClick={() => void previewDecisionRule(rule.ruleId)}
-                        >
-                          {previewingRuleId === rule.ruleId ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </SectionCard>
+          <OwnersAssemblyRuleManagement />
 
           {rules && (
             <SectionCard
@@ -1007,113 +755,6 @@ export function CommunitySettings() {
           </SectionCard>
         </TabsContent>
       </Tabs>
-
-      <Dialog
-        open={decisionRuleDialogOpen}
-        onOpenChange={(open) => {
-          setDecisionRuleDialogOpen(open);
-          if (!open && saving !== "decision-rule") {
-            setDecisionRuleDraft(emptyRepairDecisionRuleDraft());
-            setDecisionRuleFile(null);
-          }
-        }}
-      >
-        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>登记维修事项表决依据</DialogTitle>
-            <DialogDescription>
-              上传本小区已经表决生效的业主大会议事规则或有效补充条款。单次维修意见、询价单或报价单不能作为通用表决依据。
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void registerDecisionRule();
-            }}
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="repair-decision-rule-name">依据名称</Label>
-                <Input
-                  id="repair-decision-rule-name"
-                  value={decisionRuleDraft.ruleName}
-                  onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, ruleName: event.target.value }))}
-                  placeholder="按原件填写完整名称"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-rule-version">版本标识</Label>
-                <Input
-                  id="repair-decision-rule-version"
-                  value={decisionRuleDraft.ruleVersion}
-                  onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, ruleVersion: event.target.value }))}
-                  placeholder="例如：2026年第1版"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-rule-effective-date">生效日期</Label>
-                <Input
-                  id="repair-decision-rule-effective-date"
-                  type="date"
-                  max={localDate()}
-                  value={decisionRuleDraft.effectiveDate}
-                  onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, effectiveDate: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="repair-decision-delivery-rule">规则约定的送达方式</Label>
-                <Textarea
-                  id="repair-decision-delivery-rule"
-                  rows={3}
-                  value={decisionRuleDraft.deliveryRule}
-                  onChange={(event) => setDecisionRuleDraft((draft) => ({ ...draft, deliveryRule: event.target.value }))}
-                  placeholder="按原件填写纸质、线上或其他送达方式"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-non-response-rule">未反馈表决票的认定方式</Label>
-                <select
-                  id="repair-decision-non-response-rule"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                  value={decisionRuleDraft.nonResponseRule}
-                  onChange={(event) => setDecisionRuleDraft((draft) => ({
-                    ...draft,
-                    nonResponseRule: event.target.value as RepairDecisionNonResponseRule,
-                  }))}
-                >
-                  <option value="NOT_PARTICIPATED">未反馈不计入参与</option>
-                  <option value="FOLLOW_MAJORITY">未反馈按多数意见认定</option>
-                  <option value="ABSTAIN">未反馈认定为弃权</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="repair-decision-rule-file">依据原件</Label>
-                <Input
-                  id="repair-decision-rule-file"
-                  type="file"
-                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={(event) => setDecisionRuleFile(event.target.files?.[0] ?? null)}
-                />
-                <p className="text-xs leading-5 text-muted-foreground">支持 PDF、DOC、DOCX，文件不超过 20 MB。</p>
-              </div>
-            </div>
-            {decisionRuleDraft.nonResponseRule !== "NOT_PARTICIPATED" && (
-              <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-                <AlertTriangle className="mt-1 size-4 shrink-0" />
-                依据可以如实登记，但当前系统只能按“未反馈不计入参与”完成计票。登记该认定方式后，暂不能用它发起系统内表决。
-              </div>
-            )}
-            <div className="flex justify-end gap-2 border-t pt-4">
-              <Button type="button" variant="outline" disabled={saving === "decision-rule"} onClick={() => setDecisionRuleDialogOpen(false)}>取消</Button>
-              <Button type="submit" disabled={saving === "decision-rule"}>
-                {saving === "decision-rule" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <FileUp className="mr-2 size-4" />}
-                登记并设为当前依据
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={selectedAuditLog !== null} onOpenChange={(open) => !open && setSelectedAuditLog(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">

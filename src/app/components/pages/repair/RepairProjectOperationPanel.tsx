@@ -410,7 +410,7 @@ export function RepairProjectOperationPanel({
         </>
       )}
 
-      {authorizationFrozenPlan && (
+      {authorizationFrozenPlan && project.status === "AUTHORIZED" && (
         <PlanLockOperation
           details={details}
           plan={authorizationFrozenPlan}
@@ -624,6 +624,21 @@ function PlanLockOperation({
   const requiresOwnerDecision = determination?.responsibilityPath === "SHARED_COMMON_REPAIR"
     && determination.executionAuthorityType === "OWNER_DECISION";
   const authorizationProposal = plan.status === "AUTHORIZATION_FROZEN";
+  const [selectionMethod, setSelectionMethod] = useState<RepairProjectSupplierSelectionMethod | "">(
+    plan.supplierSelectionMethod ?? "",
+  );
+  const [evaluationRule, setEvaluationRule] = useState<RepairProjectSupplierEvaluationRule | "">(
+    plan.supplierSelectionEvaluationRule ?? "",
+  );
+  const [minimumInvitedSupplierCount, setMinimumInvitedSupplierCount] = useState(
+    plan.minimumInvitedSupplierCount?.toString() ?? "",
+  );
+  const [minimumValidQuoteCount, setMinimumValidQuoteCount] = useState(
+    plan.minimumValidQuoteCount?.toString() ?? "",
+  );
+  const [nonCompetitiveSelectionBasis, setNonCompetitiveSelectionBasis] = useState(
+    plan.nonCompetitiveSelectionBasis ?? "",
+  );
 
   if (!determination || determination.status !== "CONFIRMED") return null;
 
@@ -637,10 +652,24 @@ function PlanLockOperation({
     : requiresOwnerDecision
       ? "将当前维修范围、预算、费用分摊范围和施工单位选择方式一并提交相关业主表决。表决通过前不能施工。"
       : "已确认由物业服务企业、建设单位或责任人承担。确认后按相应合同、保修或责任材料办理。";
+  const selectionTermsComplete = selectionMethod !== ""
+    && evaluationRule !== ""
+    && (selectionMethod === "COMPETITIVE_QUOTATION" || nonCompetitiveSelectionBasis.trim() !== "");
   const action = authorizationProposal
     ? () => lockRepairProjectPlan(project.projectId, plan.planId, project.version)
     : requiresOwnerDecision
-      ? () => freezeRepairProjectPlanForAuthorization(project.projectId, plan.planId, project.version)
+      ? () => freezeRepairProjectPlanForAuthorization(project.projectId, plan.planId, {
+        expectedProjectVersion: project.version,
+        supplierSelectionMethod: selectionMethod as RepairProjectSupplierSelectionMethod,
+        supplierEvaluationRule: evaluationRule as RepairProjectSupplierEvaluationRule,
+        minimumInvitedSupplierCount: minimumInvitedSupplierCount
+          ? Number(minimumInvitedSupplierCount)
+          : undefined,
+        minimumValidQuoteCount: minimumValidQuoteCount
+          ? Number(minimumValidQuoteCount)
+          : undefined,
+        nonCompetitiveSelectionBasis: nonCompetitiveSelectionBasis.trim() || undefined,
+      })
       : () => lockRepairProjectPlan(project.projectId, plan.planId, project.version);
   const success = authorizationProposal
     ? "实施方案已确认"
@@ -660,6 +689,113 @@ function PlanLockOperation({
 
   return (
     <OperationSection title={title} desc={description}>
+      {requiresOwnerDecision && !authorizationProposal && (
+        <div className="mt-4 border-t pt-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`supplier-selection-method-${plan.planId}`}>
+                施工单位确定方式 <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={selectionMethod}
+                onValueChange={(value: RepairProjectSupplierSelectionMethod) => {
+                  setSelectionMethod(value);
+                  if (value === "COMPETITIVE_QUOTATION") {
+                    setEvaluationRule("");
+                    setNonCompetitiveSelectionBasis("");
+                  } else {
+                    setEvaluationRule("AUTHORIZED_DIRECT_SELECTION");
+                    setMinimumInvitedSupplierCount("");
+                    setMinimumValidQuoteCount("");
+                  }
+                }}
+              >
+                <SelectTrigger id={`supplier-selection-method-${plan.planId}`}>
+                  <SelectValue placeholder="选择方案中约定的方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SUPPLIER_SELECTION_METHOD_LABEL).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs leading-5 text-muted-foreground">
+                该方式会随实施方案一并提交相关业主表决，通过后按此方式确定施工单位。
+              </p>
+            </div>
+
+            {selectionMethod === "COMPETITIVE_QUOTATION" && (
+              <div className="space-y-2">
+                <Label htmlFor={`supplier-evaluation-rule-${plan.planId}`}>
+                  报价比较方式 <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={evaluationRule}
+                  onValueChange={(value: RepairProjectSupplierEvaluationRule) => setEvaluationRule(value)}
+                >
+                  <SelectTrigger id={`supplier-evaluation-rule-${plan.planId}`}>
+                    <SelectValue placeholder="选择如何比较有效报价" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOWEST_COMPLIANT_QUOTE">最低合格报价</SelectItem>
+                    <SelectItem value="COMPREHENSIVE_EVALUATION">综合比较</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  最低合格报价要求选择满足方案要求且价格最低的报价；综合比较还会考虑工期、质量和质保等条件。
+                </p>
+              </div>
+            )}
+          </div>
+
+          {selectionMethod === "COMPETITIVE_QUOTATION" && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`minimum-invited-${plan.planId}`}>最低邀请单位数</Label>
+                <Input
+                  id={`minimum-invited-${plan.planId}`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={minimumInvitedSupplierCount}
+                  onChange={(event) => setMinimumInvitedSupplierCount(event.target.value)}
+                  placeholder="方案或有效依据有要求时填写"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`minimum-quotes-${plan.planId}`}>最低有效报价数</Label>
+                <Input
+                  id={`minimum-quotes-${plan.planId}`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={minimumValidQuoteCount}
+                  onChange={(event) => setMinimumValidQuoteCount(event.target.value)}
+                  placeholder="方案或有效依据有要求时填写"
+                />
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">
+                系统不预设统一数量。只有本小区有效规则、内部采购制度或本项目方案明确要求时才填写。
+              </p>
+            </div>
+          )}
+
+          {selectionMethod !== "" && selectionMethod !== "COMPETITIVE_QUOTATION" && (
+            <div className="mt-4 space-y-2">
+              <Label htmlFor={`non-competitive-basis-${plan.planId}`}>
+                采用该方式的书面依据 <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id={`non-competitive-basis-${plan.planId}`}
+                value={nonCompetitiveSelectionBasis}
+                onChange={(event) => setNonCompetitiveSelectionBasis(event.target.value)}
+                placeholder="填写合同、规约、授权决定或紧急维修规定的名称及适用条款"
+                rows={3}
+              />
+            </div>
+          )}
+        </div>
+      )}
       <div className="mt-4 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>维修范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核对"}</StatusChip>
@@ -673,7 +809,10 @@ function PlanLockOperation({
             () => reverifyRepairProjectDecisionScope(project.projectId, project.version),
             "已按关联来源重新核验决定范围",
           )}>重新核验范围</Button>}
-          <Button disabled={busy !== null} onClick={() => void run(actionKey, action, success)}>
+          <Button
+            disabled={busy !== null || requiresOwnerDecision && !authorizationProposal && !selectionTermsComplete}
+            onClick={() => void run(actionKey, action, success)}
+          >
             <ShieldCheck className="mr-1 size-4" />{actionLabel}
           </Button>
         </div>

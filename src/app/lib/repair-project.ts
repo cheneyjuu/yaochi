@@ -112,6 +112,10 @@ export interface RepairProjectPlan {
   /** 以下冻结字段在筹备草稿阶段尚无可信来源，响应可为空。 */
   allocationRuleDescription?: string | null;
   supplierSelectionMethod?: RepairProjectSupplierSelectionMethod | null;
+  supplierSelectionEvaluationRule?: RepairProjectSupplierEvaluationRule | null;
+  minimumInvitedSupplierCount?: number | null;
+  minimumValidQuoteCount?: number | null;
+  nonCompetitiveSelectionBasis?: string | null;
   supplierSelectionReason?: string | null;
   constructionManagementRequirements?: string | null;
   safetyRequirements?: string | null;
@@ -724,6 +728,16 @@ export interface RepairCommunityAssemblyLink {
 
 /** 关联业务：一次维修方案只能关联一个冻结规则、精确房屋名册和统一收票窗口。 */
 export type RepairVotingCollectionMode = "PAPER" | "ONLINE_WITH_PAPER_ASSISTANCE" | "PAPER_AND_ONLINE";
+export type RepairVotingDeliveryMethod = "DOOR_TO_DOOR" | "POSTAL" | "ELECTRONIC" | "PUBLIC_NOTICE_BOARD";
+
+export interface RepairVotingPreparationOptions {
+  ruleName: string;
+  ruleVersion: string;
+  allowedModes: RepairVotingCollectionMode[];
+  earliestVoteStartAt: string;
+  validDeliveryMethods: RepairVotingDeliveryMethod[];
+  paperBallotSealRequired: boolean;
+}
 
 export interface RepairProjectVotingDetails {
   project: RepairProject;
@@ -732,6 +746,8 @@ export interface RepairProjectVotingDetails {
     linkId: number;
     projectId: number;
     planId: number;
+    paperBallotTemplateAttachmentId: number;
+    paperBallotTemplateHash: string;
     status: "PREPARED" | "VOTING" | "SETTLED" | "VOIDED";
     result?: "PASSED" | "FAILED" | null;
     collectionMode: RepairVotingCollectionMode;
@@ -759,12 +775,16 @@ export interface RepairProjectVotingDetails {
   result?: {
     passed: boolean;
     quorumSatisfied: boolean;
-    denominatorOwnerCount: number;
-    denominatorArea: number;
-    participatedOwnerCount: number;
-    participatedArea: number;
-    agreeOwnerCount: number;
-    agreeArea: number;
+    totalOwnerCount: number;
+    totalArea: number;
+    participatingOwnerCount: number;
+    participatingArea: number;
+    supportOwnerCount?: number | null;
+    supportArea?: number | null;
+    againstOwnerCount?: number | null;
+    againstArea?: number | null;
+    abstainOwnerCount?: number | null;
+    abstainArea?: number | null;
   } | null;
 }
 
@@ -775,6 +795,9 @@ export interface RepairVotingWorkbench {
     buildingId: number;
     certifiedArea: number;
     representativeOpid: number;
+    buildingName: string;
+    unitName?: string | null;
+    roomName: string;
   }>;
   paper: {
     deliveries: Array<{
@@ -783,6 +806,7 @@ export interface RepairVotingWorkbench {
       opid: number;
       recipientName: string;
       deliveryMethod: string;
+      deliveredByUserId: number;
       deliveredAt: string;
       status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
     }>;
@@ -791,6 +815,7 @@ export interface RepairVotingWorkbench {
         paperBallotId: number;
         opid: number;
         ballotNumber: string;
+        receivedByUserId: number;
         receivedAt: string;
         status: "RECEIVED" | "IN_ENTRY" | "COMPLETED" | "VOIDED";
       };
@@ -801,8 +826,22 @@ export interface RepairVotingWorkbench {
       } | null;
     }>;
   };
-  online: { acceptedSubmissionCount: number; rejectedConflictCount: number };
-  paperAssistanceRequests: Array<{ requestId: number; representativeOpid: number; status: string }>;
+  online: { completedPropertyCount: number; conflictCount: number };
+  paperAssistanceRequests: Array<{
+    requestId: number;
+    opid: number;
+    status: "REQUESTED" | "FULFILLED" | "WITHDRAWN";
+  }>;
+  validDeliveryMethods: RepairVotingDeliveryMethod[];
+  paperBallotSealRequired: boolean;
+  paperBallotTemplate: {
+    attachmentId: number;
+    originalFileName: string;
+    contentType: string;
+    fileSize: number;
+    sha256: string;
+  };
+  currentActorUserId: number;
 }
 
 function queryString(params: Record<string, string | number | undefined>): string {
@@ -851,11 +890,16 @@ export function getRepairProjectVoting(projectId: number): Promise<RepairProject
   return apiGet(`/admin/repair-projects/${projectId}/voting`);
 }
 
+export function getRepairVotingPreparationOptions(projectId: number): Promise<RepairVotingPreparationOptions> {
+  return apiGet(`/admin/repair-projects/${projectId}/voting/preparation-options`);
+}
+
 export function prepareRepairProjectVoting(
   projectId: number,
   input: {
     expectedProjectVersion: number;
     collectionMode: RepairVotingCollectionMode;
+    paperBallotTemplateAttachmentId: number;
     voteStartAt: string;
     voteEndAt: string;
   },
@@ -886,7 +930,7 @@ export function recordRepairVotingDelivery(
   input: {
     opid: number;
     recipientName: string;
-    deliveryMethod: "DOOR_TO_DOOR" | "POSTAL" | "ELECTRONIC" | "PUBLIC_NOTICE_BOARD";
+    deliveryMethod: RepairVotingDeliveryMethod;
     evidenceAttachmentId: number;
     deliveredAt: string;
   },
@@ -917,10 +961,16 @@ export function submitRepairVotingPaperBallotEntry(
   projectId: number,
   ballotId: number,
   subjectId: number,
-  choice: "AGREE" | "DISAGREE" | "ABSTAIN",
+  entry:
+    | { determination: "VALID"; choice: "SUPPORT" | "AGAINST" | "ABSTAIN" }
+    | {
+      determination: "INVALID";
+      invalidReasonCode: "BLANK" | "MULTIPLE_MARKS" | "UNREADABLE" | "WRONG_TEMPLATE" | "OTHER";
+      invalidReasonDescription?: string;
+    },
 ): Promise<unknown> {
   return apiPost(`/admin/repair-projects/${projectId}/voting/paper-ballots/${ballotId}/entries`, {
-    items: [{ subjectId, determination: "VALID", choice }],
+    items: [{ subjectId, ...entry }],
   });
 }
 
@@ -1068,11 +1118,16 @@ export function lockRepairProjectPlan(
 export function freezeRepairProjectPlanForAuthorization(
   projectId: number,
   planId: number,
-  expectedProjectVersion: number,
+  input: {
+    expectedProjectVersion: number;
+    supplierSelectionMethod: RepairProjectSupplierSelectionMethod;
+    supplierEvaluationRule: RepairProjectSupplierEvaluationRule;
+    minimumInvitedSupplierCount?: number;
+    minimumValidQuoteCount?: number;
+    nonCompetitiveSelectionBasis?: string;
+  },
 ): Promise<RepairProjectDetails> {
-  return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/freeze-for-authorization`, {
-    expectedProjectVersion,
-  });
+  return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/freeze-for-authorization`, input);
 }
 
 /** 物业只提交待确认的责任与资金初判；方案预算在后续冻结提案时固化，不能通过本请求锁定方案或写入资金切片。 */
