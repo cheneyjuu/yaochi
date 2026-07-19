@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiUpload } from "./api";
 export type RepairProjectWorkflow = "BUILDING_REPAIR" | "COMMUNITY_PUBLIC_REPAIR";
 export type RepairProjectStatus =
   | "DRAFT"
+  | "AUTHORIZATION_IN_PROGRESS"
   | "PLAN_LOCKED"
   | "GOVERNANCE_IN_PROGRESS"
   | "AUTHORIZED"
@@ -45,6 +46,39 @@ export type RepairProjectQuoteLineType =
   | "TRANSPORT_CLEANUP"
   | "OTHER";
 export type RepairProjectFundSource = "BUILDING_MAINTENANCE_FUND" | "COMMUNITY_MAINTENANCE_FUND";
+
+/**
+ * 关联业务：工程范围不是资金来源。责任认定确认后，服务端才按此路径核验账簿、责任方或授权依据。
+ */
+export type RepairFundingSourceType =
+  | "SPECIAL_MAINTENANCE_LEDGER"
+  | "PUBLIC_REVENUE_LEDGER"
+  | "PROPERTY_SERVICE_CONTRACT"
+  | "LIABLE_PARTY"
+  | "DEVELOPER_WARRANTY"
+  | "OWNER_SELF_FUNDING";
+
+/** 关联业务：物业提出责任判断，治理主体确认；设备名称和楼栋范围都不能替代该判断。 */
+export type RepairResponsibilityPath =
+  | "PROPERTY_SERVICE_CONTRACT"
+  | "DEVELOPER_WARRANTY"
+  | "LIABLE_PARTY"
+  | "SHARED_COMMON_REPAIR";
+
+/** 关联业务：执行依据决定提案应进入业主授权、既有授权还是直接责任履行。 */
+export type RepairExecutionAuthorityType =
+  | "CONTRACTUAL_EXECUTION"
+  | "WARRANTY_EXECUTION"
+  | "LIABILITY_EXECUTION"
+  | "OWNER_DECISION"
+  | "EXISTING_AUTHORIZATION"
+  | "EMERGENCY_REPAIR";
+
+export type RepairResponsibilityDeterminationStatus =
+  | "PENDING_CONFIRMATION"
+  | "CONFIRMED"
+  | "SUPERSEDED"
+  | "REJECTED";
 
 export interface RepairProject {
   projectId: number;
@@ -94,7 +128,11 @@ export interface RepairProjectPlan {
   warrantyDays?: number | null;
   priceReviewRequired?: boolean | null;
   paymentMilestones?: RepairProjectPaymentMilestone[] | null;
-  status: "DRAFT" | "LOCKED" | "SUPERSEDED";
+  status: "DRAFT" | "AUTHORIZATION_FROZEN" | "LOCKED" | "SUPERSEDED";
+  /** 仅用于确认授权提案未被随后修改；它不代表可施工的实施方案。 */
+  authorizationSnapshotHash?: string | null;
+  authorizationFrozenByUserId?: number | null;
+  authorizationFrozenAt?: string | null;
   snapshotHash?: string | null;
 }
 
@@ -170,12 +208,7 @@ export interface RepairFundingSlice {
   decisionScopeId: number;
   projectId: number;
   tenantId: number;
-  sourceType:
-    | "SPECIAL_MAINTENANCE_LEDGER"
-    | "PUBLIC_REVENUE_LEDGER"
-    | "LIABLE_PARTY"
-    | "DEVELOPER_WARRANTY"
-    | "OWNER_SELF_FUNDING";
+  sourceType: RepairFundingSourceType;
   sourceRecordType: string;
   sourceRecordId: string;
   ledgerReference?: string | null;
@@ -185,6 +218,24 @@ export interface RepairFundingSlice {
   legacyReadOnly: boolean;
   verifiedAt?: string | null;
   createTime: string;
+}
+
+/** 关联业务：责任、资金承担和执行依据的版本化事实；仅 CONFIRMED 版本可进入冻结或锁定。 */
+export interface RepairResponsibilityDetermination {
+  determinationId: number;
+  versionNo: number;
+  status: RepairResponsibilityDeterminationStatus;
+  responsibilityPath: RepairResponsibilityPath;
+  fundingSourceType: RepairFundingSourceType;
+  executionAuthorityType: RepairExecutionAuthorityType;
+  basisAttachmentId: number;
+  basisReference: string;
+  responsiblePartyName?: string | null;
+  responsiblePartyReference?: string | null;
+  approvedAmount: number;
+  proposedAt: string;
+  confirmedAt?: string | null;
+  confirmationNote?: string | null;
 }
 
 export interface RepairProjectAttachment {
@@ -383,6 +434,8 @@ export interface RepairProjectDetails {
   project: RepairProject;
   plans: RepairProjectPlan[];
   decisionScope?: RepairDecisionScope | null;
+  responsibilityDetermination?: RepairResponsibilityDetermination | null;
+  responsibilityDeterminationHistory: RepairResponsibilityDetermination[];
   currentPlanWorkPoints: RepairWorkPoint[];
   fundingSlices: RepairFundingSlice[];
   currentPlanAffectedOwners: Array<{
@@ -839,6 +892,47 @@ export function lockRepairProjectPlan(
   return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/lock`, {
     expectedProjectVersion,
   });
+}
+
+/** 冻结给相关业主决定或既有授权审查的提案；它不创建施工、定商或付款资格。 */
+export function freezeRepairProjectPlanForAuthorization(
+  projectId: number,
+  planId: number,
+  expectedProjectVersion: number,
+): Promise<RepairProjectDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/freeze-for-authorization`, {
+    expectedProjectVersion,
+  });
+}
+
+/** 物业只提交待确认认定，不能通过本请求锁定方案或写入资金切片。 */
+export function proposeRepairProjectResponsibilityDetermination(
+  projectId: number,
+  input: {
+    expectedProjectVersion: number;
+    responsibilityPath: RepairResponsibilityPath;
+    fundingSourceType: RepairFundingSourceType;
+    executionAuthorityType: RepairExecutionAuthorityType;
+    basisAttachmentId: number;
+    basisReference: string;
+    responsiblePartyName?: string;
+    responsiblePartyReference?: string;
+    approvedAmount: number;
+  },
+): Promise<RepairProjectDetails> {
+  return apiPost(`/admin/repair-projects/${projectId}/responsibility-determinations`, input);
+}
+
+/** 仅具备治理权限的主体可确认；服务端仍会重新核验附件、金额和允许组合。 */
+export function confirmRepairProjectResponsibilityDetermination(
+  projectId: number,
+  determinationId: number,
+  input: { expectedProjectVersion: number; confirmationNote?: string },
+): Promise<RepairProjectDetails> {
+  return apiPost(
+    `/admin/repair-projects/${projectId}/responsibility-determinations/${determinationId}/confirm`,
+    input,
+  );
 }
 
 /** 仅在草稿阶段按已关联来源重新核验唯一决定范围；后端拒绝以页面选择替代范围事实。 */

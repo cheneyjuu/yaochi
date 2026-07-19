@@ -59,6 +59,7 @@ import {
   getRepairProjectAttachmentTicket,
   getRepairProjectProcessHistory,
   getRepairProjectSourcing,
+  freezeRepairProjectPlanForAuthorization,
   lockRepairProjectPlan,
   postRepairProjectAction,
   reverifyRepairProjectDecisionScope,
@@ -78,6 +79,7 @@ import {
   type RepairWorkPoint,
 } from "../../../lib/repair-project";
 import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
+import { RepairProjectResponsibilityOperation } from "./RepairProjectResponsibilityOperation";
 import { RepairProjectSourcingOperation } from "./RepairProjectSourcingOperation";
 
 const STAGE_LABEL: Record<RepairProjectStage, string> = {
@@ -255,6 +257,11 @@ export function RepairProjectOperationPanel({
   const plan = draftPlan ?? details.plans.find((item) => item.planId === project.activePlanId)
     ?? details.plans.find((item) => item.status === "LOCKED")
     ?? details.plans[0];
+  const authorizationFrozenPlan = project.status === "AUTHORIZED" && plan?.status === "AUTHORIZATION_FROZEN"
+    ? plan
+    : null;
+  const directResponsibilityExecution = details.responsibilityDetermination?.status === "CONFIRMED"
+    && details.responsibilityDetermination.responsibilityPath !== "SHARED_COMMON_REPAIR";
   const [busy, setBusy] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<RepairProjectAttachment[]>([]);
   const [buildingGovernance, setBuildingGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
@@ -313,7 +320,7 @@ export function RepairProjectOperationPanel({
   }
 
   async function reloadGovernance() {
-    if (project.status !== "GOVERNANCE_IN_PROGRESS") {
+    if (!["AUTHORIZATION_IN_PROGRESS", "GOVERNANCE_IN_PROGRESS"].includes(project.status)) {
       setBuildingGovernance(null);
       setAssemblyLink(null);
       return;
@@ -353,7 +360,7 @@ export function RepairProjectOperationPanel({
         error={historyError}
       />
 
-      {["DRAFT", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
+      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
         <RepairProjectSourcingOperation
           details={details}
           sourcing={sourcing}
@@ -370,6 +377,17 @@ export function RepairProjectOperationPanel({
         />
       )}
 
+      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
+        <RepairProjectResponsibilityOperation
+          details={details}
+          busy={busy}
+          run={run}
+          remember={remember}
+          hasPermission={hasPermission}
+          roleKey={roleKey}
+        />
+      )}
+
       {draftPlan && (
         <>
           <PlanLockOperation
@@ -381,7 +399,16 @@ export function RepairProjectOperationPanel({
         </>
       )}
 
-      {!draftPlan && ["PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
+      {authorizationFrozenPlan && (
+        <PlanLockOperation
+          details={details}
+          plan={authorizationFrozenPlan}
+          busy={busy}
+          run={run}
+        />
+      )}
+
+      {!draftPlan && ["AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS"].includes(project.status) && (
         project.workflowType === "BUILDING_REPAIR" ? (
           <BuildingGovernanceOperation
             details={details}
@@ -407,7 +434,7 @@ export function RepairProjectOperationPanel({
         )
       )}
 
-      {project.status === "AUTHORIZED" && execution && (
+      {project.status === "AUTHORIZED" && plan?.status === "LOCKED" && execution && !directResponsibilityExecution && (
         <ContractOperation
           details={details}
           execution={execution}
@@ -417,6 +444,10 @@ export function RepairProjectOperationPanel({
           busy={busy}
           run={run}
         />
+      )}
+
+      {project.status === "AUTHORIZED" && plan?.status === "LOCKED" && directResponsibilityExecution && (
+        <DirectResponsibilityExecutionNotice details={details} />
       )}
 
       {project.status === "CONTRACT_EFFECTIVE" && hasPermission("repair:workorder:manage") && (
@@ -551,29 +582,96 @@ function PlanLockOperation({
 }: Omit<OperationProps, "remember"> & { plan: RepairProjectPlan }) {
   const project = details.project;
   const decisionScope = details.decisionScope;
+  const determination = details.responsibilityDetermination;
   const decisionScopePending = decisionScope?.verificationStatus === "PENDING_VERIFICATION";
-  const fundingSlicesConfirmed = details.fundingSlices.length > 0
-    && details.fundingSlices.every((slice) => slice.verificationStatus === "CONFIRMED");
+  const needsOwnerDecision = determination?.responsibilityPath === "SHARED_COMMON_REPAIR"
+    && determination.executionAuthorityType === "OWNER_DECISION";
+  const authorizationProposal = plan.status === "AUTHORIZATION_FROZEN";
+
+  if (!determination) {
+    return (
+      <OperationSection title="等待工程责任认定" desc="先由物业提交责任、资金承担和执行依据，再由治理主体确认。范围、设备名称和附件上传都不能自行替代该步骤。">
+        <p className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+          当前尚无已确认的工程责任认定，因此不能冻结授权提案或锁定最终实施方案。
+        </p>
+      </OperationSection>
+    );
+  }
+
+  if (determination.status !== "CONFIRMED") {
+    return (
+      <OperationSection title="等待工程责任认定确认" desc="待治理主体确认责任、资金承担和执行依据后，后端才会允许下一步。">
+        <p className="rounded-md border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm leading-6 text-amber-950">
+          当前认定状态为待确认。它不产生资金切片、方案锁定、定商或付款资格。
+        </p>
+      </OperationSection>
+    );
+  }
+
+  const title = authorizationProposal
+    ? "锁定最终实施方案"
+    : needsOwnerDecision
+      ? "冻结授权提案"
+      : "锁定最终实施方案";
+  const description = authorizationProposal
+    ? "有效决定或授权已经形成；锁定时由后端重新核验责任认定、费用承担房屋、资金账簿和预算上限，并生成后续定商、合同、施工、验收与付款使用的最终快照。"
+    : needsOwnerDecision
+      ? "冻结的是供相关业主决定或授权审查的提案，不是可施工方案。费用承担房屋与面积在此时固化；真实资金账簿在最终实施锁定时重新核验。"
+      : "已确认直接执行依据。锁定时由后端核验责任依据、资金承担记录和预算上限；该锁定不产生业主侧定商、施工合同或付款资格。";
+  const action = authorizationProposal
+    ? () => lockRepairProjectPlan(project.projectId, plan.planId, project.version)
+    : needsOwnerDecision
+      ? () => freezeRepairProjectPlanForAuthorization(project.projectId, plan.planId, project.version)
+      : () => lockRepairProjectPlan(project.projectId, plan.planId, project.version);
+  const success = authorizationProposal
+    ? "后端已核验并锁定最终实施方案"
+    : needsOwnerDecision
+      ? "授权提案已冻结，可进入业主决定或授权程序"
+      : "后端已核验并锁定最终实施方案";
+  const actionKey = authorizationProposal
+    ? "lock-final-plan"
+    : needsOwnerDecision
+      ? "freeze-authorization-proposal"
+      : "lock-direct-plan";
+  const actionLabel = authorizationProposal
+    ? "锁定最终实施方案"
+    : needsOwnerDecision
+      ? "冻结授权提案"
+      : "请求锁定最终实施方案";
 
   return (
-    <OperationSection title="请求锁定当前实施方案" desc="锁定时由后端核验决定范围、费用承担房屋与面积、专项维修资金账簿和预算承担上限，并固化快照。定商授权、合同、验收与付款在后续节点形成。">
+    <OperationSection title={title} desc={description}>
       <div className="mt-4 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>决定范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核验"}</StatusChip>
-          <StatusChip tone={fundingSlicesConfirmed ? "success" : "warning"}>资金承担快照{fundingSlicesConfirmed ? "已确认" : "锁定时核验"}</StatusChip>
+          <StatusChip tone="success">责任认定已确认</StatusChip>
+          {authorizationProposal && <StatusChip tone="success">有效授权已形成</StatusChip>}
+          {needsOwnerDecision && <StatusChip tone="warning">资金账簿在最终锁定时核验</StatusChip>}
         </div>
         <div className="flex shrink-0 gap-2">
-          {decisionScopePending && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
+          {decisionScopePending && plan.status === "DRAFT" && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
             "reverify-decision-scope",
             () => reverifyRepairProjectDecisionScope(project.projectId, project.version),
             "已按关联来源重新核验决定范围",
           )}>重新核验范围</Button>}
-          <Button disabled={busy !== null} onClick={() => void run(
-            "lock-plan",
-            () => lockRepairProjectPlan(project.projectId, plan.planId, project.version),
-            "后端已核验并锁定实施方案",
-          )}><ShieldCheck className="mr-1 size-4" />请求锁定</Button>
+          <Button disabled={busy !== null} onClick={() => void run(actionKey, action, success)}>
+            <ShieldCheck className="mr-1 size-4" />{actionLabel}
+          </Button>
         </div>
+      </div>
+    </OperationSection>
+  );
+}
+
+/** 已确认的直接责任方不应被伪装成业主侧定商、施工合同或付款流程。 */
+function DirectResponsibilityExecutionNotice({ details }: { details: RepairProjectDetails }) {
+  const determination = details.responsibilityDetermination;
+  if (!determination) return null;
+  return (
+    <OperationSection title="责任方履行" desc="该工程已按确认的责任依据锁定，不适用业主侧供应商定商和施工合同链路。">
+      <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        {determination.responsiblePartyName ?? "已确认责任承担方"}应按“{determination.basisReference}”履行维修、保修或赔付责任。
+        物业应通过相应合同、保修或责任追偿凭证留存履行与验收事实，不得用本项目的中选供应商或施工合同替代。
       </div>
     </OperationSection>
   );
@@ -623,7 +721,6 @@ function BuildingGovernanceOperation({
   const [decisionConfirmationOpen, setDecisionConfirmationOpen] = useState(false);
   const [auditedGovernance, setAuditedGovernance] = useState<RepairBuildingGovernanceDetails | null>(null);
   const status = governance?.process.status;
-  const confirmedFundingSlices = details.fundingSlices.filter((slice) => slice.verificationStatus === "CONFIRMED");
   const decisionScopeConfirmed = details.decisionScope?.verificationStatus === "CONFIRMED";
   const isPropertyVerifier = ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
     && hasPermission("repair:decision:verify");
@@ -752,7 +849,7 @@ function BuildingGovernanceOperation({
       }),
       confirmedResult === "PASSED"
         ? "微信接龙核验通过，项目已进入报审阶段"
-        : "微信接龙核验未通过，项目已退回已锁定方案",
+        : "微信接龙核验未通过，项目已退回待调整方案",
     );
     if (succeeded) setDecisionConfirmationOpen(false);
   }
@@ -760,10 +857,16 @@ function BuildingGovernanceOperation({
   if (!governance) {
     const unsupportedNonResponseRule = decisionRule?.nonResponseRule !== undefined
       && decisionRule.nonResponseRule !== "NOT_PARTICIPATED";
-    // 当前后端尚未提供可用于征询的业主/面积范围快照，不能由项目范围或资金切片自动补造。
-    const canStart = false;
+    const authorizationProposal = project.status === "AUTHORIZATION_IN_PROGRESS";
+    const canStart = authorizationProposal
+      && decisionScopeConfirmed
+      && Boolean(decisionRule)
+      && !ruleLoading
+      && !unsupportedNonResponseRule
+      && ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
+      && hasPermission("repair:workorder:manage");
     return (
-      <OperationSection title="楼栋维修治理依据" desc="业主征询必须依赖后端已核验的决定范围、资金承担和业主范围快照。当前页面不会从项目范围或资金切片自动生成征询对象。">
+      <OperationSection title="楼栋维修授权程序" desc="仅已冻结的授权提案可以发起楼栋维修征询。服务器将使用冻结时的费用承担房屋和面积快照，页面不会按当前范围重新推导征询对象。">
         <div className="grid overflow-hidden rounded-md border bg-border md:grid-cols-2 md:gap-px">
           <div className="bg-background p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -808,12 +911,9 @@ function BuildingGovernanceOperation({
             <div className="mb-3 text-sm font-semibold">后端核验快照</div>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div><dt className="text-xs text-muted-foreground">项目决定范围</dt><dd className="mt-1">{decisionScopeConfirmed ? "已确认" : "待核验"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">资金承担切片</dt><dd className="mt-1">{confirmedFundingSlices.length > 0 ? `已确认 ${confirmedFundingSlices.length} 项` : "待核验"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">授权提案</dt><dd className="mt-1">{authorizationProposal ? "已冻结" : "当前为历史锁定方案"}</dd></div>
             </dl>
-            <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-              <AlertTriangle className="mt-1 size-4 shrink-0" />
-              <span>当前契约未提供可用于业主征询的实际业主、房屋或面积快照。该事实不能由项目范围或资金承担切片推导，待后端可信快照接入后才可发起征询。</span>
-            </div>
+            {!authorizationProposal && <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950"><AlertTriangle className="mt-1 size-4 shrink-0" /><span>历史锁定方案沿用原有办理链路。新项目必须先冻结授权提案，不能通过本页补造该快照。</span></div>}
           </div>
         </div>
         {unsupportedNonResponseRule && (
@@ -822,13 +922,13 @@ function BuildingGovernanceOperation({
             当前有效规则为“{nonResponseRuleLabel(decisionRule?.nonResponseRule ?? "")}”，现有计票能力尚不支持该未表态处理方式，禁止发起征询。
           </div>
         )}
-        <Button className="mt-4" disabled={busy !== null || ruleLoading || !canStart} onClick={() => void governanceRun(
+        <Button className="mt-4" disabled={busy !== null || !canStart} onClick={() => void governanceRun(
           "building-start",
           () => postRepairProjectAction(project.projectId, "building-governance/start", {
             expectedProjectVersion: project.version,
           }),
           "楼栋维修征询已发起",
-        )}>等待后端治理快照</Button>
+        )}>发起楼栋维修征询</Button>
       </OperationSection>
     );
   }

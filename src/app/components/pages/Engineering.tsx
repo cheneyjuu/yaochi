@@ -63,9 +63,10 @@ import { RepairProjectOperationPanel } from "./repair/RepairProjectOperationPane
 
 const STATUS_LABEL: Record<RepairProjectStatus, string> = {
   DRAFT: "方案草稿",
-  PLAN_LOCKED: "方案已锁定",
+  AUTHORIZATION_IN_PROGRESS: "授权程序中",
+  PLAN_LOCKED: "历史方案已锁定",
   GOVERNANCE_IN_PROGRESS: "治理决策中",
-  AUTHORIZED: "已授权签约",
+  AUTHORIZED: "已获授权",
   CONTRACT_EFFECTIVE: "合同已生效",
   IN_PROGRESS: "施工中",
   PENDING_ACCEPTANCE: "待验收",
@@ -77,6 +78,7 @@ const STATUS_LABEL: Record<RepairProjectStatus, string> = {
 
 const STATUS_TONE: Record<RepairProjectStatus, Tone> = {
   DRAFT: "neutral",
+  AUTHORIZATION_IN_PROGRESS: "warning",
   PLAN_LOCKED: "info",
   GOVERNANCE_IN_PROGRESS: "warning",
   AUTHORIZED: "tech",
@@ -99,21 +101,37 @@ const STAGE_LABEL: Record<RepairProjectStage, string> = {
 };
 
 const FUND_LABEL = {
-  BUILDING_MAINTENANCE_FUND: "楼栋专有维修资金",
-  COMMUNITY_MAINTENANCE_FUND: "小区公共维修资金",
+  BUILDING_MAINTENANCE_FUND: "历史楼栋范围维修资金",
+  COMMUNITY_MAINTENANCE_FUND: "历史全体共用维修资金",
 } as const;
 
 const FUNDING_SOURCE_TYPE_LABEL = {
   SPECIAL_MAINTENANCE_LEDGER: "维修资金账簿",
   PUBLIC_REVENUE_LEDGER: "公共收益账簿",
+  PROPERTY_SERVICE_CONTRACT: "物业服务合同费用",
   LIABLE_PARTY: "责任主体承担",
   DEVELOPER_WARRANTY: "开发商保修责任",
   OWNER_SELF_FUNDING: "业主自筹",
 } as const;
 
+const RESPONSIBILITY_PATH_LABEL = {
+  PROPERTY_SERVICE_CONTRACT: "物业服务合同责任",
+  DEVELOPER_WARRANTY: "建设单位保修责任",
+  LIABLE_PARTY: "责任人或第三方责任",
+  SHARED_COMMON_REPAIR: "共有部位维修",
+} as const;
+
 /** 资金来源只能展示后端已核验的事实，不能由工程范围推导。 */
 function fundSourceLabel(fundSource: RepairProject["fundSource"]): string {
-  return fundSource ? `历史归档：${FUND_LABEL[fundSource]}` : "待后端核验";
+  return fundSource ? `历史归档：${FUND_LABEL[fundSource]}` : "尚未形成资金承担快照";
+}
+
+/** 工程责任认定与资金切片分开显示，避免把楼栋范围误读为维修资金路径。 */
+function responsibilityDeterminationLabel(details: RepairProjectDetails): string {
+  const determination = details.responsibilityDetermination;
+  if (!determination) return "尚未提交";
+  const status = determination.status === "CONFIRMED" ? "已确认" : "待治理确认";
+  return `${RESPONSIBILITY_PATH_LABEL[determination.responsibilityPath]} · ${status}`;
 }
 
 /** 资金切片由后端可信来源返回；没有确认切片时不能把项目范围当作资金或分摊结论。 */
@@ -285,7 +303,7 @@ export function Engineering() {
                 <TableCell>
                   <div className="flex justify-end gap-2">
                     {project.status === "DRAFT" && hasPermission("repair:workorder:manage") && (
-                      <Button size="sm" onClick={() => openProject(project, "actions")}><Send className="mr-1 size-4" />邀请供应商</Button>
+                      <Button size="sm" onClick={() => openProject(project, "actions")}><Send className="mr-1 size-4" />参考询价</Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => openProject(project)}>详情</Button>
                   </div>
@@ -315,7 +333,7 @@ export function Engineering() {
 
               <Tabs value={detailTab} onValueChange={setDetailTab} className="min-h-0 flex-1 gap-0">
                 <div className="shrink-0 border-b bg-card px-4 py-3 sm:px-6">
-                  <TabsList className="grid h-10 w-full grid-cols-4 rounded-md"><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="overview">项目方案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="execution">工程档案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="acceptance">验收付款</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="actions">{details.plans.some((plan) => plan.status === "DRAFT") ? "供应商邀价" : "办理操作"}</TabsTrigger></TabsList>
+                  <TabsList className="grid h-10 w-full grid-cols-4 rounded-md"><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="overview">项目方案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="execution">工程档案</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="acceptance">验收付款</TabsTrigger><TabsTrigger className="rounded-sm text-xs sm:text-sm" value="actions">{details.plans.some((plan) => plan.status === "DRAFT") ? "筹备与询价" : "办理操作"}</TabsTrigger></TabsList>
                 </div>
 
                 <TabsContent value="overview" className="m-0 min-h-0 flex-1 overflow-y-auto bg-background">
@@ -375,6 +393,7 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
         <h3 className="mb-5 text-base font-semibold text-slate-950">项目概况</h3>
         <div className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-4">
           <Info label="资金承担快照" value={fundingSliceLabel(details.fundingSlices)} icon={<Banknote className="size-4" />} />
+          <Info label="工程责任认定" value={responsibilityDeterminationLabel(details)} />
           <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
           <Info label="项目决定范围" value={details.decisionScope?.scopeType === "COMMUNITY" ? "全体共用" : details.decisionScope?.buildingId ? `${details.decisionScope.buildingId} 号楼${details.decisionScope.unitName ? ` · ${details.decisionScope.unitName}` : ""}` : "待核验"} />
           <Info label="范围核验" value={details.decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : details.decisionScope?.verificationStatus === "PENDING_VERIFICATION" ? "待核验" : "历史只读"} />

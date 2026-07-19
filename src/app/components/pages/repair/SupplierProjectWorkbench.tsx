@@ -41,7 +41,8 @@ import {
 
 const STATUS_META: Record<RepairProjectStatus, { label: string; tone: Tone }> = {
   DRAFT: { label: "方案编制", tone: "neutral" },
-  PLAN_LOCKED: { label: "方案已锁定", tone: "info" },
+  AUTHORIZATION_IN_PROGRESS: { label: "授权程序中", tone: "warning" },
+  PLAN_LOCKED: { label: "历史方案已锁定", tone: "info" },
   GOVERNANCE_IN_PROGRESS: { label: "业主决策中", tone: "warning" },
   AUTHORIZED: { label: "已授权", tone: "info" },
   CONTRACT_EFFECTIVE: { label: "待开工", tone: "warning" },
