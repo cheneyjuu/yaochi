@@ -1,4 +1,4 @@
-// 关联业务：物业在维修工程筹备阶段收集供应商参考询价、报价原件、横向比价和修订记录；定商须等待可信快照。
+// 关联业务：物业在表决前收集施工单位报价，实施方案通过后再按通过的选择方式确定施工单位。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Building2, CheckCircle2, FileCheck2, FilePlus2, FileText, Loader2, ReceiptText, RefreshCw, Send, X } from "lucide-react";
 import { toast } from "sonner";
@@ -38,20 +38,20 @@ import {
 } from "./RepairProjectQuoteEditor";
 
 const METHOD_LABEL = {
-  COMPETITIVE_QUOTATION: "竞争性询价",
-  FRAMEWORK_SUPPLIER: "框架供应商",
-  DIRECT_AWARD: "依法直接委托",
-  EMERGENCY_APPOINTMENT: "紧急指定",
+  COMPETITIVE_QUOTATION: "询价比选",
+  FRAMEWORK_SUPPLIER: "从长期合作单位中选择",
+  DIRECT_AWARD: "直接委托",
+  EMERGENCY_APPOINTMENT: "按紧急维修程序指定",
 } as const;
 
 const EVALUATION_RULE_LABEL: Record<RepairProjectSupplierEvaluationRule, string> = {
   LOWEST_COMPLIANT_QUOTE: "最低合格报价",
-  COMPREHENSIVE_EVALUATION: "综合评审",
-  AUTHORIZED_DIRECT_SELECTION: "经授权直接选择",
+  COMPREHENSIVE_EVALUATION: "综合比较",
+  AUTHORIZED_DIRECT_SELECTION: "按通过的方案直接选择",
 };
 
 const SOURCE_LABEL: Record<RepairProjectSupplierQuote["submissionSource"], string> = {
-  SUPPLIER_ONLINE: "供应商在线提交",
+  SUPPLIER_ONLINE: "施工单位在线提交",
   PROPERTY_ENTRY: "物业核验原件后录入",
 };
 
@@ -120,8 +120,8 @@ function SelectionAuthorizationSnapshot({
 }) {
   if (!authorization) {
     return (
-      <div className="border-y bg-amber-50/60 px-4 py-3 text-sm leading-6 text-amber-950">
-        定商授权状态尚未由后端返回；当前页面不会以项目范围、资金切片或账号角色代替授权事实。
+      <div className="border-y bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        完成责任与费用确认、实施方案公示和相关业主表决后，再办理施工单位选择。
       </div>
     );
   }
@@ -129,9 +129,9 @@ function SelectionAuthorizationSnapshot({
   if (authorization.status !== "AUTHORIZED") {
     const unsupported = authorization.status === "UNSUPPORTED_WORKFLOW";
     return (
-      <div className={`border-y px-4 py-3 text-sm leading-6 ${unsupported ? "bg-muted/30 text-muted-foreground" : "bg-amber-50/60 text-amber-950"}`}>
-        <div className="font-medium">{unsupported ? "当前流程暂不支持最终定商" : "定商依据尚未生效"}</div>
-        <div className="mt-1">{authorization.blockingReason ?? "等待后端完成决定、授权和用印依据核验。"}</div>
+      <div className="border-y bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        <div className="font-medium">{unsupported ? "本项目不在此处选择施工单位" : "尚未到确定施工单位环节"}</div>
+        <div className="mt-1">{authorization.blockingReason ?? "完成实施方案表决和业委会确认后再办理。"}</div>
       </div>
     );
   }
@@ -141,25 +141,28 @@ function SelectionAuthorizationSnapshot({
   return (
     <div className="border-y bg-emerald-50/50 px-4 py-4 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="font-medium">已用印定商授权快照</div>
+        <div className="font-medium">表决通过的施工单位选择方案</div>
         <StatusChip tone={authorization.currentActorMayConfirm ? "success" : "info"}>
-          {authorization.currentActorMayConfirm ? "当前身份可最终确认" : "当前身份仅可查看"}
+          {authorization.currentActorMayConfirm ? "当前可办理" : "当前仅可查看"}
         </StatusChip>
       </div>
       <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
-        <div><dt className="text-xs text-muted-foreground">通过的选择方式</dt><dd className="mt-1 font-medium">{method ? METHOD_LABEL[method] : "未返回"}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">评审规则</dt><dd className="mt-1 font-medium">{rule ? EVALUATION_RULE_LABEL[rule] : "未返回"}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">通过预算</dt><dd className="mt-1 font-medium">{authorization.approvedBudgetAmount == null ? "未返回" : money(authorization.approvedBudgetAmount)}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">最小邀价数</dt><dd className="mt-1">{authorization.minimumInvitedSupplierCount == null ? "文件未明确" : `${authorization.minimumInvitedSupplierCount} 家`}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">最小有效报价数</dt><dd className="mt-1">{authorization.minimumValidQuoteCount == null ? "文件未明确" : `${authorization.minimumValidQuoteCount} 家`}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">授权依据状态</dt><dd className="mt-1">已核验并锁定</dd></div>
-        {authorization.nonCompetitiveSelectionBasis && <div className="sm:col-span-2 xl:col-span-3"><dt className="text-xs text-muted-foreground">非竞争定商依据</dt><dd className="mt-1 leading-6">{authorization.nonCompetitiveSelectionBasis}</dd></div>}
+        <div><dt className="text-xs text-muted-foreground">选择方式</dt><dd className="mt-1 font-medium">{method ? METHOD_LABEL[method] : "未载明"}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">报价选择规则</dt><dd className="mt-1 font-medium">{rule ? EVALUATION_RULE_LABEL[rule] : "未载明"}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">表决通过预算</dt><dd className="mt-1 font-medium">{authorization.approvedBudgetAmount == null ? "未载明" : money(authorization.approvedBudgetAmount)}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">邀请单位数</dt><dd className="mt-1">{authorization.minimumInvitedSupplierCount == null ? "文件未明确" : `${authorization.minimumInvitedSupplierCount} 家`}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">报价数量</dt><dd className="mt-1">{authorization.minimumValidQuoteCount == null ? "文件未明确" : `${authorization.minimumValidQuoteCount} 家`}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">决定材料</dt><dd className="mt-1">已核对</dd></div>
+        {authorization.nonCompetitiveSelectionBasis && <div className="sm:col-span-2 xl:col-span-3"><dt className="text-xs text-muted-foreground">直接委托依据</dt><dd className="mt-1 leading-6">{authorization.nonCompetitiveSelectionBasis}</dd></div>}
       </dl>
     </div>
   );
 }
 
+type SourcingOperationMode = "PREPARATION" | "SELECTION";
+
 export function RepairProjectSourcingOperation({
+  mode,
   details,
   sourcing,
   sourcingLoading,
@@ -172,6 +175,7 @@ export function RepairProjectSourcingOperation({
   onOpenSupplierDirectory,
   canManageReferenceQuotes,
 }: {
+  mode: SourcingOperationMode;
   details: RepairProjectDetails;
   sourcing: RepairProjectSourcingDetails | null;
   sourcingLoading: boolean;
@@ -343,7 +347,7 @@ export function RepairProjectSourcingOperation({
     return (
       <section className="border-t py-5 first:border-t-0 first:pt-0">
         <div className="flex items-center justify-between gap-3">
-          <div><h4 className="text-sm font-semibold">供应商邀价与比价</h4><p className="mt-1 text-xs text-muted-foreground">{sourcingError ? "采购记录读取失败，项目方案和其他办理记录不受影响。" : "正在读取当前方案的采购记录"}</p></div>
+          <div><h4 className="text-sm font-semibold">{mode === "PREPARATION" ? "前期询价" : "确定施工单位"}</h4><p className="mt-1 text-xs text-muted-foreground">{sourcingError ? "询价记录读取失败，项目方案和其他办理记录不受影响。" : "正在读取当前方案的询价记录"}</p></div>
           <Button size="icon" variant="ghost" title="重新读取询价记录" onClick={() => void onReload()} disabled={sourcingLoading}><RefreshCw className={`size-4 ${sourcingLoading ? "animate-spin" : ""}`} /></Button>
         </div>
         {sourcingError ? (
@@ -379,7 +383,7 @@ export function RepairProjectSourcingOperation({
       warrantyDays: Number(quoteWarrantyDays),
       originalAmountConfirmed: quoteOriginalAmountConfirmed,
       quoteLines: toRepairQuoteLineInputs(quoteLines),
-    }), "供应商报价原件已核验并录入");
+    }), "施工单位报价原件已核验并录入");
     if (!successful) return;
     setQuoteLines(createRepairQuoteDraftLines());
     setQuoteTaxRate("9");
@@ -403,7 +407,7 @@ export function RepairProjectSourcingOperation({
         selectionEvidenceAttachmentId: selectionEvidence.attachmentId,
         ...(selectionMethod === "FRAMEWORK_SUPPLIER" ? { frameworkRelationId: Number(frameworkRelationId) } : {}),
       }),
-      "中选供应商已按授权快照确认",
+      "施工单位已确认",
     );
     if (!successful) return;
     setSelectedQuoteId("");
@@ -423,41 +427,27 @@ export function RepairProjectSourcingOperation({
 
   return (
     <section className="border-t py-5 first:border-t-0 first:pt-0">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h4 className="text-base font-semibold">供应商邀价与比价</h4>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{project.status === "DRAFT" ? "当前仅收集参考询价和报价原件，用于后续决定预算与技术商务依据。" : "报价、授权快照与最终中选结果均绑定当前方案。"}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusChip tone={selectionAuthorization?.status === "AUTHORIZED" ? "success" : selectionAuthorization?.status === "UNSUPPORTED_WORKFLOW" ? "neutral" : "warning"}>
-            {selectionAuthorization?.status === "AUTHORIZED"
-              ? "定商授权已生效"
-              : selectionAuthorization?.status === "UNSUPPORTED_WORKFLOW"
-                ? "当前流程暂不支持定商"
-                : "定商授权待生效"}
-          </StatusChip>
-          <Button size="icon" variant="ghost" title="刷新询价记录" onClick={() => void onReload()}><RefreshCw className="size-4" /></Button>
-        </div>
-      </div>
-
-      <SelectionAuthorizationSnapshot authorization={selectionAuthorization} />
-
-      {sourcing.selection && (
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-y bg-emerald-50/60 px-3 py-3 text-sm">
+      {mode === "PREPARATION" && (
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <span className="font-medium">中选供应商：{sourcing.selection.supplierName}</span><span className="ml-3 text-muted-foreground">报价 {money(sourcing.selection.quoteAmount)}</span>
-            {sourcing.selection.selectionRationale && <div className="mt-1 text-xs text-muted-foreground">定商说明：{sourcing.selection.selectionRationale}</div>}
+            <h4 className="text-base font-semibold">前期询价</h4>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">在实施方案提交相关业主表决前收集报价，用于完善预算和比较施工方案；此时不确定施工单位。</p>
           </div>
-          <StatusChip tone="success">已形成中选结果</StatusChip>
+          <div className="flex items-center gap-2">
+            <StatusChip tone={confirmedSupplierCount > 0 ? "success" : "neutral"}>已收 {confirmedSupplierCount} 家报价</StatusChip>
+            <Button size="icon" variant="ghost" title="刷新询价记录" onClick={() => void onReload()}><RefreshCw className="size-4" /></Button>
+          </div>
         </div>
       )}
 
       <div>
+        {mode === "PREPARATION" && (
+          <>
         {showReferenceCollection && (
           <SourcingStep
             step={1}
-            title="收集参考询价"
-            description="参考报价用于形成后续决定预算与技术商务依据，不形成中选结果。"
+            title="邀请施工单位报价"
+            description="收集报价用于完善预算、施工内容和工期要求；此阶段不确定施工单位。"
             status={<StatusChip tone={initialInvitationCount > 0 ? "success" : "warning"}>已邀 {initialInvitationCount} 家</StatusChip>}
           >
           {canCollectReferenceQuotes ? (
@@ -474,9 +464,9 @@ export function RepairProjectSourcingOperation({
               ) : (
                 verifiedSuppliers.length === 0 ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 border-y px-3 py-3 text-sm">
-                    <span className="text-muted-foreground">暂无可邀请的已核验供应商，请先完成供应商登记与企业主体核验。</span>
+                    <span className="text-muted-foreground">暂无可邀请的已核验施工单位，请先完成企业登记与主体核验。</span>
                     <Button type="button" size="sm" variant="outline" onClick={onOpenSupplierDirectory}>
-                      <Building2 className="mr-1 size-4" />前往供应商库
+                      <Building2 className="mr-1 size-4" />前往施工单位库
                     </Button>
                   </div>
                 ) : (
@@ -499,7 +489,7 @@ export function RepairProjectSourcingOperation({
         <SourcingStep
           step={showReferenceCollection ? 2 : 1}
           title="报价响应"
-          description="供应商在线提交或物业核验原件代录后，才会计入当前有效报价。"
+          description="施工单位在线提交，或物业核对线下原件后代录，报价才会进入本次比较。"
           status={(
             <StatusChip tone={confirmedSupplierCount > 0 ? "success" : "warning"}>
               {showReferenceCollection ? `已收 ${confirmedSupplierCount} / 已邀 ${initialInvitationCount}` : `有效 ${confirmedSupplierCount} 家`}
@@ -507,13 +497,13 @@ export function RepairProjectSourcingOperation({
           )}
         >
         {responseRows.length === 0 ? (
-          <div className="border-y px-3 py-6 text-center text-sm text-muted-foreground">尚未收到供应商报价响应</div>
+          <div className="border-y px-3 py-6 text-center text-sm text-muted-foreground">尚未收到施工单位报价</div>
         ) : (
           <div className="divide-y border-y">
             {responseRows.map((response) => {
               const responseMeta = response.quote
                 ? response.quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION"
-                  ? { label: "待供应商确认", tone: "warning" as Tone }
+                  ? { label: "待施工单位确认", tone: "warning" as Tone }
                   : {
                       label: response.quote.submissionSource === "SUPPLIER_ONLINE" ? "已在线提交" : "物业已代录",
                       tone: "success" as Tone,
@@ -539,7 +529,7 @@ export function RepairProjectSourcingOperation({
                     {response.quote ? (
                       <Button size="sm" variant="ghost" onClick={() => void openQuote(response.quote!)}><FileText className="mr-1 size-4" />查看原件</Button>
                     ) : (
-                      <span className="text-xs text-muted-foreground">等待供应商提交</span>
+                      <span className="text-xs text-muted-foreground">等待施工单位提交</span>
                     )}
                   </div>
                 </div>
@@ -555,8 +545,8 @@ export function RepairProjectSourcingOperation({
               <div className="text-sm font-medium">线下报价代录</div>
               <div className="mt-1 text-xs text-muted-foreground">
                 {manualEntrySuppliers.length === 0 && quoteSuppliers.length > 0
-                  ? "当前供应商均已有报价记录，无需重复代录。"
-                  : "仅在收到纸质、微信或邮件报价，且供应商未在线提交时使用。"}
+                  ? "当前施工单位均已有报价记录，无需重复代录。"
+                  : "仅在收到纸质、微信或邮件报价，且施工单位未在线提交时使用。"}
               </div>
             </div>
             <CollapsibleTrigger asChild>
@@ -569,7 +559,7 @@ export function RepairProjectSourcingOperation({
           <CollapsibleContent>
             <div className="mt-4 border-y bg-muted/20 px-3 py-4">
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div><Label>供应商</Label><Select value={quoteSupplierId} onValueChange={setQuoteSupplierId}><SelectTrigger><SelectValue placeholder="先邀请已核验供应商" /></SelectTrigger><SelectContent>{manualEntrySuppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
+                <div><Label>施工单位</Label><Select value={quoteSupplierId} onValueChange={setQuoteSupplierId}><SelectTrigger><SelectValue placeholder="先邀请已核验施工单位" /></SelectTrigger><SelectContent>{manualEntrySuppliers.map((supplier) => <SelectItem key={supplier.supplierDeptId} value={String(supplier.supplierDeptId)}>{supplier.legalName}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label>原件来源</Label><Select value={quoteSource} onValueChange={setQuoteSource}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAPER">纸质报价</SelectItem><SelectItem value="WECHAT">微信送达</SelectItem><SelectItem value="EMAIL">电子邮件</SelectItem><SelectItem value="OTHER">其他可核验来源</SelectItem></SelectContent></Select></div>
                 <div><Label>施工工期（天）</Label><Input type="number" min="1" max="3650" step="1" value={quoteConstructionPeriodDays} onChange={(event) => setQuoteConstructionPeriodDays(event.target.value)} /></div>
                 <div><Label>质保期（天）</Label><Input type="number" min="0" max="3650" step="1" value={quoteWarrantyDays} onChange={(event) => setQuoteWarrantyDays(event.target.value)} /></div>
@@ -580,9 +570,9 @@ export function RepairProjectSourcingOperation({
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div><Label>报价说明</Label><Textarea value={quoteSummary} onChange={(event) => setQuoteSummary(event.target.value)} placeholder="填写材料、施工组织或其他报价边界" /></div>
-                <RepairProjectFileUpload projectId={project.projectId} label="供应商报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
+                <RepairProjectFileUpload projectId={project.projectId} label="施工单位报价原件" value={quoteFile} onUploaded={(file) => { remember(file); setQuoteFile(file); }} />
               </div>
-              <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与供应商报价原件一致。</span></label>
+              <label className="mt-4 flex items-start gap-3 border-y px-3 py-3 text-sm"><Checkbox className="mt-0.5" checked={quoteOriginalAmountConfirmed} onCheckedChange={(checked) => setQuoteOriginalAmountConfirmed(checked === true)} /><span>我已核对线上报价明细的不含税合计、整单税率和含税总额与施工单位报价原件一致。</span></label>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <div className={`text-sm ${quoteDraftError || !quotePeriodValid || !quoteWarrantyValid ? "text-amber-700" : "text-muted-foreground"}`}>{quoteDraftError ?? (!quotePeriodValid ? "施工工期应为 1 至 3650 天" : !quoteWarrantyValid ? "质保期应为 0 至 3650 天" : `待录入含税总额 ${money(quoteTotal)}`)}</div>
                 <Button disabled={busy !== null || !quoteSupplierId || Boolean(quoteDraftError) || !quotePeriodValid || !quoteWarrantyValid || !quoteFile || !quoteOriginalAmountConfirmed} onClick={() => void submitQuote()}><FileCheck2 className="mr-1 size-4" />录入已核验报价</Button>
@@ -595,18 +585,18 @@ export function RepairProjectSourcingOperation({
 
         <SourcingStep
           step={showReferenceCollection ? 3 : 2}
-          title="比较有效报价"
-          description={selectionAuthorized ? "仅当前有效且已确认的报价可进入最终定商；最小数量以授权快照为准。" : "历史版本保留只读；当前比较仅用于形成后续决定预算与技术商务依据。"}
-          status={<StatusChip tone={validQuoteRequirementMet ? confirmedSupplierCount > 0 ? "success" : "warning" : "danger"}>{requiredValidQuoteCount == null ? `有效 ${confirmedSupplierCount} 家` : `有效 ${confirmedSupplierCount} / 要求 ${requiredValidQuoteCount} 家`}</StatusChip>}
+          title="报价对比"
+          description="对比含税金额、工期、质保和报价边界，为完善实施方案和预算提供依据。"
+          status={<StatusChip tone={confirmedSupplierCount > 0 ? "success" : "neutral"}>已核对 {confirmedSupplierCount} 家</StatusChip>}
         >
         {sourcing.quotes.length === 0 ? <div className="py-6 text-center text-sm text-muted-foreground">尚未收到报价</div> : (
           <div className="overflow-x-auto border-y">
             <table className="w-full min-w-[1080px] text-sm">
-              <thead className="bg-muted/40"><tr><th className="p-2 text-left">用途</th><th className="p-2 text-left">供应商</th><th className="p-2 text-left">版本</th><th className="p-2 text-left">提交方式</th><th className="p-2 text-right">工期 / 质保</th><th className="p-2 text-right">含税报价</th><th className="p-2 text-left">状态</th><th className="p-2 text-right">资料</th></tr></thead>
+              <thead className="bg-muted/40"><tr><th className="p-2 text-left">用途</th><th className="p-2 text-left">施工单位</th><th className="p-2 text-left">版本</th><th className="p-2 text-left">提交方式</th><th className="p-2 text-right">工期 / 质保</th><th className="p-2 text-right">含税报价</th><th className="p-2 text-left">状态</th><th className="p-2 text-right">资料</th></tr></thead>
               <tbody>{sourcing.quotes.map((quote) => {
                 const confirmed = activeConfirmedQuotes.some((item) => item.quoteId === quote.quoteId);
                 const isHistoricalSelection = sourcing.selection?.quoteId === quote.quoteId;
-                return <tr key={quote.quoteId} className="border-t"><td className="p-2"><span className="text-xs text-muted-foreground">{isHistoricalSelection ? "已归档中选" : "参考报价"}</span></td><td className="p-2"><div className="font-medium">{quote.supplierName}</div><div className="mt-1 max-w-72 truncate text-xs text-muted-foreground">{quote.quoteSummary || "无补充说明"}</div></td><td className="p-2">第 {quote.revisionNo} 版</td><td className="p-2">{SOURCE_LABEL[quote.submissionSource]}</td><td className="p-2 text-right">{quote.constructionPeriodDays ?? "-"} / {quote.warrantyDays ?? "-"} 天</td><td className="p-2 text-right font-medium">{money(quote.quoteAmount)}</td><td className="p-2"><StatusChip tone={confirmed ? "success" : quote.quoteStatus === "REVISION_REQUESTED" ? "warning" : "neutral"}>{quote.quoteStatus === "ACTIVE" ? quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "待确认" : "有效" : quote.quoteStatus === "REVISION_REQUESTED" ? "待修订" : "历史版"}</StatusChip></td><td className="p-2 text-right"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="查看报价明细" onClick={() => setDetailQuoteId(quote.quoteId)}><ReceiptText className="mr-1 size-4" />明细</Button><Button size="icon" variant="ghost" title="查看报价原件" onClick={() => void openQuote(quote)}><FileText className="size-4" /></Button></div></td></tr>;
+                return <tr key={quote.quoteId} className="border-t"><td className="p-2"><span className="text-xs text-muted-foreground">{isHistoricalSelection ? "已选施工单位" : "参考报价"}</span></td><td className="p-2"><div className="font-medium">{quote.supplierName}</div><div className="mt-1 max-w-72 truncate text-xs text-muted-foreground">{quote.quoteSummary || "无补充说明"}</div></td><td className="p-2">第 {quote.revisionNo} 版</td><td className="p-2">{SOURCE_LABEL[quote.submissionSource]}</td><td className="p-2 text-right">{quote.constructionPeriodDays ?? "-"} / {quote.warrantyDays ?? "-"} 天</td><td className="p-2 text-right font-medium">{money(quote.quoteAmount)}</td><td className="p-2"><StatusChip tone={confirmed ? "success" : quote.quoteStatus === "REVISION_REQUESTED" ? "warning" : "neutral"}>{quote.quoteStatus === "ACTIVE" ? quote.confirmationStatus === "PENDING_SUPPLIER_CONFIRMATION" ? "待确认" : "已核对" : quote.quoteStatus === "REVISION_REQUESTED" ? "待修订" : "历史版"}</StatusChip></td><td className="p-2 text-right"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="查看报价明细" onClick={() => setDetailQuoteId(quote.quoteId)}><ReceiptText className="mr-1 size-4" />明细</Button><Button size="icon" variant="ghost" title="查看报价原件" onClick={() => void openQuote(quote)}><FileText className="size-4" /></Button></div></td></tr>;
               })}</tbody>
             </table>
           </div>
@@ -614,7 +604,7 @@ export function RepairProjectSourcingOperation({
         {detailQuote && <div className="mt-4 border-y px-3 py-4"><div className="mb-4 flex items-start justify-between gap-3"><div><div className="text-sm font-medium">{detailQuote.supplierName} · 第 {detailQuote.revisionNo} 版报价明细</div><div className="mt-1 text-xs text-muted-foreground">提交时间 {new Date(detailQuote.createTime).toLocaleString("zh-CN", { hour12: false })}</div></div><Button size="icon" variant="ghost" title="关闭报价明细" onClick={() => setDetailQuoteId(null)}><X className="size-4" /></Button></div><RepairProjectQuoteDetail quote={detailQuote} /></div>}
         {canCollectReferenceQuotes && activeConfirmedQuotes.length > 0 && (
           <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-            <div><Label>要求修订的供应商</Label><div className="mt-1 flex min-h-10 flex-wrap gap-2 border-y py-2">{activeConfirmedQuotes.map((quote) => <label key={quote.supplierDeptId} className="flex items-center gap-2 text-sm"><Checkbox checked={revisionSupplierIds.includes(quote.supplierDeptId)} onCheckedChange={(checked) => setRevisionSupplierIds((current) => checked ? [...new Set([...current, quote.supplierDeptId])] : current.filter((id) => id !== quote.supplierDeptId))} />{quote.supplierName}</label>)}</div></div>
+            <div><Label>要求修订的施工单位</Label><div className="mt-1 flex min-h-10 flex-wrap gap-2 border-y py-2">{activeConfirmedQuotes.map((quote) => <label key={quote.supplierDeptId} className="flex items-center gap-2 text-sm"><Checkbox checked={revisionSupplierIds.includes(quote.supplierDeptId)} onCheckedChange={(checked) => setRevisionSupplierIds((current) => checked ? [...new Set([...current, quote.supplierDeptId])] : current.filter((id) => id !== quote.supplierDeptId))} />{quote.supplierName}</label>)}</div></div>
             <div><Label>修订原因</Label><Input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} /></div>
             <div><Label>修订截止</Label><Input type="datetime-local" value={revisionDeadline} onChange={(event) => setRevisionDeadline(event.target.value)} /></div>
             <div className="flex justify-end md:col-span-3">
@@ -624,32 +614,39 @@ export function RepairProjectSourcingOperation({
         )}
         </SourcingStep>
 
-        <SourcingStep
-          step={showReferenceCollection ? 4 : 3}
-          title="定商与合同"
-          description="最终中选结果只能由已用印授权快照、定商评审记录和服务端确认共同形成。"
-          status={<StatusChip tone={sourcing.selection ? "success" : selectionAuthorized ? "info" : "warning"}>{sourcing.selection ? "已形成中选结果" : selectionAuthorized ? "待最终确认" : "定商受阻"}</StatusChip>}
+          </>
+        )}
+
+        {mode === "SELECTION" && (
+          <SourcingStep
+          step={1}
+          title="确定施工单位"
+          description="相关业主表决通过实施方案后，按表决通过的选择方式确定施工单位。施工合同在工程档案中另行登记。"
+          status={<StatusChip tone={sourcing.selection ? "success" : selectionAuthorized ? "info" : "neutral"}>{sourcing.selection ? "已完成" : selectionAuthorized ? "可以办理" : selectionAuthorization?.status === "UNSUPPORTED_WORKFLOW" ? "不适用" : "后续办理"}</StatusChip>}
           last
         >
+          <div className="mb-4">
+            <SelectionAuthorizationSnapshot authorization={selectionAuthorization} />
+          </div>
           {sourcing.selection ? (
             <div className="border-y bg-emerald-50/50 px-4 py-3 text-sm leading-6 text-emerald-950">
-              当前中选结果已绑定授权快照与定商材料，不再允许在本页改写。
+              <div className="font-medium">已选定施工单位：{sourcing.selection.supplierName}</div>
+              <div className="mt-1">报价 {money(sourcing.selection.quoteAmount)}</div>
+              {sourcing.selection.selectionRationale && <div className="mt-1">选择说明：{sourcing.selection.selectionRationale}</div>}
             </div>
           ) : !selectionAuthorized ? (
-            <div className="border-y bg-amber-50/60 px-4 py-3 text-sm leading-6 text-amber-950">
-              {selectionAuthorization?.blockingReason ?? "尚未形成可用于最终定商的已用印授权快照。"}
-            </div>
+            null
           ) : !mayConfirmSelection ? (
             <div className="border-y bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
-              当前身份仅可查看授权快照和报价资料；最终确认由服务端核验的在任业委会主任或副主任办理。
+              当前身份仅可查看报价资料。施工单位由在任业委会主任或副主任确认。
             </div>
           ) : confirmedSupplierCount === 0 ? (
-            <div className="border-y bg-amber-50/60 px-4 py-3 text-sm leading-6 text-amber-950">尚无当前有效且已确认的报价，不能形成中选结果。</div>
+            <div className="border-y bg-amber-50/60 px-4 py-3 text-sm leading-6 text-amber-950">尚无已核对的报价，请先完成报价收集和核对。</div>
           ) : (
             <div className="space-y-5 rounded-md border bg-muted/20 p-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>中选报价</Label>
+                  <Label>拟选报价</Label>
                   <Select value={selectedQuoteId || "__UNSELECTED__"} onValueChange={(value) => setSelectedQuoteId(value === "__UNSELECTED__" ? "" : value)}>
                     <SelectTrigger><SelectValue placeholder="选择已确认报价" /></SelectTrigger>
                     <SelectContent>
@@ -660,55 +657,56 @@ export function RepairProjectSourcingOperation({
                     </SelectContent>
                   </Select>
                 </div>
-                {selectedQuote && <div className="border-y px-3 py-2 text-sm"><div className="text-xs text-muted-foreground">候选报价</div><div className="mt-1 flex items-center justify-between gap-3"><span className="font-medium">{selectedQuote.supplierName}</span><span className="font-semibold tabular-nums">{money(selectedQuote.quoteAmount)}</span></div></div>}
+                {selectedQuote && <div className="border-y px-3 py-2 text-sm"><div className="text-xs text-muted-foreground">拟选施工单位</div><div className="mt-1 flex items-center justify-between gap-3"><span className="font-medium">{selectedQuote.supplierName}</span><span className="font-semibold tabular-nums">{money(selectedQuote.quoteAmount)}</span></div></div>}
               </div>
 
               {selectionAuthorization?.approvedEvaluationRule === "LOWEST_COMPLIANT_QUOTE" && (
                 <p className="border-y bg-muted/20 px-3 py-2 text-sm leading-6 text-muted-foreground">
-                  最低合格报价仅在当前锁定方案的有效、已确认报价中核验，不以页面上的任意最低金额自动定商。
+                  最低合格报价只在本次已核对且符合施工要求的报价中比较，不能只按页面上的最低金额直接选择。
                 </p>
               )}
 
               {selectionMethod === "FRAMEWORK_SUPPLIER" && (
                 <div className="space-y-2">
-                  <Label>项目适用的框架关系</Label>
+                  <Label>本项目适用的长期合作关系</Label>
                   <Select value={frameworkRelationId || "__UNSELECTED__"} disabled={!selectedQuote || eligibleFrameworkRelations.length === 0} onValueChange={(value) => setFrameworkRelationId(value === "__UNSELECTED__" ? "" : value)}>
-                    <SelectTrigger><SelectValue placeholder={selectedQuote ? "选择服务端核验的有效关系" : "先选择中选报价"} /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={selectedQuote ? "选择当前有效的合作关系" : "先选择拟选报价"} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__UNSELECTED__">选择服务端核验的有效关系</SelectItem>
+                      <SelectItem value="__UNSELECTED__">选择当前有效的合作关系</SelectItem>
                       {eligibleFrameworkRelations.map((relation) => (
                         <SelectItem key={relation.relationId} value={String(relation.relationId)}>{relation.supplierLegalName}{relation.validUntil ? ` · 有效至 ${relation.validUntil}` : ""}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedQuote && eligibleFrameworkRelations.length === 0 && <p className="text-sm text-destructive">服务端未返回该候选供应商可用的项目框架关系，不能最终确认。</p>}
+                  {selectedQuote && eligibleFrameworkRelations.length === 0 && <p className="text-sm text-destructive">该施工单位目前没有适用于本项目的有效长期合作关系。</p>}
                 </div>
               )}
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="project-selection-rationale">定商说明</Label>
-                  <Textarea id="project-selection-rationale" rows={4} value={selectionRationale} onChange={(event) => setSelectionRationale(event.target.value)} placeholder="依据授权评审规则说明本次中选结论" />
+                  <Label htmlFor="project-selection-rationale">选择说明</Label>
+                  <Textarea id="project-selection-rationale" rows={4} value={selectionRationale} onChange={(event) => setSelectionRationale(event.target.value)} placeholder="说明如何按照表决通过的选择方式确定该施工单位" />
                 </div>
-                <RepairProjectFileUpload projectId={project.projectId} label="定商评审记录" value={selectionEvidence} onUploaded={(file) => { remember(file); setSelectionEvidence(file); }} />
+                <RepairProjectFileUpload projectId={project.projectId} label="施工单位选择记录" value={selectionEvidence} onUploaded={(file) => { remember(file); setSelectionEvidence(file); }} />
               </div>
 
               <div className="border-y px-3 py-3 text-sm">
-                <div className="font-medium">授权数量核验</div>
+                <div className="font-medium">数量核对</div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div className={invitationRequirementMet ? "text-muted-foreground" : "text-destructive"}>邀价：{initialInvitationCount}{requiredInvitationCount == null ? " 家（文件未明确最小数量）" : ` / ${requiredInvitationCount} 家`}</div>
-                  <div className={validQuoteRequirementMet ? "text-muted-foreground" : "text-destructive"}>有效报价：{confirmedSupplierCount}{requiredValidQuoteCount == null ? " 家（文件未明确最小数量）" : ` / ${requiredValidQuoteCount} 家`}</div>
+                  <div className={validQuoteRequirementMet ? "text-muted-foreground" : "text-destructive"}>已核对报价：{confirmedSupplierCount}{requiredValidQuoteCount == null ? " 家（文件未明确最小数量）" : ` / ${requiredValidQuoteCount} 家`}</div>
                 </div>
               </div>
 
               <div className="flex justify-end border-t pt-4">
                 <Button disabled={busy !== null || !selectedQuote || !selectionRationale.trim() || !selectionEvidence || !invitationRequirementMet || !validQuoteRequirementMet || (selectionMethod === "FRAMEWORK_SUPPLIER" && !frameworkRelationId)} onClick={() => void confirmSupplierSelection()}>
-                  <CheckCircle2 className="mr-1 size-4" />确认中选结果
+                  <CheckCircle2 className="mr-1 size-4" />确认施工单位
                 </Button>
               </div>
             </div>
           )}
-        </SourcingStep>
+          </SourcingStep>
+        )}
       </div>
     </section>
   );

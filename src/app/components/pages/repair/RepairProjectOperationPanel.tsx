@@ -1,4 +1,4 @@
-// 关联业务：按维修项目状态和真实工作身份执行方案锁定、两类治理、合同、施工、结算、验收、付款及归档。
+// 关联业务：按维修项目状态和真实工作身份办理责任确认、方案表决、施工单位选择、合同、施工、验收、付款及归档。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -99,16 +99,16 @@ const MILESTONE_LABEL: Record<RepairPaymentMilestone, string> = {
 };
 
 const SUPPLIER_SELECTION_METHOD_LABEL: Record<RepairProjectSupplierSelectionMethod, string> = {
-  COMPETITIVE_QUOTATION: "竞争性询价",
-  FRAMEWORK_SUPPLIER: "框架供应商",
-  DIRECT_AWARD: "经授权直接委托",
-  EMERGENCY_APPOINTMENT: "紧急指定",
+  COMPETITIVE_QUOTATION: "询价比选",
+  FRAMEWORK_SUPPLIER: "从长期合作单位中选择",
+  DIRECT_AWARD: "直接委托",
+  EMERGENCY_APPOINTMENT: "按紧急维修程序指定",
 };
 
 const SUPPLIER_EVALUATION_RULE_LABEL: Record<RepairProjectSupplierEvaluationRule, string> = {
   LOWEST_COMPLIANT_QUOTE: "最低合格报价",
-  COMPREHENSIVE_EVALUATION: "综合评审",
-  AUTHORIZED_DIRECT_SELECTION: "经授权直接选择",
+  COMPREHENSIVE_EVALUATION: "综合比较",
+  AUTHORIZED_DIRECT_SELECTION: "按通过的方案直接选择",
 };
 
 function nowLocal(): string {
@@ -163,19 +163,19 @@ function buildingProcessStatusLabel(value?: string | null): string {
     case "DECISION_PASSED":
       return "业主征询已通过，待提交物业正式报审文件";
     case "DECISION_FAILED":
-      return "业主征询未通过，已退回已锁定方案";
+      return "业主征询未通过，实施方案需调整";
     case "OFFICIAL_DOCUMENT_READY":
       return "正式报审文件已提交，待业委会审价";
     case "PRICE_REVIEWED":
       return "审价已通过，待主任或副主任在线确认";
     case "PRICE_REVIEW_REJECTED":
-      return "审价未通过，已退回已锁定方案";
+      return "审价未通过，实施方案需调整";
     case "COMMITTEE_APPROVED":
       return "主任或副主任已确认，待办理业委会用印";
     case "AUTHORIZED":
       return "业委会用印已完成，项目已获授权";
     default:
-      return "楼栋维修治理正在办理";
+      return "相关业主表决正在办理";
   }
 }
 
@@ -205,7 +205,7 @@ function committeePositionLabel(value?: string | null): string {
 }
 
 function decisionChannelLabel(value?: "ONLINE" | "WECHAT" | null): string {
-  return value === "ONLINE" ? "C 端小程序在线表决" : "微信接龙截图";
+  return value === "ONLINE" ? "业主小程序在线表决" : "微信接龙截图";
 }
 
 function decisionChoiceLabel(value?: string | null): string {
@@ -368,7 +368,19 @@ export function RepairProjectOperationPanel({
       />
 
       {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
+        <RepairProjectResponsibilityOperation
+          details={details}
+          busy={busy}
+          run={run}
+          remember={remember}
+          hasPermission={hasPermission}
+          roleKey={roleKey}
+        />
+      )}
+
+      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
         <RepairProjectSourcingOperation
+          mode="PREPARATION"
           details={details}
           sourcing={sourcing}
           sourcingLoading={sourcingLoading}
@@ -383,17 +395,6 @@ export function RepairProjectOperationPanel({
             "PROPERTY_MANAGER",
             "PROPERTY_STAFF",
           ].includes(roleKey ?? "") && hasPermission("repair:workorder:manage")}
-        />
-      )}
-
-      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && (
-        <RepairProjectResponsibilityOperation
-          details={details}
-          busy={busy}
-          run={run}
-          remember={remember}
-          hasPermission={hasPermission}
-          roleKey={roleKey}
         />
       )}
 
@@ -441,6 +442,23 @@ export function RepairProjectOperationPanel({
             roleKey={roleKey}
           />
         )
+      )}
+
+      {["DRAFT", "AUTHORIZATION_IN_PROGRESS", "PLAN_LOCKED", "GOVERNANCE_IN_PROGRESS", "AUTHORIZED"].includes(project.status) && !directResponsibilityExecution && (
+        <RepairProjectSourcingOperation
+          mode="SELECTION"
+          details={details}
+          sourcing={sourcing}
+          sourcingLoading={sourcingLoading}
+          sourcingError={sourcingError}
+          suppliers={suppliers}
+          remember={remember}
+          busy={busy}
+          run={run}
+          onReload={reloadSourcing}
+          onOpenSupplierDirectory={onOpenSupplierDirectory}
+          canManageReferenceQuotes={false}
+        />
       )}
 
       {project.status === "AUTHORIZED" && plan?.status === "LOCKED" && execution && !directResponsibilityExecution && (
@@ -496,7 +514,7 @@ export function RepairProjectOperationPanel({
       )}
 
       {project.status === "WARRANTY" && execution && hasPermission("repair:workorder:manage") && (
-        <OperationSection title="质保期满归档" desc={`质保期满日：${execution.completionDisclosure?.warrantyEndDate ?? "尚未生成"}。后端会同时校验告示、物业书面报告和质保责任期。`}>
+        <OperationSection title="质保期满归档" desc={`质保期满日：${execution.completionDisclosure?.warrantyEndDate ?? "尚未生成"}。归档时需核对完工告示、物业书面报告和质保责任期。`}>
           <Button variant="outline" disabled={busy !== null} onClick={() => void run(
             "archive",
             () => postRepairProjectAction(project.projectId, "archive", { expectedProjectVersion: project.version }),
@@ -597,65 +615,47 @@ function PlanLockOperation({
     && determination.executionAuthorityType === "OWNER_DECISION";
   const authorizationProposal = plan.status === "AUTHORIZATION_FROZEN";
 
-  if (!determination) {
-    return (
-      <OperationSection title="等待工程责任初判" desc="先由物业提交责任和资金承担初判，服务端生成后续执行路径，再由治理主体确认。范围、设备名称和附件上传都不能自行替代该步骤。">
-        <p className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
-          当前尚无已确认的工程责任初判，因此不能冻结相关业主决定提案或锁定最终实施方案。
-        </p>
-      </OperationSection>
-    );
-  }
-
-  if (determination.status !== "CONFIRMED") {
-    return (
-      <OperationSection title="等待工程责任初判确认" desc="待治理主体确认责任与资金承担初判后，后端才会允许下一步。">
-        <p className="rounded-md border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm leading-6 text-amber-950">
-          当前认定状态为待确认。它不产生资金切片、方案锁定、定商或付款资格。
-        </p>
-      </OperationSection>
-    );
-  }
+  if (!determination || determination.status !== "CONFIRMED") return null;
 
   const title = authorizationProposal
-    ? "锁定最终实施方案"
+    ? "确认实施方案"
     : requiresOwnerDecision
-      ? "冻结相关业主决定提案"
-      : "锁定最终实施方案";
+      ? "提交实施方案，发起相关业主表决"
+      : "确认责任方履行方案";
   const description = authorizationProposal
-    ? "有效相关业主决定已经形成；锁定时由后端重新核验责任初判、费用承担房屋、资金账簿和预算上限，并生成后续定商、合同、施工、验收与付款使用的最终快照。"
+    ? "相关业主表决已通过。确认维修范围、费用分摊和预算后，即可办理施工单位选择和施工合同。"
     : requiresOwnerDecision
-      ? "冻结的是供相关业主决定审查的提案，不是可施工方案。费用承担房屋与面积在此时固化；真实资金账簿在最终实施锁定时重新核验。"
-      : "已确认直接责任履行路径。锁定时由后端核验责任依据、资金承担记录和预算上限；该锁定不产生业主侧定商、施工合同或付款资格。";
+      ? "将当前维修范围、预算、费用分摊范围和施工单位选择方式一并提交相关业主表决。表决通过前不能施工。"
+      : "已确认由物业服务企业、建设单位或责任人承担。确认后按相应合同、保修或责任材料办理。";
   const action = authorizationProposal
     ? () => lockRepairProjectPlan(project.projectId, plan.planId, project.version)
     : requiresOwnerDecision
       ? () => freezeRepairProjectPlanForAuthorization(project.projectId, plan.planId, project.version)
       : () => lockRepairProjectPlan(project.projectId, plan.planId, project.version);
   const success = authorizationProposal
-    ? "后端已核验并锁定最终实施方案"
+    ? "实施方案已确认"
     : requiresOwnerDecision
-      ? "相关业主决定提案已冻结，可进入相关业主决定程序"
-      : "后端已核验并锁定最终实施方案";
+      ? "实施方案已提交，可发起相关业主表决"
+      : "责任方履行方案已确认";
   const actionKey = authorizationProposal
     ? "lock-final-plan"
     : requiresOwnerDecision
       ? "freeze-authorization-proposal"
       : "lock-direct-plan";
   const actionLabel = authorizationProposal
-    ? "锁定最终实施方案"
+    ? "确认实施方案"
     : requiresOwnerDecision
-      ? "冻结相关业主决定提案"
-      : "请求锁定最终实施方案";
+      ? "提交实施方案"
+      : "确认责任方履行方案";
 
   return (
     <OperationSection title={title} desc={description}>
       <div className="mt-4 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
-          <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>决定范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核验"}</StatusChip>
-          <StatusChip tone="success">责任初判已确认</StatusChip>
-          {authorizationProposal && <StatusChip tone="success">相关业主决定已形成</StatusChip>}
-          {requiresOwnerDecision && <StatusChip tone="warning">资金账簿在最终锁定时核验</StatusChip>}
+          <StatusChip tone={decisionScope?.verificationStatus === "CONFIRMED" ? "success" : "warning"}>维修范围{decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : "待核对"}</StatusChip>
+          <StatusChip tone="success">责任与费用意见已确认</StatusChip>
+          {authorizationProposal && <StatusChip tone="success">相关业主表决已通过</StatusChip>}
+          {requiresOwnerDecision && <StatusChip tone="neutral">费用来源将在方案确认时核对</StatusChip>}
         </div>
         <div className="flex shrink-0 gap-2">
           {decisionScopePending && plan.status === "DRAFT" && <Button variant="outline" disabled={busy !== null} onClick={() => void run(
@@ -672,15 +672,15 @@ function PlanLockOperation({
   );
 }
 
-/** 已确认的直接责任方不应被伪装成业主侧定商、施工合同或付款流程。 */
+/** 已确认由其他责任方承担时，不进入业主表决、施工单位选择和业主侧付款流程。 */
 function DirectResponsibilityExecutionNotice({ details }: { details: RepairProjectDetails }) {
   const determination = details.responsibilityDetermination;
   if (!determination) return null;
   return (
-    <OperationSection title="责任方履行" desc="该工程已按确认的责任依据锁定，不适用业主侧供应商定商和施工合同链路。">
+    <OperationSection title="由责任方办理维修" desc="本项目已确认由相应责任方承担，不需要相关业主另行选择施工单位或承担费用。">
       <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
         {determination.responsiblePartyName ?? "已确认责任承担方"}应按“{determination.basisReference}”履行维修、保修或赔付责任。
-        物业应通过相应合同、保修或责任追偿凭证留存履行与验收事实，不得用本项目的中选供应商或施工合同替代。
+        物业应留存相应合同、保修或责任追偿材料，以及后续履行和验收记录。
       </div>
     </OperationSection>
   );
@@ -875,7 +875,7 @@ function BuildingGovernanceOperation({
       && ["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")
       && hasPermission("repair:workorder:manage");
     return (
-      <OperationSection title="楼栋维修决定程序" desc="仅已冻结的相关业主决定提案可以发起楼栋维修征询。服务器将使用冻结时的费用承担房屋和面积快照，页面不会按当前范围重新推导征询对象。">
+      <OperationSection title="相关业主表决" desc="实施方案提交后，按已确认的费用分摊范围和小区备案规则发起相关业主表决。">
         <div className="grid overflow-hidden rounded-md border bg-border md:grid-cols-2 md:gap-px">
           <div className="bg-background p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -917,12 +917,12 @@ function BuildingGovernanceOperation({
             )}
           </div>
           <div className="bg-background p-4">
-            <div className="mb-3 text-sm font-semibold">后端核验快照</div>
+            <div className="mb-3 text-sm font-semibold">办理条件</div>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs text-muted-foreground">项目决定范围</dt><dd className="mt-1">{decisionScopeConfirmed ? "已确认" : "待核验"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">相关业主决定提案</dt><dd className="mt-1">{authorizationProposal ? "已冻结" : "当前为历史锁定方案"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">维修范围</dt><dd className="mt-1">{decisionScopeConfirmed ? "已确认" : "待核对"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">实施方案</dt><dd className="mt-1">{authorizationProposal ? "已提交表决" : "历史项目沿用原办理记录"}</dd></div>
             </dl>
-            {!authorizationProposal && <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950"><AlertTriangle className="mt-1 size-4 shrink-0" /><span>历史锁定方案沿用原有办理链路。新项目必须先冻结相关业主决定提案，不能通过本页补造该快照。</span></div>}
+            {!authorizationProposal && <div className="mt-4 rounded-md border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">这是历史项目，继续按原办理记录完成后续事项。</div>}
           </div>
         </div>
         {unsupportedNonResponseRule && (
@@ -943,7 +943,7 @@ function BuildingGovernanceOperation({
   }
 
   return (
-    <OperationSection title="楼栋维修治理" desc={`${buildingProcessStatusLabel(status)}。已完成环节和原始材料会持续保留，业委会不代替楼栋业主验收。`}>
+    <OperationSection title="相关业主表决" desc={`${buildingProcessStatusLabel(status)}。已完成环节和原始材料会持续保留，业委会不代替楼栋业主验收。`}>
       <div className="mb-4 grid gap-3 rounded-md border bg-muted/20 p-3 text-sm md:grid-cols-2">
         <div><span className="text-muted-foreground">备案规则：</span>{governance.policySnapshot.ruleName ?? "历史项目规则"} · {governance.policySnapshot.ruleVersion}</div>
         <div><span className="text-muted-foreground">征询方式：</span>{decisionChannelLabel(governance.policySnapshot.decisionChannel)}</div>
@@ -1102,7 +1102,7 @@ function BuildingGovernanceOperation({
                       <AlertDialogDescription>
                         {confirmedResult === "PASSED"
                           ? "系统将留存原始证据和物业核验结论，项目随后进入报审阶段。"
-                          : "系统将留存原始证据和物业核验结论，本次征询结束，项目将退回已锁定方案。"}
+                          : "系统将留存原始证据和物业核验结论，本次征询结束，实施方案需重新调整。"}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
@@ -1170,10 +1170,10 @@ function BuildingGovernanceOperation({
                 () => postRepairProjectAction(project.projectId, "building-governance/decision/complete", {
                   expectedProcessVersion: governance.process.processVersion,
                 }),
-                "C 端在线表决结果已由物业核验",
-              )}>核验并锁定在线表决结果</Button>
+                "小程序在线表决结果已由物业核验",
+              )}>核验并确认在线表决结果</Button>
             ) : (
-              <p className="text-sm text-muted-foreground">业主可继续在 C 端表决；最终结果仅由物业核验。</p>
+              <p className="text-sm text-muted-foreground">业主可继续在小程序表决；最终结果由物业核验。</p>
             )}
           </div>
         )
@@ -1235,8 +1235,8 @@ function BuildingGovernanceOperation({
         maySealSupplierAuthorization ? (
           <div className="space-y-5">
             <div>
-              <h5 className="text-sm font-semibold">用印并固化定商授权</h5>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">选择方式和评审规则必须与本次已盖章文件一致；未明确的最小数量不填写，系统不会补设默认值。</p>
+              <h5 className="text-sm font-semibold">登记盖章文件和施工单位选择方式</h5>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">施工单位选择方式和报价选择规则必须与盖章文件一致；文件未明确的数量请留空。</p>
             </div>
             <div className="grid gap-x-4 gap-y-5 rounded-md border bg-muted/20 p-4 md:grid-cols-2">
               <FileUpload projectId={project.projectId} label="已盖章正式文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} />
@@ -1261,7 +1261,7 @@ function BuildingGovernanceOperation({
               </div>
 
               <div className="space-y-2">
-                <Label>评审规则</Label>
+                <Label>报价选择规则</Label>
                 <Select value={supplierEvaluationRule || "__UNSELECTED__"} disabled={!supplierSelectionMethod} onValueChange={(value) => {
                   setSupplierEvaluationRule(value === "__UNSELECTED__" ? "" : value as RepairProjectSupplierEvaluationRule);
                 }}>
@@ -1293,7 +1293,7 @@ function BuildingGovernanceOperation({
                 </>
               ) : supplierSelectionMethod ? (
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="building-non-competitive-selection-basis">非竞争定商依据</Label>
+                  <Label htmlFor="building-non-competitive-selection-basis">直接委托依据</Label>
                   <Textarea id="building-non-competitive-selection-basis" rows={3} value={nonCompetitiveSelectionBasis} onChange={(event) => setNonCompetitiveSelectionBasis(event.target.value)} placeholder="按已盖章文件中的授权依据填写" />
                 </div>
               ) : null}
@@ -1310,10 +1310,10 @@ function BuildingGovernanceOperation({
                     supplierSelectionAuthorization,
                     remark: opinion || undefined,
                   }),
-                  "楼栋维修用印及定商授权已登记",
+                  "盖章文件和施工单位选择方式已登记",
                 );
               }}>
-                登记用印并固化授权
+                完成登记
               </Button>
             </div>
           </div>
@@ -1375,7 +1375,7 @@ function CommunityGovernanceOperation({
             )}
           </div>
           {link.status === "LINKED" && isCommitteeVerifier && !isPropertyVerifier && hasPermission("repair:decision:verify") && (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">本流程以物业核验为主；物业尚未办理时，业委会可按正式结算快照补充核验。</p>
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">本流程以物业核验为主；物业尚未办理时，业委会可根据正式结算记录补充核验。</p>
           )}
         </div>
       )}
@@ -1448,13 +1448,13 @@ function ContractOperation({
       && propertySignature && supplierSignature && propertySignerName && supplierSignerName);
   const contractTitle = isBuildingRepair ? "登记双方施工合同" : "登记三方施工合同";
   const contractDescription = isBuildingRepair
-    ? "楼栋维修合同由物业服务企业和施工单位以各自名义签署；签约物业从已启用的物业服务组织读取，业委会授权依据已在治理环节归档。"
-    : "合同必须由业主大会或相关业主方、物业服务企业和施工单位三方签署，并引用当前锁定方案。";
+    ? "楼栋维修合同由物业服务企业和施工单位以各自名义签署；签约物业从已启用的物业服务组织读取，相关业主表决和业委会盖章材料已归档。"
+    : "合同必须由业主大会或相关业主方、物业服务企业和施工单位三方签署，并引用当前实施方案。";
 
   return (
     <>
       {priceReviewPending && isCommitteeReviewer && (
-        <OperationSection title="全小区维修审价" desc="审价结论绑定当前锁定方案，合同金额不得超过预算和有效审价金额。">
+        <OperationSection title="全小区维修审价" desc="审价结论对应当前实施方案，合同金额不得超过预算和有效审价金额。">
           <div className="grid gap-4 md:grid-cols-2">
             <div><Label>审价方式</Label><Select value={reviewMode} onValueChange={setReviewMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="INTERNAL_PRICE_REVIEW">业委会内部审价</SelectItem><SelectItem value="THIRD_PARTY_AUDIT">第三方审价</SelectItem><SelectItem value="NOT_REQUIRED">依法不需审价</SelectItem></SelectContent></Select></div>
             <div><Label>审定金额</Label><Input type="number" min="0" step="0.01" value={reviewAmount} onChange={(event) => setReviewAmount(event.target.value)} /></div>
@@ -1465,10 +1465,10 @@ function ContractOperation({
       )}
 
       {!canRecordContract ? (
-        <OperationSection title="施工合同办理" desc="合同归档由物业经理办理，已完成的治理授权会作为合同依据持续保留。">
+        <OperationSection title="施工合同办理" desc="合同归档由物业经理办理，相关业主表决和业委会盖章材料会作为合同依据持续保留。">
           <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
             {priceReviewPending
-              ? "当前锁定方案待业委会完成审价，审价通过后由物业经理登记施工合同。"
+              ? "当前实施方案待业委会完成审价，审价通过后由物业经理登记施工合同。"
               : isBuildingRepair
                 ? "楼栋维修合同由物业服务企业与施工单位以各自名义签署。业委会当前仅查看授权依据和后续归档结果。"
                 : "当前项目待物业经理归档三方施工合同。"}
@@ -1477,7 +1477,7 @@ function ContractOperation({
       ) : (
         <OperationSection title={contractTitle} desc={contractDescription}>
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="md:col-span-2"><Label>锁定方案中选施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取中选结果"}</span>{selectedSupplier && <span className="text-muted-foreground">中选报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
+            <div className="md:col-span-2"><Label>本次选定施工单位</Label><div className="mt-1 flex min-h-10 items-center justify-between gap-3 border-y px-3 text-sm"><span>{selectedSupplier?.supplierName ?? "正在读取选择结果"}</span>{selectedSupplier && <span className="text-muted-foreground">选定报价 ¥{Number(selectedSupplier.quoteAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</span>}</div></div>
             <div><Label>合同含税总额</Label><Input type="number" min="0" max={selectedSupplier?.quoteAmount} step="0.01" value={contractAmount} onChange={(event) => setContractAmount(event.target.value)} /></div>
             <FileUpload projectId={project.projectId} label={isBuildingRepair ? "完整双方合同" : "完整三方合同"} value={contractFile} onUploaded={(file) => { remember(file); setContractFile(file); }} />
             <div>
@@ -1706,7 +1706,7 @@ function AcceptanceOperation({ details, execution, hasPermission, remember, busy
   }, [project.projectId, building]);
 
   return (
-    <OperationSection title={building ? "楼栋业主侧验收" : "全小区业委会验收"} desc={building ? "楼组长与锁定受影响业主共同验收；业委会账号不在此处代签。" : "主任或副主任在线同意、业委会用印、物业或第三方专业人员共同签署，三项缺一不可。"}>
+    <OperationSection title={building ? "楼栋业主侧验收" : "全小区业委会验收"} desc={building ? "楼组长与本次受影响业主共同验收；业委会账号不在此处代签。" : "主任或副主任在线同意、业委会用印、物业或第三方专业人员共同签署，三项缺一不可。"}>
       {allowedKinds.length > 0 && <div className="grid gap-4 md:grid-cols-2">
         <div><Label>当前签署角色</Label><Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{allowedKinds.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
         <div><Label>结论</Label><Select value={conclusion} onValueChange={(value) => setConclusion(value as typeof conclusion)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PASSED">验收通过</SelectItem><SelectItem value="RECTIFICATION_REQUIRED">要求整改</SelectItem></SelectContent></Select></div>
@@ -1772,7 +1772,7 @@ function DisclosureOperation({ details, remember, busy, run }: OperationProps) {
   const [report, setReport] = useState<RepairProjectAttachment | null>(null);
   const [photo, setPhoto] = useState<RepairProjectAttachment | null>(null);
   return (
-    <OperationSection title="完工披露与质保" desc="归档完工告示、物业书面维修报告和现场张贴照片后，项目进入锁定质保责任期。">
+    <OperationSection title="完工披露与质保" desc="归档完工告示、物业书面维修报告和现场张贴照片后，项目进入已确认的质保责任期。">
       <div className="grid gap-4 md:grid-cols-3">
         <div><Label>告示开始日</Label><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div><div><Label>告示结束日</Label><Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div><div><Label>质保起算日</Label><Input type="date" value={warrantyStartDate} onChange={(event) => setWarrantyStartDate(event.target.value)} /></div>
         <div className="md:col-span-3"><Label>张贴范围</Label><Input value={postingScope} onChange={(event) => setPostingScope(event.target.value)} /></div>

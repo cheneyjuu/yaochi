@@ -1,4 +1,4 @@
-// 关联业务：物业提出维修责任和资金承担初判，服务端派生执行状态；共有维修须在后续取得相关业主决定。
+// 关联业务：物业根据勘验和书面材料填写维修责任与费用初步意见，业委会确认后按责任类型进入相应办理流程。
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, FileText, ShieldCheck } from "lucide-react";
 import { Button } from "../../ui/button";
@@ -20,10 +20,10 @@ import {
 import { RepairProjectFileUpload as FileUpload } from "./RepairProjectFileUpload";
 
 const RESPONSIBILITY_PATH_LABEL: Record<RepairResponsibilityPath, string> = {
-  PROPERTY_SERVICE_CONTRACT: "物业服务合同责任",
-  DEVELOPER_WARRANTY: "建设单位保修责任",
-  LIABLE_PARTY: "责任人或第三方责任",
-  SHARED_COMMON_REPAIR: "共有部位维修",
+  PROPERTY_SERVICE_CONTRACT: "由物业服务企业按合同承担",
+  DEVELOPER_WARRANTY: "由建设单位按保修责任承担",
+  LIABLE_PARTY: "由责任人或第三方承担",
+  SHARED_COMMON_REPAIR: "属于共有部位维修",
 };
 
 const RESPONSIBILITY_PATH_GUIDANCE: Record<RepairResponsibilityPath, { scenario: string; evidence: string }> = {
@@ -55,14 +55,14 @@ const FUNDING_SOURCE_LABEL: Record<RepairFundingSourceType, string> = {
 };
 
 const EXECUTION_AUTHORITY_LABEL: Record<RepairExecutionAuthorityType, string> = {
-  CONTRACTUAL_EXECUTION: "按物业服务合同履行",
-  WARRANTY_EXECUTION: "按保修责任履行",
-  LIABILITY_EXECUTION: "按责任认定履行",
-  OWNER_DECISION: "尚需取得相关业主决定",
+  CONTRACTUAL_EXECUTION: "由物业服务企业按合同办理",
+  WARRANTY_EXECUTION: "由建设单位按保修责任办理",
+  LIABILITY_EXECUTION: "由责任人或第三方维修或赔付",
+  OWNER_DECISION: "提交相关业主表决",
 };
 
 const DETERMINATION_STATUS_LABEL: Record<RepairResponsibilityDetermination["status"], string> = {
-  PENDING_CONFIRMATION: "待治理确认",
+  PENDING_CONFIRMATION: "待业委会确认",
   CONFIRMED: "已确认",
   SUPERSEDED: "已被后续版本替代",
   REJECTED: "未获确认",
@@ -115,20 +115,20 @@ function DeterminationFacts({
   return (
     <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
       <div>
-        <dt className="text-xs text-muted-foreground">责任路径</dt>
+        <dt className="text-xs text-muted-foreground">本次维修由谁负责</dt>
         <dd className="mt-1 font-medium">{RESPONSIBILITY_PATH_LABEL[determination.responsibilityPath]}</dd>
       </div>
       <div>
-        <dt className="text-xs text-muted-foreground">资金承担</dt>
+        <dt className="text-xs text-muted-foreground">费用来源</dt>
         <dd className="mt-1 font-medium">{FUNDING_SOURCE_LABEL[determination.fundingSourceType]}</dd>
       </div>
       <div>
-        <dt className="text-xs text-muted-foreground">后续执行路径</dt>
+        <dt className="text-xs text-muted-foreground">下一步办理</dt>
         <dd className="mt-1 font-medium">{EXECUTION_AUTHORITY_LABEL[determination.executionAuthorityType]}</dd>
       </div>
       {determination.responsiblePartyName && (
         <div>
-          <dt className="text-xs text-muted-foreground">责任承担方</dt>
+          <dt className="text-xs text-muted-foreground">负责单位或责任人</dt>
           <dd className="mt-1">{determination.responsiblePartyName}</dd>
         </div>
       )}
@@ -219,9 +219,9 @@ export function RepairProjectResponsibilityOperation({
       <section className="border-t py-5 first:border-t-0 first:pt-0">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h4 className="text-sm font-semibold">工程责任初判与确认</h4>
+            <h4 className="text-sm font-semibold">责任与费用初步意见</h4>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              楼栋、设备名称和报修来源不直接决定责任或资金承担；共有维修的初判也不等于已获得执行授权。
+              根据现场勘验、合同、保修和责任材料判断由谁负责，以及本次维修拟使用的费用来源。
             </p>
           </div>
           <StatusChip tone={determination.status === "CONFIRMED" ? "success" : "warning"}>
@@ -241,7 +241,7 @@ export function RepairProjectResponsibilityOperation({
                   rows={3}
                   value={confirmationNote}
                   onChange={(event) => setConfirmationNote(event.target.value)}
-                  placeholder="确认责任与资金承担初判；共有维修确认后仍须取得相关业主决定"
+                  placeholder="填写对维修责任和费用来源的确认意见"
                 />
               </div>
               <div className="flex items-end">
@@ -257,16 +257,16 @@ export function RepairProjectResponsibilityOperation({
                         confirmationNote: confirmationNote.trim() || undefined,
                       },
                     ),
-                    "工程责任初判已确认",
+                    "责任与费用意见已确认",
                   )}
                 >
-                  <CheckCircle2 className="mr-1 size-4" />确认初判
+                  <CheckCircle2 className="mr-1 size-4" />业委会确认
                 </Button>
               </div>
             </div>
           ) : (
             <p className="mt-4 rounded-md border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm leading-6 text-amber-950">
-              待具备治理权限的经办人确认。当前初判不产生方案锁定、定商或付款资格；共有维修确认后仍须取得相关业主决定。
+              等待业委会确认。属于共有部位维修的，确认后还需将实施方案提交相关业主表决。
             </p>
           )
         )}
@@ -277,9 +277,9 @@ export function RepairProjectResponsibilityOperation({
   if (!canPropose || !draftPlan) {
     return (
       <section className="border-t py-5 first:border-t-0 first:pt-0">
-        <h4 className="text-sm font-semibold">工程责任初判与确认</h4>
+        <h4 className="text-sm font-semibold">责任与费用初步意见</h4>
         <p className="mt-1 rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
-          尚未提交工程责任初判。物业应先基于勘验、合同、保修或责任证据提出初判，再由具备治理权限的主体确认；公共区域和楼栋范围不能替代责任判断。
+          尚未填写初步意见。物业应先核对现场勘验、合同、保修和责任材料，再由业委会确认；仅凭“公共区域”或“楼栋范围”不能判断由谁负责。
         </p>
       </section>
     );
@@ -288,23 +288,23 @@ export function RepairProjectResponsibilityOperation({
   return (
     <section className="border-t py-5 first:border-t-0 first:pt-0">
       <div className="mb-4">
-        <h4 className="text-sm font-semibold">提出工程责任初判</h4>
+        <h4 className="text-sm font-semibold">填写责任与费用初步意见</h4>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          先根据勘验和书面证据判断谁承担、由何种资金或责任履行。服务端会生成后续执行路径；该提交只进入待确认状态，不能直接锁定方案。
+          先根据勘验和书面材料判断由谁负责、拟使用哪类费用。提交后由业委会确认，再进入相应办理流程。
         </p>
       </div>
       <div className="grid gap-x-4 gap-y-5 rounded-md border p-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>责任路径（初判，待确认）*</Label>
+          <Label>本次维修由谁负责*</Label>
           <Select
             value={responsibilityPath || "__UNSELECTED__"}
             onValueChange={(value) => setResponsibilityPath(
               value === "__UNSELECTED__" ? "" : value as RepairResponsibilityPath,
             )}
           >
-            <SelectTrigger><SelectValue placeholder="选择与勘验和书面依据相符的责任路径" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="请选择初步判断" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__UNSELECTED__">选择责任路径</SelectItem>
+              <SelectItem value="__UNSELECTED__">请选择初步判断</SelectItem>
               {Object.entries(RESPONSIBILITY_PATH_LABEL).map(([value, label]) => (
                 <SelectItem key={value} value={value}>{label}</SelectItem>
               ))}
@@ -325,7 +325,7 @@ export function RepairProjectResponsibilityOperation({
 
         {directResponsibility ? (
           <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm leading-6">
-            <div className="text-xs text-muted-foreground">系统匹配的承担与履行路径</div>
+            <div className="text-xs text-muted-foreground">费用来源与办理方式</div>
             <div className="mt-1 font-medium">
               {fundingSourceType && FUNDING_SOURCE_LABEL[fundingSourceType]} · {derivedAuthority && EXECUTION_AUTHORITY_LABEL[derivedAuthority]}
             </div>
@@ -333,16 +333,16 @@ export function RepairProjectResponsibilityOperation({
         ) : responsibilityPath === "SHARED_COMMON_REPAIR" ? (
           <>
             <div className="space-y-2">
-              <Label>资金承担路径（初判，待确认）*</Label>
+              <Label>拟使用的费用来源*</Label>
               <Select
                 value={fundingSourceType || "__UNSELECTED__"}
                 onValueChange={(value) => setFundingSourceType(
                   value === "__UNSELECTED__" ? "" : value as RepairFundingSourceType,
                 )}
               >
-                <SelectTrigger><SelectValue placeholder="选择拟承担本次预算的资金路径" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="请选择拟使用的费用来源" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__UNSELECTED__">选择资金承担路径</SelectItem>
+                  <SelectItem value="__UNSELECTED__">请选择费用来源</SelectItem>
                   {sharedFundingOptions.map((value) => (
                     <SelectItem key={value} value={value}>{FUNDING_SOURCE_LABEL[value]}</SelectItem>
                   ))}
@@ -353,17 +353,17 @@ export function RepairProjectResponsibilityOperation({
               )}
             </div>
             <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-sm leading-6">
-              <div className="text-xs text-muted-foreground">当前授权状态</div>
+              <div className="text-xs text-muted-foreground">下一步办理</div>
               <div className="mt-1 font-medium">{EXECUTION_AUTHORITY_LABEL.OWNER_DECISION}</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                这不是现有的执行依据。初判确认后，须先冻结包含工程范围、预算和费用承担范围的提案，再取得相关业主决定；在此之前不能锁定、定商或施工。
+                业委会确认初步意见后，物业需提交包含维修范围、预算和费用分摊范围的实施方案，由相关业主表决。
               </p>
             </div>
             <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-sm leading-6">
-              <div className="text-xs text-muted-foreground">相关业主决定提案预算</div>
+              <div className="text-xs text-muted-foreground">拟提交相关业主表决的预算</div>
               <div className="mt-1 font-medium">{money(Number(draftPlan.budgetTotal))}</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                金额来自当前实施方案预算，不是物业或业委会在责任初判时作出的承担承诺。冻结提案时才会与工程范围、费用承担房屋一并固化。
+                这是当前实施方案预算。发起表决时，将与维修范围和费用分摊范围一起交由相关业主确认。
               </p>
             </div>
           </>
@@ -372,7 +372,7 @@ export function RepairProjectResponsibilityOperation({
         {directResponsibility && (
           <>
             <div className="space-y-2">
-              <Label htmlFor="responsible-party-name">责任承担方名称*</Label>
+              <Label htmlFor="responsible-party-name">负责单位或责任人*</Label>
               <Input
                 id="responsible-party-name"
                 value={responsiblePartyName}
@@ -381,7 +381,7 @@ export function RepairProjectResponsibilityOperation({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="responsible-party-reference">责任承担方识别信息（可选）</Label>
+              <Label htmlFor="responsible-party-reference">相关合同或责任材料编号（可选）</Label>
               <Input
                 id="responsible-party-reference"
                 value={responsiblePartyReference}
@@ -393,19 +393,19 @@ export function RepairProjectResponsibilityOperation({
         )}
 
         <div className="space-y-2 md:col-span-2">
-          <Label htmlFor="responsibility-basis-reference">初判依据说明*</Label>
+          <Label htmlFor="responsibility-basis-reference">判断依据说明*</Label>
           <Textarea
             id="responsibility-basis-reference"
             rows={3}
             value={basisReference}
             onChange={(event) => setBasisReference(event.target.value)}
-            placeholder="说明现场勘验结论、合同或保修条款、责任认定事实，以及本次资金承担的初步依据"
+            placeholder="说明现场勘验结论、合同或保修条款、责任认定事实，以及拟使用费用来源的依据"
           />
         </div>
         <div className="space-y-2">
           <FileUpload
             projectId={project.projectId}
-            label="初判依据附件*"
+            label="判断依据附件*"
             value={basisAttachment}
             onUploaded={(attachment) => {
               remember(attachment);
@@ -430,11 +430,11 @@ export function RepairProjectResponsibilityOperation({
                 ...(responsiblePartyName.trim() ? { responsiblePartyName: responsiblePartyName.trim() } : {}),
                 ...(responsiblePartyReference.trim() ? { responsiblePartyReference: responsiblePartyReference.trim() } : {}),
               }),
-              "工程责任初判已提交治理确认",
+              "责任与费用初步意见已提交业委会确认",
             );
           }}
         >
-          <ShieldCheck className="mr-1 size-4" />提交初判，等待确认
+          <ShieldCheck className="mr-1 size-4" />提交业委会确认
         </Button>
       </div>
     </section>

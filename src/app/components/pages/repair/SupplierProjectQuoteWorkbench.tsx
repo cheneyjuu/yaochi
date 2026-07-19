@@ -1,4 +1,4 @@
-// 关联业务：施工单位查看锁定维修范围，逐项填写报价明细并以报价原件完成在线确认。
+// 关联业务：施工单位查看已确认的维修范围，逐项填写报价明细并以报价原件完成在线确认。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, CheckCircle2, ChevronDown, FileCheck2, Inbox, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -198,7 +198,7 @@ export function SupplierProjectQuoteWorkbench() {
               <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/30 px-4 py-3">
                 <div>
                   <h4 className="text-base font-semibold">工程范围与要求</h4>
-                  <p className="mt-1 text-sm text-muted-foreground">报价前核对物业锁定的方案、工程量和施工要求。</p>
+                  <p className="mt-1 text-sm text-muted-foreground">报价前核对物业提供的实施方案、工程量和施工要求。</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusChip tone="neutral">维修点位 {selected.workPoints.length} 个</StatusChip>

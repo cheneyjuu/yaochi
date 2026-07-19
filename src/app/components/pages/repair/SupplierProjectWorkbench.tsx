@@ -42,7 +42,7 @@ import {
 const STATUS_META: Record<RepairProjectStatus, { label: string; tone: Tone }> = {
   DRAFT: { label: "方案编制", tone: "neutral" },
   AUTHORIZATION_IN_PROGRESS: { label: "授权程序中", tone: "warning" },
-  PLAN_LOCKED: { label: "历史方案已锁定", tone: "info" },
+  PLAN_LOCKED: { label: "历史方案已确认", tone: "info" },
   GOVERNANCE_IN_PROGRESS: { label: "业主决策中", tone: "warning" },
   AUTHORIZED: { label: "已授权", tone: "info" },
   CONTRACT_EFFECTIVE: { label: "待开工", tone: "warning" },
@@ -358,7 +358,7 @@ function SupplierProjectOperations({
       </div>
 
       <div className="grid gap-3 text-sm sm:grid-cols-2">
-        <div><span className="text-muted-foreground">锁定方案：</span>第 {details.activePlan.versionNo} 版</div>
+        <div><span className="text-muted-foreground">当前实施方案：</span>第 {details.activePlan.versionNo} 版</div>
         <div><span className="text-muted-foreground">维修点位关联：</span>过程、材料和结算均可记录项目通用事项</div>
         <div className="sm:col-span-2"><div className="mb-1 text-muted-foreground">问题与维修方案</div><RichTextView html={details.activePlan.planDescription} /></div>
       </div>

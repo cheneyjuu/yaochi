@@ -64,8 +64,8 @@ import { RepairProjectOperationPanel } from "./repair/RepairProjectOperationPane
 const STATUS_LABEL: Record<RepairProjectStatus, string> = {
   DRAFT: "方案草稿",
   AUTHORIZATION_IN_PROGRESS: "授权程序中",
-  PLAN_LOCKED: "历史方案已锁定",
-  GOVERNANCE_IN_PROGRESS: "治理决策中",
+  PLAN_LOCKED: "历史方案已确认",
+  GOVERNANCE_IN_PROGRESS: "业主表决中",
   AUTHORIZED: "已获授权",
   CONTRACT_EFFECTIVE: "合同已生效",
   IN_PROGRESS: "施工中",
@@ -123,21 +123,21 @@ const RESPONSIBILITY_PATH_LABEL = {
 
 /** 资金来源只能展示后端已核验的事实，不能由工程范围推导。 */
 function fundSourceLabel(fundSource: RepairProject["fundSource"]): string {
-  return fundSource ? `历史归档：${FUND_LABEL[fundSource]}` : "尚未形成资金承担快照";
+  return fundSource ? `历史归档：${FUND_LABEL[fundSource]}` : "费用来源待确认";
 }
 
 /** 工程责任认定与资金切片分开显示，避免把楼栋范围误读为维修资金路径。 */
 function responsibilityDeterminationLabel(details: RepairProjectDetails): string {
   const determination = details.responsibilityDetermination;
   if (!determination) return "尚未提交";
-  const status = determination.status === "CONFIRMED" ? "已确认" : "待治理确认";
+  const status = determination.status === "CONFIRMED" ? "已确认" : "待业委会确认";
   return `${RESPONSIBILITY_PATH_LABEL[determination.responsibilityPath]} · ${status}`;
 }
 
 /** 资金切片由后端可信来源返回；没有确认切片时不能把项目范围当作资金或分摊结论。 */
 function fundingSliceLabel(fundingSlices: RepairProjectDetails["fundingSlices"]): string {
   const confirmed = fundingSlices.filter((slice) => slice.verificationStatus === "CONFIRMED");
-  if (confirmed.length === 0) return "尚未形成可信资金承担快照";
+  if (confirmed.length === 0) return "费用来源待确认";
   return confirmed.map((slice) => {
     const source = FUNDING_SOURCE_TYPE_LABEL[slice.sourceType];
     const reference = slice.ledgerReference || `${slice.sourceRecordType} #${slice.sourceRecordId}`;
@@ -338,7 +338,7 @@ export function Engineering() {
             <>
               <SheetHeader className="sr-only">
                 <SheetTitle>正在读取工程档案</SheetTitle>
-                <SheetDescription>请稍候，系统正在读取维修工程项目及供应商邀价记录。</SheetDescription>
+                <SheetDescription>请稍候，系统正在读取维修工程项目及询价记录。</SheetDescription>
               </SheetHeader>
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在读取工程档案</div>
             </>
@@ -378,7 +378,7 @@ export function Engineering() {
                   <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
                     {execution
                       ? <ExecutionArchive details={details} execution={execution} openAttachment={openAttachment} />
-                      : <Empty text="方案锁定并生成工程档案后，可在这里查看合同、施工与结算记录" />}
+                      : <Empty text="实施方案确认并生成工程档案后，可在这里查看合同、施工与结算记录" />}
                   </div>
                 </TabsContent>
 
@@ -386,7 +386,7 @@ export function Engineering() {
                   <div className="mx-auto min-h-full w-full max-w-[1120px] bg-card px-4 py-6 sm:px-6 lg:px-8">
                     {execution
                       ? <AcceptanceAndPayments execution={execution} />
-                      : <Empty text="方案锁定并进入实施阶段后，可在这里查看验收与付款记录" />}
+                      : <Empty text="实施方案确认并进入实施阶段后，可在这里查看验收与付款记录" />}
                   </div>
                 </TabsContent>
 
@@ -424,18 +424,18 @@ function ProjectOverview({ details, sourcing, openAttachment }: { details: Repai
       <section className="pb-7">
         <h3 className="mb-5 text-base font-semibold text-slate-950">项目概况</h3>
         <div className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-4">
-          <Info label="资金承担快照" value={fundingSliceLabel(details.fundingSlices)} icon={<Banknote className="size-4" />} />
+          <Info label="费用来源" value={fundingSliceLabel(details.fundingSlices)} icon={<Banknote className="size-4" />} />
           <Info label="工程责任认定" value={responsibilityDeterminationLabel(details)} />
           <Info label="方案预算" value={<Money value={Number(plan?.budgetTotal ?? 0)} />} />
           <Info label="项目决定范围" value={details.decisionScope?.scopeType === "COMMUNITY" ? "全体共用" : details.decisionScope?.buildingId ? `${details.decisionScope.buildingId} 号楼${details.decisionScope.unitName ? ` · ${details.decisionScope.unitName}` : ""}` : "待核验"} />
           <Info label="范围核验" value={details.decisionScope?.verificationStatus === "CONFIRMED" ? "已确认" : details.decisionScope?.verificationStatus === "PENDING_VERIFICATION" ? "待核验" : "历史只读"} />
           <Info className="md:col-span-2" label="费用分摊与承担范围" value={fundingSliceLabel(details.fundingSlices)} />
           <Info className="md:col-span-2" label="直接受影响/效果确认范围" value={details.currentPlanAffectedOwners.length > 0 ? `${details.currentPlanAffectedOwners.length} 套已确认房屋` : "尚未由可信勘验来源确认"} />
-          <Info className="xl:col-span-2" label="中选供应商" value={sourcing?.selection?.supplierName ?? "尚未完成定商"} />
-          <Info className="xl:col-span-2" label="中选报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
+          <Info className="xl:col-span-2" label="施工单位" value={sourcing?.selection?.supplierName ?? "尚未确定"} />
+          <Info className="xl:col-span-2" label="选定报价" value={sourcing?.selection ? <Money value={Number(sourcing.selection.quoteAmount)} /> : "-"} />
         </div>
 
-        {sourcing?.selection && (sourcing.selection.selectionRationale || sourcing.selection.selectionEvidenceAttachmentId) && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-l-2 border-primary/50 bg-primary/5 px-4 py-3 text-sm text-muted-foreground"><div>{sourcing.selection.selectionRationale && <div>定商说明：{sourcing.selection.selectionRationale}</div>}</div>{sourcing.selection.selectionEvidenceAttachmentId && <Button type="button" size="sm" variant="outline" onClick={() => void openAttachment(sourcing.selection!.selectionEvidenceAttachmentId!)}>查看定商评审记录</Button>}</div>}
+        {sourcing?.selection && (sourcing.selection.selectionRationale || sourcing.selection.selectionEvidenceAttachmentId) && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-l-2 border-primary/50 bg-primary/5 px-4 py-3 text-sm text-muted-foreground"><div>{sourcing.selection.selectionRationale && <div>选择说明：{sourcing.selection.selectionRationale}</div>}</div>{sourcing.selection.selectionEvidenceAttachmentId && <Button type="button" size="sm" variant="outline" onClick={() => void openAttachment(sourcing.selection!.selectionEvidenceAttachmentId!)}>查看施工单位选择记录</Button>}</div>}
       </section>
 
       <section className="border-t py-7">
