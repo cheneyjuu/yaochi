@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
 } from "../../ui/alert-dialog";
 import { Button } from "../../ui/button";
+import { Checkbox } from "../../ui/checkbox";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import {
@@ -64,11 +65,15 @@ import {
   postRepairProjectAction,
   reverifyRepairProjectDecisionScope,
   type RepairBuildingGovernanceDetails,
+  type RepairAcceptancePartyRole,
   type RepairCommunityAssemblyLink,
   type RepairPaymentMilestone,
   type RepairProjectAttachment,
   type RepairProjectDetails,
   type RepairProjectExecutionDetails,
+  type RepairProjectEvidenceRequirement,
+  type RepairProjectEvidenceStage,
+  type RepairProjectAcceptanceRequirement,
   type RepairProjectProcessHistoryEntry,
   type RepairProjectPlan,
   type RepairProjectSupplierEvaluationRule,
@@ -91,6 +96,42 @@ const STAGE_LABEL: Record<RepairProjectStage, string> = {
   COMPLETION: "完工",
   ACCEPTANCE: "验收",
 };
+
+const EXECUTION_EVIDENCE_STAGES: RepairProjectEvidenceStage[] = [
+  "BEFORE_CONSTRUCTION",
+  "MATERIAL_ENTRY",
+  "DURING_CONSTRUCTION",
+  "CONCEALED_WORK",
+  "COMPLETION",
+];
+
+const ACCEPTANCE_ROLE_LABEL: Record<RepairAcceptancePartyRole, string> = {
+  AFFECTED_OWNER: "受本次费用分摊影响的业主",
+  BUILDING_LEADER: "本楼栋楼组长或业主代表",
+  COMMITTEE_EXECUTIVE_APPROVER: "业委会主任或副主任",
+  COMMITTEE_SEAL_OPERATOR: "业委会用印经办人",
+  PROPERTY_TECHNICAL_COSIGNER: "物业项目专业人员",
+  THIRD_PARTY_TECHNICAL_COSIGNER: "第三方专业人员",
+};
+
+const ACCEPTANCE_ROLES = Object.keys(ACCEPTANCE_ROLE_LABEL) as RepairAcceptancePartyRole[];
+const ACCEPTANCE_FINALIZER_ROLES = new Set<RepairAcceptancePartyRole>([
+  "BUILDING_LEADER",
+  "COMMITTEE_EXECUTIVE_APPROVER",
+  "COMMITTEE_SEAL_OPERATOR",
+  "PROPERTY_TECHNICAL_COSIGNER",
+]);
+
+interface EvidenceRequirementDraft extends RepairProjectEvidenceRequirement {
+  enabled: boolean;
+}
+
+interface AcceptanceRequirementDraft {
+  businessName: string;
+  eligibleRoles: RepairAcceptancePartyRole[];
+  minimumPassingCount: string;
+  evidenceRequired: boolean;
+}
 
 const MILESTONE_LABEL: Record<RepairPaymentMilestone, string> = {
   ADVANCE: "预付款",
@@ -404,6 +445,7 @@ export function RepairProjectOperationPanel({
           <PlanLockOperation
             details={details}
             plan={draftPlan}
+            remember={remember}
             busy={busy}
             run={run}
           />
@@ -414,6 +456,7 @@ export function RepairProjectOperationPanel({
         <PlanLockOperation
           details={details}
           plan={authorizationFrozenPlan}
+          remember={remember}
           busy={busy}
           run={run}
         />
@@ -508,6 +551,7 @@ export function RepairProjectOperationPanel({
           details={details}
           execution={execution}
           hasPermission={hasPermission}
+          roleKey={roleKey}
           remember={remember}
           busy={busy}
           run={run}
@@ -614,9 +658,10 @@ function RepairProjectProcessHistory({
 function PlanLockOperation({
   details,
   plan,
+  remember,
   busy,
   run,
-}: Omit<OperationProps, "remember"> & { plan: RepairProjectPlan }) {
+}: OperationProps & { plan: RepairProjectPlan }) {
   const project = details.project;
   const decisionScope = details.decisionScope;
   const determination = details.responsibilityDetermination;
@@ -639,6 +684,58 @@ function PlanLockOperation({
   const [nonCompetitiveSelectionBasis, setNonCompetitiveSelectionBasis] = useState(
     plan.nonCompetitiveSelectionBasis ?? "",
   );
+  const [constructionManagementRequirements, setConstructionManagementRequirements] = useState(
+    plan.constructionManagementRequirements ?? "",
+  );
+  const [safetyRequirements, setSafetyRequirements] = useState(plan.safetyRequirements ?? "");
+  const [settlementMethod, setSettlementMethod] = useState<"ACTUAL_QUANTITY" | "FIXED_TOTAL" | "">(
+    plan.settlementMethod ?? "",
+  );
+  const [plannedStartDate, setPlannedStartDate] = useState(plan.plannedStartDate ?? "");
+  const [plannedCompletionDate, setPlannedCompletionDate] = useState(plan.plannedCompletionDate ?? "");
+  const [warrantyDays, setWarrantyDays] = useState(plan.warrantyDays?.toString() ?? "");
+  const [evidenceRequirements, setEvidenceRequirements] = useState<EvidenceRequirementDraft[]>(() =>
+    EXECUTION_EVIDENCE_STAGES.map((stage) => {
+      const existing = plan.evidenceRequirements?.find((item) => item.stage === stage);
+      return {
+        stage,
+        enabled: Boolean(existing),
+        description: existing?.description ?? "",
+        required: existing?.required ?? true,
+      };
+    }),
+  );
+  const [acceptanceMethod, setAcceptanceMethod] = useState(plan.acceptanceMethod ?? "");
+  const [acceptanceRequirements, setAcceptanceRequirements] = useState<AcceptanceRequirementDraft[]>(() =>
+    (plan.acceptanceRequirements ?? []).map((requirement) => ({
+      businessName: requirement.businessName,
+      eligibleRoles: requirement.eligibleRoles,
+      minimumPassingCount: String(requirement.minimumPassingCount),
+      evidenceRequired: requirement.evidenceRequired,
+    })),
+  );
+  const [acceptanceFinalizerRoles, setAcceptanceFinalizerRoles] = useState<RepairAcceptancePartyRole[]>(
+    plan.acceptanceFinalizerRoles ?? [],
+  );
+  const [acceptanceBasisFile, setAcceptanceBasisFile] = useState<RepairProjectAttachment | null>(() => {
+    const attachmentId = plan.acceptanceBasisAttachmentIds?.[0];
+    return attachmentId == null
+      ? null
+      : details.attachments.find((attachment) => attachment.attachmentId === attachmentId) ?? null;
+  });
+  const [acceptanceBasisSummary, setAcceptanceBasisSummary] = useState(plan.acceptanceBasisSummary ?? "");
+  const [affectedOwnerScopeDescription, setAffectedOwnerScopeDescription] = useState(
+    plan.affectedOwnerScopeDescription ?? "",
+  );
+  const [minimumAffectedOwnerAcceptors, setMinimumAffectedOwnerAcceptors] = useState(
+    plan.minimumAffectedOwnerAcceptors?.toString() ?? "",
+  );
+  const [affectedOwnerPassRule, setAffectedOwnerPassRule] = useState<"ALL" | "AT_LEAST_RATIO" | "">(
+    plan.affectedOwnerPassRule ?? "",
+  );
+  const [affectedOwnerApprovalPercent, setAffectedOwnerApprovalPercent] = useState(
+    plan.affectedOwnerApprovalRatio == null ? "" : String(plan.affectedOwnerApprovalRatio * 100),
+  );
 
   if (!determination || determination.status !== "CONFIRMED") return null;
 
@@ -654,7 +751,53 @@ function PlanLockOperation({
       : "已确认由物业服务企业、建设单位或责任人承担。确认后按相应合同、保修或责任材料办理。";
   const selectionTermsComplete = selectionMethod !== ""
     && evaluationRule !== ""
-    && (selectionMethod === "COMPETITIVE_QUOTATION" || nonCompetitiveSelectionBasis.trim() !== "");
+    && (selectionMethod === "COMPETITIVE_QUOTATION" || nonCompetitiveSelectionBasis.trim() !== "")
+    && optionalPositiveInteger(minimumInvitedSupplierCount) !== null
+    && optionalPositiveInteger(minimumValidQuoteCount) !== null;
+  const evidencePayload = evidenceRequirements
+    .filter((requirement) => requirement.enabled)
+    .map(({ stage, description, required }) => ({ stage, description: description.trim(), required }));
+  const acceptancePayload: RepairProjectAcceptanceRequirement[] = acceptanceRequirements.map((requirement, index) => ({
+    requirementCode: `ACCEPTANCE-${index + 1}`,
+    businessName: requirement.businessName.trim(),
+    eligibleRoles: requirement.eligibleRoles,
+    minimumPassingCount: Number(requirement.minimumPassingCount),
+    evidenceRequired: requirement.evidenceRequired,
+  }));
+  const configuredAcceptanceRoles = new Set(acceptancePayload.flatMap((requirement) => requirement.eligibleRoles));
+  const affectedOwnersParticipate = configuredAcceptanceRoles.has("AFFECTED_OWNER");
+  const affectedOwnerApprovalRatio = Number(affectedOwnerApprovalPercent) / 100;
+  const executionTermsComplete = constructionManagementRequirements.trim() !== ""
+    && safetyRequirements.trim() !== ""
+    && settlementMethod !== ""
+    && plannedStartDate !== ""
+    && plannedCompletionDate !== ""
+    && plannedCompletionDate >= plannedStartDate
+    && /^\d+$/.test(warrantyDays)
+    && Number(warrantyDays) >= 1
+    && evidencePayload.length > 0
+    && evidencePayload.some((requirement) => requirement.required)
+    && evidencePayload.every((requirement) => requirement.description !== "");
+  const acceptanceTermsComplete = acceptanceMethod.trim() !== ""
+    && acceptancePayload.length > 0
+    && acceptancePayload.every((requirement) => requirement.businessName !== ""
+      && requirement.eligibleRoles.length > 0
+      && Number.isSafeInteger(requirement.minimumPassingCount)
+      && requirement.minimumPassingCount >= 1)
+    && acceptanceFinalizerRoles.length > 0
+    && acceptanceFinalizerRoles.every((role) => configuredAcceptanceRoles.has(role))
+    && acceptanceBasisFile !== null
+    && acceptanceBasisSummary.trim() !== ""
+    && (!affectedOwnersParticipate || (
+      affectedOwnerScopeDescription.trim() !== ""
+      && /^\d+$/.test(minimumAffectedOwnerAcceptors)
+      && Number(minimumAffectedOwnerAcceptors) >= 1
+      && affectedOwnerPassRule !== ""
+      && (affectedOwnerPassRule === "ALL"
+        || (Number.isFinite(affectedOwnerApprovalRatio)
+          && affectedOwnerApprovalRatio > 0
+          && affectedOwnerApprovalRatio <= 1))
+    ));
   const action = authorizationProposal
     ? () => lockRepairProjectPlan(project.projectId, plan.planId, project.version)
     : requiresOwnerDecision
@@ -663,12 +806,36 @@ function PlanLockOperation({
         supplierSelectionMethod: selectionMethod as RepairProjectSupplierSelectionMethod,
         supplierEvaluationRule: evaluationRule as RepairProjectSupplierEvaluationRule,
         minimumInvitedSupplierCount: minimumInvitedSupplierCount
-          ? Number(minimumInvitedSupplierCount)
+          ? optionalPositiveInteger(minimumInvitedSupplierCount) ?? undefined
           : undefined,
         minimumValidQuoteCount: minimumValidQuoteCount
-          ? Number(minimumValidQuoteCount)
+          ? optionalPositiveInteger(minimumValidQuoteCount) ?? undefined
           : undefined,
         nonCompetitiveSelectionBasis: nonCompetitiveSelectionBasis.trim() || undefined,
+        constructionManagementRequirements: constructionManagementRequirements.trim(),
+        evidenceRequirements: evidencePayload,
+        safetyRequirements: safetyRequirements.trim(),
+        settlementMethod: settlementMethod as "ACTUAL_QUANTITY" | "FIXED_TOTAL",
+        plannedStartDate,
+        plannedCompletionDate,
+        warrantyDays: Number(warrantyDays),
+        acceptanceMethod: acceptanceMethod.trim(),
+        acceptanceRequirements: acceptancePayload,
+        acceptanceFinalizerRoles,
+        acceptanceBasisAttachmentIds: [acceptanceBasisFile!.attachmentId],
+        acceptanceBasisSummary: acceptanceBasisSummary.trim(),
+        affectedOwnerScopeDescription: affectedOwnersParticipate
+          ? affectedOwnerScopeDescription.trim()
+          : undefined,
+        minimumAffectedOwnerAcceptors: affectedOwnersParticipate
+          ? Number(minimumAffectedOwnerAcceptors)
+          : undefined,
+        affectedOwnerPassRule: affectedOwnersParticipate
+          ? affectedOwnerPassRule as "ALL" | "AT_LEAST_RATIO"
+          : undefined,
+        affectedOwnerApprovalRatio: affectedOwnersParticipate && affectedOwnerPassRule === "AT_LEAST_RATIO"
+          ? affectedOwnerApprovalRatio
+          : undefined,
       })
       : () => lockRepairProjectPlan(project.projectId, plan.planId, project.version);
   const success = authorizationProposal
@@ -794,6 +961,282 @@ function PlanLockOperation({
               />
             </div>
           )}
+
+          <div className="mt-6 space-y-5 border-t pt-5">
+            <div>
+              <h5 className="text-sm font-semibold">施工安排</h5>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                这些内容会随实施方案提交表决，并成为合同、施工留痕和结算核对的依据。
+              </p>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label>施工组织与现场管理要求 <span className="text-destructive">*</span></Label>
+                <Textarea
+                  value={constructionManagementRequirements}
+                  onChange={(event) => setConstructionManagementRequirements(event.target.value)}
+                  placeholder="填写进场协调、作业时段、成品保护、居民告知等要求"
+                  rows={4}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>安全文明施工要求 <span className="text-destructive">*</span></Label>
+                <Textarea
+                  value={safetyRequirements}
+                  onChange={(event) => setSafetyRequirements(event.target.value)}
+                  placeholder="填写围挡、防护、动火、高空作业、垃圾清运等适用要求"
+                  rows={4}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>结算方式 <span className="text-destructive">*</span></Label>
+                <Select value={settlementMethod} onValueChange={(value) => setSettlementMethod(value as typeof settlementMethod)}>
+                  <SelectTrigger><SelectValue placeholder="选择合同约定的结算口径" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTUAL_QUANTITY">按实际完成工程量结算</SelectItem>
+                    <SelectItem value="FIXED_TOTAL">合同总价固定</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>质保期（天） <span className="text-destructive">*</span></Label>
+                <Input type="number" min={1} step={1} value={warrantyDays} onChange={(event) => setWarrantyDays(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>计划开工日期 <span className="text-destructive">*</span></Label>
+                <Input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>计划完工日期 <span className="text-destructive">*</span></Label>
+                <Input type="date" value={plannedCompletionDate} onChange={(event) => setPlannedCompletionDate(event.target.value)} />
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <Label>施工过程中必须留存的材料 <span className="text-destructive">*</span></Label>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                勾选本工程实际需要核验的阶段，并写清施工单位应提交的原始材料。至少一项应设为必需。
+              </p>
+              <div className="mt-3 divide-y border-y">
+                {evidenceRequirements.map((requirement, index) => (
+                  <div key={requirement.stage} className="grid gap-3 py-3 md:grid-cols-[150px_1fr_110px] md:items-center">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <Checkbox
+                        checked={requirement.enabled}
+                        onCheckedChange={(checked) => setEvidenceRequirements((current) => current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, enabled: checked === true } : item))}
+                      />
+                      {STAGE_LABEL[requirement.stage]}
+                    </label>
+                    <Input
+                      value={requirement.description}
+                      disabled={!requirement.enabled}
+                      onChange={(event) => setEvidenceRequirements((current) => current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, description: event.target.value } : item))}
+                      placeholder="写明照片、记录、报告或检测材料"
+                    />
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Checkbox
+                        checked={requirement.required}
+                        disabled={!requirement.enabled}
+                        onCheckedChange={(checked) => setEvidenceRequirements((current) => current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, required: checked === true } : item))}
+                      />
+                      必须提交
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-5 border-t pt-5">
+            <div>
+              <h5 className="text-sm font-semibold">工程验收安排</h5>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                按本项目的实际决定和专业需要明确参与人、通过条件及依据，不再按“楼栋维修”自动套用固定角色。
+              </p>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label>验收组织方式 <span className="text-destructive">*</span></Label>
+                <Textarea
+                  value={acceptanceMethod}
+                  onChange={(event) => setAcceptanceMethod(event.target.value)}
+                  placeholder="例如现场联合验收、逐户确认、专业检测后联合签署"
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <FileUpload
+                  projectId={project.projectId}
+                  label="验收安排依据文件 *"
+                  value={acceptanceBasisFile}
+                  onUploaded={(file) => {
+                    remember(file);
+                    setAcceptanceBasisFile(file);
+                  }}
+                />
+                <p className="text-xs leading-5 text-muted-foreground">上传实施方案、表决文件或合同中明确验收安排的原件。</p>
+              </div>
+              <div className="space-y-2 lg:col-span-2">
+                <Label>依据说明 <span className="text-destructive">*</span></Label>
+                <Textarea
+                  value={acceptanceBasisSummary}
+                  onChange={(event) => setAcceptanceBasisSummary(event.target.value)}
+                  placeholder="说明验收参与人和通过条件来自哪份文件、哪一条约定"
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Label>验收通过条件 <span className="text-destructive">*</span></Label>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">每一项可由一个角色完成，也可约定多个角色中达到指定人数。</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAcceptanceRequirements((current) => [...current, {
+                    businessName: "",
+                    eligibleRoles: [],
+                    minimumPassingCount: "1",
+                    evidenceRequired: true,
+                  }])}
+                >
+                  <Plus className="size-4" />新增验收条件
+                </Button>
+              </div>
+              {acceptanceRequirements.length === 0 ? (
+                <p className="mt-3 border-y py-5 text-sm text-muted-foreground">尚未设置验收通过条件。</p>
+              ) : (
+                <div className="mt-3 divide-y border-y">
+                  {acceptanceRequirements.map((requirement, index) => (
+                    <div key={index} className="space-y-3 py-4">
+                      <div className="grid gap-3 md:grid-cols-[1fr_150px_44px]">
+                        <div>
+                          <Label>条件名称 <span className="text-destructive">*</span></Label>
+                          <Input
+                            value={requirement.businessName}
+                            onChange={(event) => setAcceptanceRequirements((current) => current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, businessName: event.target.value } : item))}
+                            placeholder="例如：物业专业验收通过"
+                          />
+                        </div>
+                        <div>
+                          <Label>最低通过人数 <span className="text-destructive">*</span></Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={requirement.minimumPassingCount}
+                            onChange={(event) => setAcceptanceRequirements((current) => current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, minimumPassingCount: event.target.value } : item))}
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            title="删除验收条件"
+                            onClick={() => setAcceptanceRequirements((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div>
+                        <Label>可以完成这项验收的参与人 <span className="text-destructive">*</span></Label>
+                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-3">
+                          {ACCEPTANCE_ROLES.map((role) => (
+                            <label key={role} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={requirement.eligibleRoles.includes(role)}
+                                onCheckedChange={(checked) => setAcceptanceRequirements((current) => current.map((item, itemIndex) => itemIndex === index
+                                  ? {
+                                    ...item,
+                                    eligibleRoles: checked === true
+                                      ? [...new Set([...item.eligibleRoles, role])]
+                                      : item.eligibleRoles.filter((value) => value !== role),
+                                  }
+                                  : item))}
+                              />
+                              {ACCEPTANCE_ROLE_LABEL[role]}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Checkbox
+                          checked={requirement.evidenceRequired}
+                          onCheckedChange={(checked) => setAcceptanceRequirements((current) => current.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, evidenceRequired: checked === true } : item))}
+                        />
+                        提交结论时必须上传签署文件或现场证据
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t pt-4">
+              <Label>谁负责确认最终验收结论 <span className="text-destructive">*</span></Label>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">只能从上面已安排的参与人中选择；受影响业主和代录的第三方不能负责最终确认。</p>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-3">
+                {ACCEPTANCE_ROLES.filter((role) => ACCEPTANCE_FINALIZER_ROLES.has(role)).map((role) => (
+                  <label key={role} className={`flex items-center gap-2 text-sm ${configuredAcceptanceRoles.has(role) ? "" : "text-muted-foreground"}`}>
+                    <Checkbox
+                      checked={acceptanceFinalizerRoles.includes(role)}
+                      disabled={!configuredAcceptanceRoles.has(role)}
+                      onCheckedChange={(checked) => setAcceptanceFinalizerRoles((current) => checked === true
+                        ? [...new Set([...current, role])]
+                        : current.filter((value) => value !== role))}
+                    />
+                    {ACCEPTANCE_ROLE_LABEL[role]}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {affectedOwnersParticipate && (
+              <div className="grid gap-4 border-t pt-4 lg:grid-cols-2">
+                <div className="space-y-2 lg:col-span-2">
+                  <Label>参加验收的业主范围 <span className="text-destructive">*</span></Label>
+                  <Textarea
+                    value={affectedOwnerScopeDescription}
+                    onChange={(event) => setAffectedOwnerScopeDescription(event.target.value)}
+                    placeholder="说明哪些费用承担房屋或受影响房屋的业主参加验收"
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>最低参加人数 <span className="text-destructive">*</span></Label>
+                  <Input type="number" min={1} step={1} value={minimumAffectedOwnerAcceptors} onChange={(event) => setMinimumAffectedOwnerAcceptors(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>业主验收通过方式 <span className="text-destructive">*</span></Label>
+                  <Select value={affectedOwnerPassRule} onValueChange={(value) => setAffectedOwnerPassRule(value as typeof affectedOwnerPassRule)}>
+                    <SelectTrigger><SelectValue placeholder="选择方案约定的方式" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">实际参加的业主全部通过</SelectItem>
+                      <SelectItem value="AT_LEAST_RATIO">实际参加业主达到约定同意比例</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {affectedOwnerPassRule === "AT_LEAST_RATIO" && (
+                  <div className="space-y-2">
+                    <Label>最低同意比例（%） <span className="text-destructive">*</span></Label>
+                    <Input type="number" min={0.01} max={100} step={0.01} value={affectedOwnerApprovalPercent} onChange={(event) => setAffectedOwnerApprovalPercent(event.target.value)} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
       <div className="mt-4 flex items-center justify-between gap-4">
@@ -810,7 +1253,8 @@ function PlanLockOperation({
             "已按关联来源重新核验决定范围",
           )}>重新核验范围</Button>}
           <Button
-            disabled={busy !== null || requiresOwnerDecision && !authorizationProposal && !selectionTermsComplete}
+            disabled={busy !== null || requiresOwnerDecision && !authorizationProposal
+              && (!selectionTermsComplete || !executionTermsComplete || !acceptanceTermsComplete)}
             onClick={() => void run(actionKey, action, success)}
           >
             <ShieldCheck className="mr-1 size-4" />{actionLabel}
@@ -1830,10 +2274,29 @@ function ExecutionOperation({ details, execution, remember, busy, run }: Operati
   );
 }
 
-function AcceptanceOperation({ details, execution, hasPermission, remember, busy, run }: OperationProps & { execution: RepairProjectExecutionDetails; hasPermission: (permission: string) => boolean }) {
+function AcceptanceOperation({ details, execution, hasPermission, roleKey, remember, busy, run }: OperationProps & { execution: RepairProjectExecutionDetails; hasPermission: (permission: string) => boolean; roleKey: string | null }) {
   const project = details.project;
-  const building = project.workflowType === "BUILDING_REPAIR";
-  const [kind, setKind] = useState(building ? "building-leader" : "committee-executive");
+  const policy = execution.acceptancePolicy;
+  const configuredRoles = new Set(policy?.requirements.flatMap((requirement) => requirement.eligibleRoles) ?? []);
+  const availableKinds = [
+    ...(configuredRoles.has("BUILDING_LEADER")
+      && (roleKey === "OWNER_REPRESENTATIVE" || hasPermission("repair:workorder:local-decision"))
+      ? [{ value: "building-leader", label: "楼组长或业主代表", role: "BUILDING_LEADER" as RepairAcceptancePartyRole }]
+      : []),
+    ...(configuredRoles.has("COMMITTEE_EXECUTIVE_APPROVER")
+      && hasPermission("repair:workorder:governance")
+      ? [{ value: "committee-executive", label: "业委会主任或副主任", role: "COMMITTEE_EXECUTIVE_APPROVER" as RepairAcceptancePartyRole }]
+      : []),
+    ...(configuredRoles.has("PROPERTY_TECHNICAL_COSIGNER")
+      && (hasPermission("repair:workorder:manage") || hasPermission("repair:workorder:field"))
+      ? [{ value: "property-technical", label: "物业项目专业人员", role: "PROPERTY_TECHNICAL_COSIGNER" as RepairAcceptancePartyRole }]
+      : []),
+    ...(configuredRoles.has("THIRD_PARTY_TECHNICAL_COSIGNER")
+      && (hasPermission("repair:workorder:manage") || hasPermission("repair:workorder:governance"))
+      ? [{ value: "third-party-technical", label: "登记第三方专业人员", role: "THIRD_PARTY_TECHNICAL_COSIGNER" as RepairAcceptancePartyRole }]
+      : []),
+  ];
+  const [kind, setKind] = useState(availableKinds[0]?.value ?? "");
   const [name, setName] = useState("");
   const [organization, setOrganization] = useState("");
   const [opinion, setOpinion] = useState("");
@@ -1843,34 +2306,64 @@ function AcceptanceOperation({ details, execution, hasPermission, remember, busy
   const [sealedFile, setSealedFile] = useState<RepairProjectAttachment | null>(null);
   const [resultFile, setResultFile] = useState<RepairProjectAttachment | null>(null);
 
-  const allowedKinds = building
-    ? (hasPermission("repair:workorder:local-decision") ? [{ value: "building-leader", label: "楼组长验收" }] : [])
-    : [
-      ...(hasPermission("repair:workorder:governance") ? [{ value: "committee-executive", label: "主任/副主任在线同意" }, { value: "third-party-technical", label: "登记第三方专业签署" }] : []),
-      ...(hasPermission("repair:workorder:manage") || hasPermission("repair:workorder:field") ? [{ value: "property-technical", label: "物业专业共同签署" }] : []),
-    ];
-
   useEffect(() => {
-    if (allowedKinds.length > 0 && !allowedKinds.some((item) => item.value === kind)) setKind(allowedKinds[0].value);
-  }, [project.projectId, building]);
+    if (availableKinds.length > 0 && !availableKinds.some((item) => item.value === kind)) {
+      setKind(availableKinds[0].value);
+    }
+  }, [project.projectId, policy?.policyHash, roleKey]);
+
+  const selectedKind = availableKinds.find((item) => item.value === kind);
+  const selectedRole = selectedKind?.role;
+  const evidenceRequired = selectedRole != null && Boolean(policy?.requirements.some((requirement) =>
+    requirement.eligibleRoles.includes(selectedRole) && requirement.evidenceRequired));
+  const canSeal = configuredRoles.has("COMMITTEE_SEAL_OPERATOR")
+    && hasPermission("repair:workorder:governance")
+    && hasPermission("committee:seal:use");
+  const actorFinalizerRoles = new Set<RepairAcceptancePartyRole>();
+  if (roleKey === "OWNER_REPRESENTATIVE") actorFinalizerRoles.add("BUILDING_LEADER");
+  if (["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "")) {
+    actorFinalizerRoles.add("COMMITTEE_EXECUTIVE_APPROVER");
+    if (hasPermission("committee:seal:use")) actorFinalizerRoles.add("COMMITTEE_SEAL_OPERATOR");
+  }
+  if (["PROPERTY_MANAGER", "PROPERTY_STAFF"].includes(roleKey ?? "")) {
+    actorFinalizerRoles.add("PROPERTY_TECHNICAL_COSIGNER");
+  }
+  const canFinalize = Boolean(policy?.finalizerRoles.some((role) => actorFinalizerRoles.has(role)));
 
   return (
-    <OperationSection title={building ? "楼栋业主侧验收" : "全小区业委会验收"} desc={building ? "楼组长与本次受影响业主共同验收；业委会账号不在此处代签。" : "主任或副主任在线同意、业委会用印、物业或第三方专业人员共同签署，三项缺一不可。"}>
-      {allowedKinds.length > 0 && <div className="grid gap-4 md:grid-cols-2">
-        <div><Label>当前签署角色</Label><Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{allowedKinds.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
+    <OperationSection title="工程验收" desc={policy ? `${policy.acceptanceMethod}。系统按已通过实施方案中的参与人和通过条件核对结果。` : "正在读取本项目已确认的验收安排。"}>
+      {policy && (
+        <div className="mb-5 border-y py-4">
+          <div className="grid gap-4 text-sm md:grid-cols-2">
+            <div><span className="text-muted-foreground">验收安排依据：</span>{policy.basisSummary}</div>
+            <div><span className="text-muted-foreground">当前轮次：</span>第 {execution.acceptance?.roundNo ?? 1} 轮</div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {policy.requirements.map((requirement) => (
+              <div key={requirement.requirementCode} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span>{requirement.businessName}</span>
+                <span className="text-muted-foreground">{requirement.eligibleRoles.map((role) => ACCEPTANCE_ROLE_LABEL[role]).join(" / ")}，至少 {requirement.minimumPassingCount} 人通过</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {availableKinds.length > 0 && <div className="grid gap-4 md:grid-cols-2">
+        <div><Label>当前办理身份</Label><Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{availableKinds.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
         <div><Label>结论</Label><Select value={conclusion} onValueChange={(value) => setConclusion(value as typeof conclusion)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PASSED">验收通过</SelectItem><SelectItem value="RECTIFICATION_REQUIRED">要求整改</SelectItem></SelectContent></Select></div>
         <div><Label>签署人姓名</Label><Input value={name} onChange={(event) => setName(event.target.value)} /></div>
-        {!building && kind !== "committee-executive" && <div><Label>签署组织</Label><Input value={organization} onChange={(event) => setOrganization(event.target.value)} /></div>}
+        {["property-technical", "third-party-technical"].includes(kind) && <div><Label>所在单位</Label><Input value={organization} onChange={(event) => setOrganization(event.target.value)} /></div>}
         <div className="md:col-span-2"><Label>验收意见</Label><Textarea value={opinion} onChange={(event) => setOpinion(event.target.value)} /></div>
-        <FileUpload projectId={project.projectId} label={kind === "third-party-technical" ? "第三方签署原件" : "补充证据（可选）"} value={evidence} onUploaded={(file) => { remember(file); setEvidence(file); }} />
-        <div className="flex items-end"><Button disabled={busy !== null || !name.trim() || (kind === "third-party-technical" && (!organization.trim() || !evidence)) || (kind === "property-technical" && !organization.trim()) || (conclusion === "RECTIFICATION_REQUIRED" && !opinion.trim())} onClick={() => void run("acceptance-party", () => postRepairProjectAction(project.projectId, `acceptance/${kind}`, { conclusion, participantName: name, participantOrganization: organization || undefined, opinion: opinion || undefined, evidenceAttachmentId: evidence?.attachmentId }), "验收签署已提交")}>提交签署</Button></div>
+        <FileUpload projectId={project.projectId} label={evidenceRequired ? "验收签署证据 *" : "补充证据（可选）"} value={evidence} onUploaded={(file) => { remember(file); setEvidence(file); }} />
+        <div className="flex items-end"><Button disabled={busy !== null || !kind || !name.trim() || (["property-technical", "third-party-technical"].includes(kind) && !organization.trim()) || (evidenceRequired && !evidence) || (conclusion === "RECTIFICATION_REQUIRED" && !opinion.trim())} onClick={() => void run("acceptance-party", () => postRepairProjectAction(project.projectId, `acceptance/${kind}`, { conclusion, participantName: name, participantOrganization: organization || undefined, opinion: opinion || undefined, evidenceAttachmentId: evidence?.attachmentId }), "验收意见已提交")}>提交验收意见</Button></div>
       </div>}
 
-      {!building && hasPermission("repair:workorder:governance") && hasPermission("committee:seal:use") && <div className="mt-5 grid gap-4 border-t pt-5 md:grid-cols-2"><FileUpload projectId={project.projectId} label="验收签前文件" value={sourceFile} onUploaded={(file) => { remember(file); setSourceFile(file); }} /><FileUpload projectId={project.projectId} label="已盖章验收文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} /><Button disabled={busy !== null || !sourceFile || !sealedFile} onClick={() => void run("acceptance-seal", () => postRepairProjectAction(project.projectId, "acceptance/seal", { sourceAttachmentId: sourceFile?.attachmentId, sealedAttachmentId: sealedFile?.attachmentId, remark: opinion }), "业委会验收用印已登记")}>登记验收用印</Button></div>}
+      {canSeal && <div className="mt-5 grid gap-4 border-t pt-5 md:grid-cols-2"><FileUpload projectId={project.projectId} label="验收签前文件" value={sourceFile} onUploaded={(file) => { remember(file); setSourceFile(file); }} /><FileUpload projectId={project.projectId} label="已盖章验收文件" value={sealedFile} onUploaded={(file) => { remember(file); setSealedFile(file); }} /><Button disabled={busy !== null || !sourceFile || !sealedFile} onClick={() => void run("acceptance-seal", () => postRepairProjectAction(project.projectId, "acceptance/seal", { sourceAttachmentId: sourceFile?.attachmentId, sealedAttachmentId: sealedFile?.attachmentId, remark: opinion }), "验收用印材料已登记")}>登记验收用印</Button></div>}
 
-      {(hasPermission(building ? "repair:workorder:local-decision" : "repair:workorder:governance")) && <div className="mt-5 grid gap-4 border-t pt-5 md:grid-cols-2"><FileUpload projectId={project.projectId} label="验收定案文件" value={resultFile} onUploaded={(file) => { remember(file); setResultFile(file); }} /><div className="flex items-end"><Button disabled={busy !== null || !resultFile} onClick={() => void run("acceptance-finalize", () => postRepairProjectAction(project.projectId, "acceptance/finalization", { expectedProjectVersion: project.version, resultAttachmentId: resultFile?.attachmentId, remark: opinion }), "项目验收已定案")}>完成验收定案</Button></div></div>}
+      {canFinalize && <div className="mt-5 grid gap-4 border-t pt-5 md:grid-cols-2"><FileUpload projectId={project.projectId} label="验收结果文件" value={resultFile} onUploaded={(file) => { remember(file); setResultFile(file); }} /><div className="flex items-end"><Button disabled={busy !== null || !resultFile} onClick={() => void run("acceptance-finalize", () => postRepairProjectAction(project.projectId, "acceptance/finalization", { expectedProjectVersion: project.version, resultAttachmentId: resultFile?.attachmentId, remark: opinion }), "工程验收结果已确认")}>确认工程验收结果</Button></div></div>}
 
-      <div className="mt-5 space-y-2 border-t pt-4">{execution.acceptanceParties.map((party) => <div key={party.partyId} className="flex items-start justify-between gap-3 text-sm"><div><span className="font-medium">{party.participantName}</span><span className="ml-2 text-muted-foreground">{party.partyRole}</span>{party.opinion && <div className="mt-1 text-xs text-muted-foreground">{party.opinion}</div>}</div><StatusChip tone={party.conclusion === "PASSED" ? "success" : "danger"}>{party.conclusion === "PASSED" ? "通过" : "整改"}</StatusChip></div>)}</div>
+      <div className="mt-5 space-y-2 border-t pt-4">{execution.acceptanceParties.map((party) => <div key={party.partyId} className="flex items-start justify-between gap-3 text-sm"><div><span className="font-medium">{party.participantName}</span><span className="ml-2 text-muted-foreground">{ACCEPTANCE_ROLE_LABEL[party.partyRole as RepairAcceptancePartyRole] ?? party.partyRole}</span>{party.opinion && <div className="mt-1 text-xs text-muted-foreground">{party.opinion}</div>}</div><StatusChip tone={party.conclusion === "PASSED" ? "success" : "danger"}>{party.conclusion === "PASSED" ? "通过" : "整改"}</StatusChip></div>)}</div>
     </OperationSection>
   );
 }

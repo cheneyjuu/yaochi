@@ -23,6 +23,14 @@ export type RepairProjectStage =
   | "CONCEALED_WORK"
   | "COMPLETION"
   | "ACCEPTANCE";
+export type RepairProjectEvidenceStage = Exclude<RepairProjectStage, "ACCEPTANCE">;
+export type RepairAcceptancePartyRole =
+  | "AFFECTED_OWNER"
+  | "BUILDING_LEADER"
+  | "COMMITTEE_EXECUTIVE_APPROVER"
+  | "COMMITTEE_SEAL_OPERATOR"
+  | "PROPERTY_TECHNICAL_COSIGNER"
+  | "THIRD_PARTY_TECHNICAL_COSIGNER";
 export type RepairVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 export type RepairAcceptanceConclusion = "PASSED" | "RECTIFICATION_REQUIRED";
 export type RepairPaymentMilestone = "ADVANCE" | "PROGRESS" | "COMPLETION" | "WARRANTY_RELEASE";
@@ -119,8 +127,13 @@ export interface RepairProjectPlan {
   nonCompetitiveSelectionBasis?: string | null;
   supplierSelectionReason?: string | null;
   constructionManagementRequirements?: string | null;
+  evidenceRequirements?: RepairProjectEvidenceRequirement[] | null;
   safetyRequirements?: string | null;
   acceptanceMethod?: string | null;
+  acceptanceRequirements?: RepairProjectAcceptanceRequirement[] | null;
+  acceptanceFinalizerRoles?: RepairAcceptancePartyRole[] | null;
+  acceptanceBasisAttachmentIds?: number[] | null;
+  acceptanceBasisSummary?: string | null;
   affectedOwnerScopeDescription?: string | null;
   minimumAffectedOwnerAcceptors?: number | null;
   affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO" | null;
@@ -137,6 +150,20 @@ export interface RepairProjectPlan {
   authorizationFrozenByUserId?: number | null;
   authorizationFrozenAt?: string | null;
   snapshotHash?: string | null;
+}
+
+export interface RepairProjectEvidenceRequirement {
+  stage: RepairProjectEvidenceStage;
+  description: string;
+  required: boolean;
+}
+
+export interface RepairProjectAcceptanceRequirement {
+  requirementCode: string;
+  businessName: string;
+  eligibleRoles: RepairAcceptancePartyRole[];
+  minimumPassingCount: number;
+  evidenceRequired: boolean;
 }
 
 /** 关联业务：维修点位独立于报价、合同和结算明细，承载可勘验的维修对象。 */
@@ -543,7 +570,13 @@ export interface RepairProjectSettlement {
 }
 
 export interface RepairProjectAcceptancePolicy {
+  policyHash: string;
   workflowType: RepairProjectWorkflow;
+  acceptanceMethod: string;
+  requirements: RepairProjectAcceptanceRequirement[];
+  finalizerRoles: RepairAcceptancePartyRole[];
+  basisAttachmentIds: number[];
+  basisSummary: string;
   affectedOwnerCount: number;
   minimumAffectedOwnerParticipants: number;
   affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO" | null;
@@ -854,6 +887,13 @@ export interface RepairVotingWorkbench {
         status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED";
         enteredByUserId: number;
       } | null;
+      /** 只暴露纸票是否计入、无效或重复，不向经办页返回另一渠道的票面选择。 */
+      outcomes: Array<{
+        outcomeId: number;
+        subjectId: number;
+        status: "COUNTED" | "INVALID" | "DUPLICATE";
+        finalizedAt: string;
+      }>;
     }>;
   };
   online: { completedPropertyCount: number; conflictCount: number };
@@ -1216,6 +1256,22 @@ export function freezeRepairProjectPlanForAuthorization(
     minimumInvitedSupplierCount?: number;
     minimumValidQuoteCount?: number;
     nonCompetitiveSelectionBasis?: string;
+    constructionManagementRequirements: string;
+    evidenceRequirements: RepairProjectEvidenceRequirement[];
+    safetyRequirements: string;
+    settlementMethod: "ACTUAL_QUANTITY" | "FIXED_TOTAL";
+    plannedStartDate: string;
+    plannedCompletionDate: string;
+    warrantyDays: number;
+    acceptanceMethod: string;
+    acceptanceRequirements: RepairProjectAcceptanceRequirement[];
+    acceptanceFinalizerRoles: RepairAcceptancePartyRole[];
+    acceptanceBasisAttachmentIds: number[];
+    acceptanceBasisSummary: string;
+    affectedOwnerScopeDescription?: string;
+    minimumAffectedOwnerAcceptors?: number;
+    affectedOwnerPassRule?: "ALL" | "AT_LEAST_RATIO";
+    affectedOwnerApprovalRatio?: number;
   },
 ): Promise<RepairProjectDetails> {
   return apiPost(`/admin/repair-projects/${projectId}/plans/${planId}/freeze-for-authorization`, input);
