@@ -88,6 +88,27 @@ export function votingPreparationBlocker(input: VotingPreparationValidation): st
   return null;
 }
 
+/** 已确认安排会由后台按计划自动开始；只有到时仍未开启时，业委会才显示人工补充入口。 */
+export function votingOpeningAction(canGovern: boolean, voteStartAt: string, now = Date.now()): {
+  canStartNow: boolean;
+  message: string | null;
+} {
+  const startTime = new Date(voteStartAt).getTime();
+  if (Number.isNaN(startTime)) {
+    return { canStartNow: false, message: "表决开始时间无法识别，请刷新后重试。" };
+  }
+  if (now < startTime) {
+    return {
+      canStartNow: false,
+      message: `系统将于 ${new Date(voteStartAt).toLocaleString("zh-CN", { hour12: false })} 自动开始表决，无需人工操作。`,
+    };
+  }
+  if (!canGovern) {
+    return { canStartNow: false, message: "已到开始时间，系统正在自动开启表决，请稍后刷新查看进度。" };
+  }
+  return { canStartNow: true, message: null };
+}
+
 function propertyLabel(item: RepairVotingWorkbench["electorate"][number] | undefined): string {
   if (!item) return "本次名册房屋";
   return [item.buildingName, item.unitName, item.roomName].filter(Boolean).join(" · ");
@@ -173,6 +194,9 @@ export function RepairProjectVotingOperation({
     earliestVoteStartAt: preparationOptions?.earliestVoteStartAt ?? null,
     optionsReady: preparationOptions?.ready ?? false,
   });
+  const openingAction = voting?.voting.status === "PREPARED"
+    ? votingOpeningAction(canGovern, voting.executionPackage.voteStartAt)
+    : null;
 
   async function reload() {
     setLoading(true);
@@ -321,11 +345,16 @@ export function RepairProjectVotingOperation({
           </dl>
 
           {voting.voting.status === "PREPARED" && (
-            <Button className="mt-4" disabled={!canGovern || busy !== null || Date.now() < new Date(voting.executionPackage.voteStartAt).getTime()} onClick={() => void run(
-              "open-voting",
-              () => openRepairProjectVoting(project.projectId, voting.voting.version),
-              "相关业主表决已开始",
-            )}><Play className="mr-1 size-4" />开始表决</Button>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {openingAction?.message && <p className="text-xs text-muted-foreground">{openingAction.message}</p>}
+              {openingAction?.canStartNow && (
+                <Button disabled={busy !== null} onClick={() => void run(
+                  "open-voting",
+                  () => openRepairProjectVoting(project.projectId, voting.voting.version),
+                  "相关业主表决已开始",
+                )}><Play className="mr-1 size-4" />立即开始表决</Button>
+              )}
+            </div>
           )}
 
           {voting.voting.status === "VOTING" && !workbench && (
