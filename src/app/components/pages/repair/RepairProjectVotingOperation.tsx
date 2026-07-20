@@ -27,8 +27,10 @@ import {
   type RepairVotingDeliveryMethod,
   type RepairVotingPreparationOptions,
   type RepairVotingWorkbench,
+  type VotingProxyAuthorization,
 } from "../../../lib/repair-project";
 import { RepairProjectFileUpload } from "./RepairProjectFileUpload";
+import { RepairVotingProxyAuthorizationPanel } from "./RepairVotingProxyAuthorizationPanel";
 
 const MODE_LABEL: Record<RepairVotingCollectionMode, string> = {
   PAPER: "纸质书面表决",
@@ -64,6 +66,7 @@ export function RepairProjectVotingOperation({
   const [preparationOptions, setPreparationOptions] = useState<RepairVotingPreparationOptions | null>(null);
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const [workbench, setWorkbench] = useState<RepairVotingWorkbench | null>(null);
+  const [workbenchError, setWorkbenchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [mode, setMode] = useState<RepairVotingCollectionMode | "">("");
@@ -79,6 +82,8 @@ export function RepairProjectVotingOperation({
   const [invalidReasonCode, setInvalidReasonCode] = useState<"BLANK" | "MULTIPLE_MARKS" | "UNREADABLE" | "WRONG_TEMPLATE" | "OTHER">("BLANK");
   const [invalidReasonDescription, setInvalidReasonDescription] = useState("");
   const [reviewNote, setReviewNote] = useState("");
+  const [proxyAuthorizations, setProxyAuthorizations] = useState<VotingProxyAuthorization[]>([]);
+  const [proxyAuthorizationId, setProxyAuthorizationId] = useState("");
 
   const canGovern = ["COMMITTEE_DIRECTOR", "COMMITTEE_MEMBER"].includes(roleKey ?? "")
     && hasPermission("repair:workorder:governance");
@@ -91,18 +96,32 @@ export function RepairProjectVotingOperation({
     const requested = new Set(workbench.paperAssistanceRequests
       .filter((item) => item.status !== "WITHDRAWN")
       .map((item) => item.opid));
-    return workbench.electorate.filter((item) => requested.has(item.representativeOpid));
-  }, [voting, workbench]);
+    const represented = new Set(proxyAuthorizations
+      .filter((item) => item.status === "CONFIRMED")
+      .map((item) => item.principalOpid));
+    return workbench.electorate.filter((item) => requested.has(item.representativeOpid)
+      || represented.has(item.representativeOpid));
+  }, [proxyAuthorizations, voting, workbench]);
   const acceptsPaper = paperElectorate.length > 0;
   const subjectId = voting?.subject.subjectId;
   const selectedElectorate = useMemo(
     () => paperElectorate.find((item) => String(item.representativeOpid) === opid),
     [opid, paperElectorate],
   );
+  const selectedProxy = useMemo(
+    () => proxyAuthorizations.find((item) => item.status === "CONFIRMED"
+      && String(item.authorizationId) === proxyAuthorizationId),
+    [proxyAuthorizationId, proxyAuthorizations],
+  );
+  const availableProxies = useMemo(
+    () => proxyAuthorizations.filter((item) => item.status === "CONFIRMED" && String(item.principalOpid) === opid),
+    [opid, proxyAuthorizations],
+  );
   const validPreparation = Boolean(
     mode && startAt && endAt && paperBallotTemplate
       && new Date(endAt).getTime() > new Date(startAt).getTime()
       && preparationOptions
+      && preparationOptions.ready
       && new Date(startAt).getTime() >= new Date(preparationOptions.earliestVoteStartAt).getTime(),
   );
 
@@ -114,14 +133,22 @@ export function RepairProjectVotingOperation({
       setMode(next.executionPackage.collectionMode);
       setPreparationOptions(null);
       setPreparationError(null);
-      if (next.voting.status === "VOTING") {
-        setWorkbench(await getRepairVotingWorkbench(project.projectId));
+      if (next.voting.status === "VOTING" && canHandlePaper) {
+        try {
+          setWorkbench(await getRepairVotingWorkbench(project.projectId));
+          setWorkbenchError(null);
+        } catch {
+          setWorkbench(null);
+          setWorkbenchError("纸质材料办理区暂时无法读取，请刷新后重试；已发起的表决不受影响。");
+        }
       } else {
         setWorkbench(null);
+        setWorkbenchError(null);
       }
     } catch {
       setVoting(null);
       setWorkbench(null);
+      setWorkbenchError(null);
       try {
         const options = await getRepairVotingPreparationOptions(project.projectId);
         setPreparationOptions(options);
@@ -177,8 +204,20 @@ export function RepairProjectVotingOperation({
             <>
               <div className="mb-4 text-sm leading-6">
                 <span className="font-medium">本次依据：</span>{preparationOptions.ruleName} · {preparationOptions.ruleVersion}
-                <span className="ml-4 text-muted-foreground">最早可于 {new Date(preparationOptions.earliestVoteStartAt).toLocaleString("zh-CN", { hour12: false })} 开始表决</span>
+                {preparationOptions.earliestVoteStartAt && <span className="ml-4 text-muted-foreground">最早可于 {new Date(preparationOptions.earliestVoteStartAt).toLocaleString("zh-CN", { hour12: false })} 开始表决</span>}
               </div>
+              {!preparationOptions.ready ? (
+                <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                  <div className="font-medium">发起表决前还需一次性完成以下事项</div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">{preparationOptions.blockingItems.map((item) => <li key={item.code}>{item.message}</li>)}</ul>
+                </div>
+              ) : (
+              <>
+              {preparationOptions.proxyVotingPolicy === "WRITTEN_AUTHORIZATION_REQUIRED" && (
+                <div className="mb-4 border-y bg-muted/20 px-4 py-3 text-sm leading-6">
+                  业主可本人线上或纸质表决；确实无法本人办理时，可在表决开始后登记书面委托，由另一名工作人员核对后交代理人办理纸票。
+                </div>
+              )}
               <div className="grid gap-4 lg:grid-cols-2">
                 <div>
                   <Label htmlFor="repair-voting-mode">本次实际表决方式 *</Label>
@@ -200,6 +239,7 @@ export function RepairProjectVotingOperation({
                 <div><Label htmlFor="repair-voting-end">截止时间 *</Label><Input id="repair-voting-end" className="mt-2" type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} /></div>
               </div>
               <div className="mt-4 flex justify-end">
+                {!canGovern && <span className="mr-3 self-center text-xs text-muted-foreground">物业可核对材料，表决安排由业委会确认。</span>}
                 <Button disabled={!canGovern || busy !== null || project.status !== "AUTHORIZATION_IN_PROGRESS" || !validPreparation} onClick={() => void run(
                   "prepare-voting",
                   () => prepareRepairProjectVoting(project.projectId, {
@@ -212,6 +252,8 @@ export function RepairProjectVotingOperation({
                   "相关业主表决安排已确认",
                 )}><Vote className="mr-1 size-4" />确认本次表决安排</Button>
               </div>
+              </>
+              )}
             </>
           ) : null}
         </div>
@@ -232,6 +274,14 @@ export function RepairProjectVotingOperation({
             )}><Play className="mr-1 size-4" />开始表决</Button>
           )}
 
+          {voting.voting.status === "VOTING" && !workbench && (
+            <div className="mt-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+              {canHandlePaper
+                ? workbenchError ?? "正在读取纸质材料办理情况"
+                : "当前身份可查看表决进度；纸质材料登记与核对由具备相应办理权限的工作人员操作。"}
+            </div>
+          )}
+
           {voting.voting.status === "VOTING" && workbench && (
             <>
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
@@ -240,6 +290,23 @@ export function RepairProjectVotingOperation({
                 <div><div className="text-xs text-muted-foreground">纸票已完成</div><div className="mt-1 text-lg font-semibold">{workbench.paper.ballots.filter((item) => item.ballot.status === "COMPLETED").length}</div></div>
                 <div><div className="text-xs text-muted-foreground">纸质协助申请</div><div className="mt-1 text-lg font-semibold">{workbench.paperAssistanceRequests.length}</div></div>
               </div>
+
+              {canHandlePaper && voting.proxyVotingPolicy === "WRITTEN_AUTHORIZATION_REQUIRED" && (
+                <RepairVotingProxyAuthorizationPanel
+                  packageId={voting.executionPackage.packageId}
+                  electorate={workbench.electorate}
+                  currentActorUserId={workbench.currentActorUserId}
+                  voteStartAt={voting.executionPackage.voteStartAt}
+                  voteEndAt={voting.executionPackage.voteEndAt}
+                  onChanged={(items) => {
+                    setProxyAuthorizations(items);
+                    if (proxyAuthorizationId && !items.some((item) => item.status === "CONFIRMED"
+                      && String(item.authorizationId) === proxyAuthorizationId)) {
+                      setProxyAuthorizationId("");
+                    }
+                  }}
+                />
+              )}
 
               {canHandlePaper && acceptsPaper && (
                 <div className="mt-5 border-y py-5">
@@ -261,14 +328,15 @@ export function RepairProjectVotingOperation({
                   <div>
                     <h5 className="text-sm font-medium">登记纸质材料送达</h5>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div><Label>专有部分 *</Label><Select value={opid} onValueChange={setOpid}><SelectTrigger className="mt-2"><SelectValue placeholder="选择专有部分" /></SelectTrigger><SelectContent>{paperElectorate.map((item) => <SelectItem key={item.representativeOpid} value={String(item.representativeOpid)}>{propertyLabel(item)} · {item.certifiedArea} ㎡</SelectItem>)}</SelectContent></Select></div>
+                      <div><Label>专有部分 *</Label><Select value={opid} onValueChange={(value) => { setOpid(value); setProxyAuthorizationId(""); }}><SelectTrigger className="mt-2"><SelectValue placeholder="选择专有部分" /></SelectTrigger><SelectContent>{paperElectorate.map((item) => <SelectItem key={item.representativeOpid} value={String(item.representativeOpid)}>{propertyLabel(item)} · {item.certifiedArea} ㎡</SelectItem>)}</SelectContent></Select></div>
                       <div><Label htmlFor="repair-voting-recipient">签收人</Label><Input id="repair-voting-recipient" className="mt-2" value={recipientName} onChange={(event) => setRecipientName(event.target.value)} /></div>
+                      {availableProxies.length > 0 && <div className="sm:col-span-2"><Label>纸票办理人 *</Label><Select value={proxyAuthorizationId || "__OWNER__"} onValueChange={(value) => { setProxyAuthorizationId(value === "__OWNER__" ? "" : value); const proxy = proxyAuthorizations.find((item) => String(item.authorizationId) === value); if (proxy) setRecipientName(proxy.agentName); }}><SelectTrigger className="mt-2"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__OWNER__">业主本人办理</SelectItem>{availableProxies.map((item) => <SelectItem key={item.authorizationId} value={String(item.authorizationId)}>代理人 {item.agentName} · {item.agentIdentityNumberMasked}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-xs text-muted-foreground">选择代理人后，送达和纸票均会绑定已核对的书面委托，计票仍归入原业主房屋。</p></div>}
                       <div className="sm:col-span-2"><Label>实际送达方式 *</Label><Select value={deliveryMethod} onValueChange={(value) => setDeliveryMethod(value as RepairVotingDeliveryMethod)}><SelectTrigger className="mt-2"><SelectValue placeholder="按本次实际办理情况选择" /></SelectTrigger><SelectContent>{workbench.validDeliveryMethods.map((item) => <SelectItem key={item} value={item}>{DELIVERY_LABEL[item]}</SelectItem>)}</SelectContent></Select></div>
                     </div>
                     <div className="mt-3"><RepairProjectFileUpload projectId={project.projectId} label="送达凭证" value={deliveryFile} onUploaded={setDeliveryFile} /></div>
                     <Button className="mt-3" variant="outline" disabled={busy !== null || !selectedElectorate || !recipientName.trim() || !deliveryMethod || !deliveryFile} onClick={() => void run(
                       "record-delivery",
-                      () => recordRepairVotingDelivery(project.projectId, { opid: Number(opid), recipientName: recipientName.trim(), deliveryMethod: deliveryMethod as RepairVotingDeliveryMethod, evidenceAttachmentId: deliveryFile!.attachmentId, deliveredAt: new Date().toISOString() }),
+                      () => recordRepairVotingDelivery(project.projectId, { opid: Number(opid), proxyAuthorizationId: selectedProxy?.authorizationId, recipientName: recipientName.trim(), deliveryMethod: deliveryMethod as RepairVotingDeliveryMethod, evidenceAttachmentId: deliveryFile!.attachmentId, deliveredAt: new Date().toISOString() }),
                       "送达情况已登记，等待核对",
                     )}>登记送达</Button>
                     <div className="mt-4 space-y-2">{workbench.paper.deliveries.map((item) => <div key={item.paperDeliveryId} className="flex items-center justify-between gap-3 border-t pt-2 text-sm"><span>{propertyLabel(workbench.electorate.find((candidate) => candidate.representativeOpid === item.opid))} · {item.recipientName} · {DELIVERY_LABEL[item.deliveryMethod as RepairVotingDeliveryMethod] ?? item.deliveryMethod}</span>{item.status === "PENDING_REVIEW" ? item.deliveredByUserId === workbench.currentActorUserId ? <span className="text-xs text-muted-foreground">需由另一名工作人员核对</span> : <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void run("review-delivery-confirm-" + item.paperDeliveryId, () => reviewRepairVotingDelivery(project.projectId, item.paperDeliveryId, "CONFIRM", reviewNote.trim() || undefined), "送达情况已核对")}>核对通过</Button><Button size="sm" variant="outline" disabled={!reviewNote.trim()} onClick={() => void run("review-delivery-reject-" + item.paperDeliveryId, () => reviewRepairVotingDelivery(project.projectId, item.paperDeliveryId, "REJECT", reviewNote.trim()), "送达登记已退回")}>退回</Button></div> : <StatusChip tone={item.status === "CONFIRMED" ? "success" : "danger"}>{item.status === "CONFIRMED" ? "已核对" : "已退回"}</StatusChip>}</div>)}</div>
@@ -283,7 +351,7 @@ export function RepairProjectVotingOperation({
                     <div className="mt-3"><RepairProjectFileUpload projectId={project.projectId} label="纸质表决票原件" value={ballotFile} onUploaded={setBallotFile} /></div>
                     <Button className="mt-3" variant="outline" disabled={busy !== null || !selectedElectorate || !ballotNumber.trim() || !ballotFile} onClick={() => void run(
                       "register-ballot",
-                      () => registerRepairVotingPaperBallot(project.projectId, { opid: Number(opid), ballotNumber: ballotNumber.trim(), attachmentId: ballotFile!.attachmentId, receivedAt: new Date().toISOString() }),
+                      () => registerRepairVotingPaperBallot(project.projectId, { opid: Number(opid), proxyAuthorizationId: selectedProxy?.authorizationId, ballotNumber: ballotNumber.trim(), attachmentId: ballotFile!.attachmentId, receivedAt: new Date().toISOString() }),
                       "纸质表决票已登记",
                     )}>登记选票</Button>
                     <div className="mt-4 space-y-3">{workbench.paper.ballots.map((item) => <div key={item.ballot.paperBallotId} className="border-t pt-3 text-sm"><div className="flex items-center justify-between gap-3"><span>{item.ballot.ballotNumber} · {propertyLabel(workbench.electorate.find((candidate) => candidate.representativeOpid === item.ballot.opid))}</span><StatusChip tone={item.ballot.status === "COMPLETED" ? "success" : "warning"}>{item.ballot.status === "RECEIVED" ? "待录入" : item.ballot.status === "IN_ENTRY" ? "待核对" : item.ballot.status === "COMPLETED" ? "已完成" : "已作废"}</StatusChip></div>{item.ballot.status === "RECEIVED" && subjectId && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2">{(["SUPPORT", "AGAINST", "ABSTAIN"] as const).map((choice) => <Button key={choice} size="sm" variant="outline" onClick={() => void run("entry-" + item.ballot.paperBallotId, () => submitRepairVotingPaperBallotEntry(project.projectId, item.ballot.paperBallotId, subjectId, { determination: "VALID", choice }), "纸票录入已提交，等待另一名工作人员核对")}>{choice === "SUPPORT" ? "录入同意" : choice === "AGAINST" ? "录入不同意" : "录入弃权"}</Button>)}</div><div className="grid gap-2 sm:grid-cols-[180px_1fr_auto]"><Select value={invalidReasonCode} onValueChange={(value) => setInvalidReasonCode(value as typeof invalidReasonCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="BLANK">空白票</SelectItem><SelectItem value="MULTIPLE_MARKS">多选</SelectItem><SelectItem value="UNREADABLE">无法辨认</SelectItem><SelectItem value="WRONG_TEMPLATE">非本次选票</SelectItem><SelectItem value="OTHER">其他</SelectItem></SelectContent></Select><Input placeholder="补充说明（其他原因时必填）" value={invalidReasonDescription} onChange={(event) => setInvalidReasonDescription(event.target.value)} /><Button size="sm" variant="outline" disabled={invalidReasonCode === "OTHER" && !invalidReasonDescription.trim()} onClick={() => void run("entry-invalid-" + item.ballot.paperBallotId, () => submitRepairVotingPaperBallotEntry(project.projectId, item.ballot.paperBallotId, subjectId, { determination: "INVALID", invalidReasonCode, invalidReasonDescription: invalidReasonDescription.trim() || undefined }), "无效票认定已录入，等待另一名工作人员核对")}>录入无效票</Button></div></div>}{item.latestEntry?.status === "PENDING_REVIEW" && (item.latestEntry.enteredByUserId === workbench.currentActorUserId ? <p className="mt-2 text-xs text-muted-foreground">需由另一名工作人员核对录入内容</p> : <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => void run("review-entry-confirm-" + item.latestEntry!.entryId, () => reviewRepairVotingPaperBallotEntry(project.projectId, item.ballot.paperBallotId, item.latestEntry!.entryId, "CONFIRM", reviewNote.trim() || undefined), "纸质表决票已核对并完成处理")}>核对通过</Button><Button size="sm" variant="outline" disabled={!reviewNote.trim()} onClick={() => void run("review-entry-reject-" + item.latestEntry!.entryId, () => reviewRepairVotingPaperBallotEntry(project.projectId, item.ballot.paperBallotId, item.latestEntry!.entryId, "REJECT", reviewNote.trim()), "纸票录入已退回")}>退回录入</Button></div>)}</div>)}</div>

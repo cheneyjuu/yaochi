@@ -734,10 +734,35 @@ export type RepairVotingDeliveryMethod = "DOOR_TO_DOOR" | "POSTAL" | "ELECTRONIC
 export interface RepairVotingPreparationOptions {
   ruleName: string;
   ruleVersion: string;
+  ready: boolean;
+  blockingItems: Array<{ code: string; message: string }>;
   allowedModes: RepairVotingCollectionMode[];
   earliestVoteStartAt: string;
   validDeliveryMethods: RepairVotingDeliveryMethod[];
   paperBallotSealRequired: boolean;
+  proxyVotingPolicy: "NOT_ALLOWED" | "WRITTEN_AUTHORIZATION_REQUIRED" | null;
+}
+
+export interface VotingProxyAuthorization {
+  authorizationId: number;
+  packageId: number;
+  electorateItemId: number;
+  principalOpid: number;
+  agentName: string;
+  agentIdentityDocumentType: "CHINESE_RESIDENT_ID" | "PASSPORT" | "OTHER";
+  agentIdentityNumberMasked: string;
+  validFrom: string;
+  validUntil: string;
+  originalFileName: string;
+  status: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED" | "REVOKED";
+  registeredByUserId: number;
+  registeredAt: string;
+  reviewedByUserId?: number | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  revokedByUserId?: number | null;
+  revokedAt?: string | null;
+  revokeReason?: string | null;
 }
 
 export interface RepairProjectVotingDetails {
@@ -773,6 +798,7 @@ export interface RepairProjectVotingDetails {
   };
   ruleName: string;
   ruleVersion: string;
+  proxyVotingPolicy: "NOT_ALLOWED" | "WRITTEN_AUTHORIZATION_REQUIRED";
   result?: {
     passed: boolean;
     quorumSatisfied: boolean;
@@ -806,6 +832,7 @@ export interface RepairVotingWorkbench {
       paperDeliveryId: number;
       electorateItemId: number;
       opid: number;
+      proxyAuthorizationId?: number | null;
       recipientName: string;
       deliveryMethod: string;
       deliveredByUserId: number;
@@ -816,6 +843,7 @@ export interface RepairVotingWorkbench {
       ballot: {
         paperBallotId: number;
         opid: number;
+        proxyAuthorizationId?: number | null;
         ballotNumber: string;
         receivedByUserId: number;
         receivedAt: string;
@@ -931,6 +959,7 @@ export function recordRepairVotingDelivery(
   projectId: number,
   input: {
     opid: number;
+    proxyAuthorizationId?: number;
     recipientName: string;
     deliveryMethod: RepairVotingDeliveryMethod;
     evidenceAttachmentId: number;
@@ -954,9 +983,69 @@ export function reviewRepairVotingDelivery(
 
 export function registerRepairVotingPaperBallot(
   projectId: number,
-  input: { opid: number; ballotNumber: string; attachmentId: number; receivedAt: string },
+  input: {
+    opid: number;
+    proxyAuthorizationId?: number;
+    ballotNumber: string;
+    attachmentId: number;
+    receivedAt: string;
+  },
 ): Promise<unknown> {
   return apiPost(`/admin/repair-projects/${projectId}/voting/paper-ballots`, input);
+}
+
+export function listVotingProxyAuthorizations(packageId: number): Promise<VotingProxyAuthorization[]> {
+  return apiGet(`/admin/voting-packages/${packageId}/proxy-authorizations`);
+}
+
+export function registerVotingProxyAuthorization(
+  packageId: number,
+  input: {
+    principalOpid: number;
+    agentName: string;
+    agentIdentityDocumentType: VotingProxyAuthorization["agentIdentityDocumentType"];
+    agentIdentityNumber: string;
+    validFrom: string;
+    validUntil: string;
+    file: File;
+  },
+): Promise<VotingProxyAuthorization> {
+  const form = new FormData();
+  form.append("principalOpid", String(input.principalOpid));
+  form.append("agentName", input.agentName);
+  form.append("agentIdentityDocumentType", input.agentIdentityDocumentType);
+  form.append("agentIdentityNumber", input.agentIdentityNumber);
+  form.append("validFrom", input.validFrom);
+  form.append("validUntil", input.validUntil);
+  form.append("file", input.file);
+  return apiUpload(`/admin/voting-packages/${packageId}/proxy-authorizations`, form);
+}
+
+export function reviewVotingProxyAuthorization(
+  packageId: number,
+  authorizationId: number,
+  decision: "CONFIRM" | "REJECT",
+  reviewNote: string,
+): Promise<VotingProxyAuthorization> {
+  return apiPost(`/admin/voting-packages/${packageId}/proxy-authorizations/${authorizationId}/review`, {
+    decision,
+    reviewNote,
+  });
+}
+
+export function revokeVotingProxyAuthorization(
+  packageId: number,
+  authorizationId: number,
+  reason: string,
+): Promise<VotingProxyAuthorization> {
+  return apiPost(`/admin/voting-packages/${packageId}/proxy-authorizations/${authorizationId}/revoke`, { reason });
+}
+
+export function getVotingProxyAuthorizationPreviewTicket(
+  packageId: number,
+  authorizationId: number,
+): Promise<{ previewUrl: string; expiresAt: string }> {
+  return apiGet(`/admin/voting-packages/${packageId}/proxy-authorizations/${authorizationId}/preview-ticket`);
 }
 
 export function submitRepairVotingPaperBallotEntry(
