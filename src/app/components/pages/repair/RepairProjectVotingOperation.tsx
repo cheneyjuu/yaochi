@@ -45,6 +45,49 @@ const DELIVERY_LABEL: Record<RepairVotingDeliveryMethod, string> = {
   PUBLIC_NOTICE_BOARD: "公告栏送达",
 };
 
+type VotingPreparationValidation = {
+  canGovern: boolean;
+  projectStatus: string;
+  mode: RepairVotingCollectionMode | "";
+  paperBallotTemplateAttachmentId: number | null;
+  startAt: string;
+  endAt: string;
+  earliestVoteStartAt: string | null;
+  optionsReady: boolean;
+};
+
+/** 将服务端时间向上取整到本地分钟，避免 datetime-local 丢失秒数后早于规则时点。 */
+export function toVotingDateTimeLocalValue(value: string, roundUpToMinute = false): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  if (roundUpToMinute && (date.getSeconds() > 0 || date.getMilliseconds() > 0)) {
+    date.setMinutes(date.getMinutes() + 1);
+  }
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** 返回按钮不可办理的唯一、可行动业务原因；返回 null 表示表单已经可以提交。 */
+export function votingPreparationBlocker(input: VotingPreparationValidation): string | null {
+  if (!input.canGovern) return "当前身份只能核对材料，表决安排由业委会确认。";
+  if (input.projectStatus !== "AUTHORIZATION_IN_PROGRESS") return "当前项目状态不能确认表决安排，请刷新后查看最新办理进度。";
+  if (!input.optionsReady) return "本小区当前表决依据尚未满足发起条件。";
+  if (!input.mode) return "请选择本次实际表决方式。";
+  if (!input.paperBallotTemplateAttachmentId) return "请上传本次纸质表决票模板。";
+  if (!input.startAt) return "请填写表决开始时间。";
+  const startTime = new Date(input.startAt).getTime();
+  const earliestTime = input.earliestVoteStartAt ? new Date(input.earliestVoteStartAt).getTime() : Number.NaN;
+  if (Number.isNaN(startTime)) return "表决开始时间格式不正确。";
+  if (!Number.isNaN(earliestTime) && startTime < earliestTime) {
+    return `开始时间早于本小区规则允许的最早时间，请调整为 ${new Date(input.earliestVoteStartAt!).toLocaleString("zh-CN", { hour12: false })} 之后。`;
+  }
+  if (!input.endAt) return "请填写表决截止时间。";
+  const endTime = new Date(input.endAt).getTime();
+  if (Number.isNaN(endTime)) return "表决截止时间格式不正确。";
+  if (endTime <= startTime) return "表决截止时间必须晚于开始时间。";
+  return null;
+}
+
 function propertyLabel(item: RepairVotingWorkbench["electorate"][number] | undefined): string {
   if (!item) return "本次名册房屋";
   return [item.buildingName, item.unitName, item.roomName].filter(Boolean).join(" · ");
@@ -117,13 +160,19 @@ export function RepairProjectVotingOperation({
     () => proxyAuthorizations.filter((item) => item.status === "CONFIRMED" && String(item.principalOpid) === opid),
     [opid, proxyAuthorizations],
   );
-  const validPreparation = Boolean(
-    mode && startAt && endAt && paperBallotTemplate
-      && new Date(endAt).getTime() > new Date(startAt).getTime()
-      && preparationOptions
-      && preparationOptions.ready
-      && new Date(startAt).getTime() >= new Date(preparationOptions.earliestVoteStartAt).getTime(),
-  );
+  const earliestStartInput = preparationOptions?.earliestVoteStartAt
+    ? toVotingDateTimeLocalValue(preparationOptions.earliestVoteStartAt, true)
+    : "";
+  const preparationBlocker = votingPreparationBlocker({
+    canGovern,
+    projectStatus: project.status,
+    mode,
+    paperBallotTemplateAttachmentId: paperBallotTemplate?.attachmentId ?? null,
+    startAt,
+    endAt,
+    earliestVoteStartAt: preparationOptions?.earliestVoteStartAt ?? null,
+    optionsReady: preparationOptions?.ready ?? false,
+  });
 
   async function reload() {
     setLoading(true);
@@ -166,6 +215,11 @@ export function RepairProjectVotingOperation({
   useEffect(() => {
     void reload();
   }, [project.projectId, project.status, project.version]);
+
+  useEffect(() => {
+    if (!earliestStartInput) return;
+    setStartAt((current) => current || earliestStartInput);
+  }, [earliestStartInput]);
 
   async function run(key: string, action: () => Promise<unknown>, message: string) {
     setBusy(key);
@@ -235,12 +289,12 @@ export function RepairProjectVotingOperation({
                   value={paperBallotTemplate}
                   onUploaded={setPaperBallotTemplate}
                 />
-                <div><Label htmlFor="repair-voting-start">开始时间 *</Label><Input id="repair-voting-start" className="mt-2" type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} /></div>
-                <div><Label htmlFor="repair-voting-end">截止时间 *</Label><Input id="repair-voting-end" className="mt-2" type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} /></div>
+                <div><Label htmlFor="repair-voting-start">开始时间 *</Label><Input id="repair-voting-start" className="mt-2" type="datetime-local" min={earliestStartInput || undefined} value={startAt} onChange={(event) => setStartAt(event.target.value)} /></div>
+                <div><Label htmlFor="repair-voting-end">截止时间 *</Label><Input id="repair-voting-end" className="mt-2" type="datetime-local" min={startAt || earliestStartInput || undefined} value={endAt} onChange={(event) => setEndAt(event.target.value)} /></div>
               </div>
-              <div className="mt-4 flex justify-end">
-                {!canGovern && <span className="mr-3 self-center text-xs text-muted-foreground">物业可核对材料，表决安排由业委会确认。</span>}
-                <Button disabled={!canGovern || busy !== null || project.status !== "AUTHORIZATION_IN_PROGRESS" || !validPreparation} onClick={() => void run(
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                {preparationBlocker && <span className="text-xs text-amber-800">{preparationBlocker}</span>}
+                <Button disabled={busy !== null || preparationBlocker !== null} onClick={() => void run(
                   "prepare-voting",
                   () => prepareRepairProjectVoting(project.projectId, {
                     expectedProjectVersion: project.version,

@@ -7,6 +7,7 @@
     "build": "vite build",
     "type-check": "tsc --noEmit",
     "test:repair-draft-render": "node scripts/verify-repair-draft-render.mjs",
+    "test:repair-voting-preparation": "node scripts/verify-repair-voting-preparation.mjs",
     "dev": "vite"
   },
   "dependencies": {
