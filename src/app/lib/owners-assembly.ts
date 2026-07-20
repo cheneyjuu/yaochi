@@ -1,6 +1,6 @@
 // 关联业务：为业主大会办理页提供规则驱动的筹备、公示、线上/纸质收票、双人复核与计票接口。
 import { apiGet, apiPost, apiUpload } from "./api";
-import type { SubjectType } from "./voting";
+import type { SubjectType, VotingNonResponseSummary } from "./voting";
 
 export type OwnersAssemblyPreparationMode =
   | "WRITTEN_DECISION"
@@ -81,6 +81,7 @@ export interface OwnersAssemblyFormalSubject {
     againstOwnerCount?: number | null;
     abstainArea?: number | null;
     abstainOwnerCount?: number | null;
+    nonResponse?: VotingNonResponseSummary | null;
   } | null;
 }
 

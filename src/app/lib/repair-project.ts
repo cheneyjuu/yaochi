@@ -1,5 +1,6 @@
 // 关联业务：对接维修工程项目台账、合同、施工取证、材料、结算、差异化验收、付款和归档接口。
 import { apiGet, apiPost, apiUpload } from "./api";
+import type { VotingNonResponseSummary } from "./voting";
 
 export type RepairProjectWorkflow = "BUILDING_REPAIR" | "COMMUNITY_PUBLIC_REPAIR";
 export type RepairProjectStatus =
@@ -785,6 +786,7 @@ export interface RepairProjectVotingDetails {
     againstArea?: number | null;
     abstainOwnerCount?: number | null;
     abstainArea?: number | null;
+    nonResponse?: VotingNonResponseSummary | null;
   } | null;
 }
 

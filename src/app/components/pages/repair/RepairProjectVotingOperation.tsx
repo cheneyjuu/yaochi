@@ -7,6 +7,7 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { StatusChip } from "../../gov/common";
+import { NonResponseTallySummary } from "../../voting/NonResponseTallySummary";
 import {
   getRepairProjectVoting,
   getRepairVotingPreparationOptions,
@@ -300,7 +301,7 @@ export function RepairProjectVotingOperation({
           )}
 
           {voting.voting.status === "SETTLED" && voting.result && (
-            <div className="mt-4 flex items-start gap-3 border-y py-4 text-sm"><CheckCircle2 className={`mt-0.5 size-5 ${voting.result.passed ? "text-emerald-600" : "text-red-600"}`} /><div><div className="font-medium">{voting.result.passed ? "相关业主表决通过" : voting.result.quorumSatisfied ? "相关业主表决未通过" : "参与人数或面积未达到规定比例"}</div><div className="mt-1 text-muted-foreground">参与 {voting.result.participatingOwnerCount} / {voting.result.totalOwnerCount} 人，{voting.result.participatingArea} / {voting.result.totalArea} ㎡。</div>{voting.result.supportOwnerCount != null && <div className="mt-1 text-muted-foreground">同意 {voting.result.supportOwnerCount} 人 / {voting.result.supportArea} ㎡，不同意 {voting.result.againstOwnerCount} 人 / {voting.result.againstArea} ㎡，弃权 {voting.result.abstainOwnerCount} 人 / {voting.result.abstainArea} ㎡。</div>}</div></div>
+            <div className="mt-4 flex items-start gap-3 border-y py-4 text-sm"><CheckCircle2 className={`mt-0.5 size-5 ${voting.result.passed ? "text-emerald-600" : "text-red-600"}`} /><div className="min-w-0 flex-1"><div className="font-medium">{voting.result.passed ? "相关业主表决通过" : voting.result.quorumSatisfied ? "相关业主表决未通过" : "参与人数或面积未达到规定比例"}</div><div className="mt-1 text-muted-foreground">参与 {voting.result.participatingOwnerCount} / {voting.result.totalOwnerCount} 人，{voting.result.participatingArea} / {voting.result.totalArea} ㎡。</div>{voting.result.supportOwnerCount != null && <div className="mt-1 text-muted-foreground">同意 {voting.result.supportOwnerCount} 人 / {voting.result.supportArea} ㎡，不同意 {voting.result.againstOwnerCount} 人 / {voting.result.againstArea} ㎡，弃权 {voting.result.abstainOwnerCount} 人 / {voting.result.abstainArea} ㎡。</div>}<NonResponseTallySummary summary={voting.result.nonResponse} /></div></div>
           )}
         </>
       )}

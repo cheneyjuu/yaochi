@@ -1,3 +1,4 @@
+// 关联业务：为管理端提供表决事项、进度、计票来源和未反馈认定审计接口。
 // 议题（VotingSubject）管理端封装 —— 对齐后端 SubjectAdminController。
 // M4-1：GET /voting-subjects 分页列表。
 // M4-2：GET /voting-subjects/{id}/progress 双过半进度 + /vote-details 逐户明细。
@@ -17,6 +18,54 @@ export type SubjectStatus =
   | "SETTLED"
   | "CANCELLED";
 export type VotingScope = "COMMUNITY" | "BUILDING" | "UNIT";
+export type VotingNonResponsePolicy = "NOT_PARTICIPATED" | "FOLLOW_MAJORITY" | "ABSTAIN";
+
+/** 同一计票来源内的参与及选项汇总。 */
+export interface VotingSourceTally {
+  participatingArea: number;
+  participatingOwnerCount: number;
+  supportArea: number;
+  supportOwnerCount: number;
+  againstArea: number;
+  againstOwnerCount: number;
+  abstainArea: number;
+  abstainOwnerCount: number;
+}
+
+/** 结算时固化的未反馈认定汇总，与业主实际票分开。 */
+export interface VotingNonResponseSummary {
+  policy: VotingNonResponsePolicy;
+  eligibleOwnerCount: number;
+  eligibleArea: number;
+  majorityChoice: "SUPPORT" | "AGAINST" | "ABSTAIN" | null;
+  derivationAggregateHash: string;
+  actual: VotingSourceTally;
+  deemed: VotingSourceTally;
+}
+
+/** 有权管理人员可复核的逐条未反馈认定记录。 */
+export interface VotingNonResponseDerivation {
+  derivationId: number;
+  electorateItemId: number;
+  opid: number;
+  uid: number;
+  propertyArea: number;
+  policy: VotingNonResponsePolicy;
+  derivedChoice: "SUPPORT" | "AGAINST" | "ABSTAIN";
+  deliveryEvidenceHash: string;
+  ruleSnapshotHash: string;
+  reasonCode: string;
+  rowHash: string;
+  derivedAt: string;
+}
+
+export function listVotingNonResponseDerivations(
+  subjectId: number,
+): Promise<VotingNonResponseDerivation[]> {
+  return apiGet<VotingNonResponseDerivation[]>(
+    `/voting-subjects/${subjectId}/non-response-derivations`,
+  );
+}
 
 /** 对齐后端 AdminSubjectResponse。Instant → ISO 字符串。 */
 export interface AdminSubject {
