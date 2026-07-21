@@ -83,9 +83,15 @@ try {
     throw new Error("草稿项目应先办理责任意见和前期询价，不能提前显示施工单位选择");
   }
 
-  const { RepairProjectSourcingOperation } = await vite.ssrLoadModule(
+  const { RepairProjectSourcingOperation, getRepairSourcingStepNumbers } = await vite.ssrLoadModule(
     "/src/app/components/pages/repair/RepairProjectSourcingOperation.tsx",
   );
+  const draftSteps = getRepairSourcingStepNumbers(true);
+  const authorizedSteps = getRepairSourcingStepNumbers(false);
+  if (JSON.stringify(draftSteps) !== JSON.stringify({ invitation: 1, response: 2, comparison: 3, selection: 4 })
+      || JSON.stringify(authorizedSteps) !== JSON.stringify({ invitation: null, response: 1, comparison: 2, selection: 3 })) {
+    throw new Error("询价与施工单位选择的步骤编号必须连续，不能在确定施工单位时重新从 1 开始");
+  }
   const selectionHtml = renderToStaticMarkup(
     React.createElement(RepairProjectSourcingOperation, {
       mode: "SELECTION",

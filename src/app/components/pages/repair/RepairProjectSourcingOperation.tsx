@@ -161,6 +161,19 @@ function SelectionAuthorizationSnapshot({
 
 type SourcingOperationMode = "PREPARATION" | "SELECTION";
 
+/**
+ * 询价与施工单位选择在页面上属于同一办理顺序；即使授权后隐藏了邀价环节，
+ * 后续步骤也必须沿用当前页面可见的连续编号，避免重新从 1 开始。
+ */
+export function getRepairSourcingStepNumbers(showReferenceCollection: boolean) {
+  return {
+    invitation: showReferenceCollection ? 1 : null,
+    response: showReferenceCollection ? 2 : 1,
+    comparison: showReferenceCollection ? 3 : 2,
+    selection: showReferenceCollection ? 4 : 3,
+  } as const;
+}
+
 export function RepairProjectSourcingOperation({
   mode,
   details,
@@ -312,6 +325,7 @@ export function RepairProjectSourcingOperation({
   );
   const canCollectReferenceQuotes = project.status === "DRAFT" && canManageReferenceQuotes && !sourcing?.selection;
   const showReferenceCollection = project.status === "DRAFT";
+  const stepNumbers = getRepairSourcingStepNumbers(showReferenceCollection);
 
   useEffect(() => {
     if (manualEntrySuppliers.some((supplier) => String(supplier.supplierDeptId) === quoteSupplierId)) return;
@@ -445,7 +459,7 @@ export function RepairProjectSourcingOperation({
           <>
         {showReferenceCollection && (
           <SourcingStep
-            step={1}
+            step={stepNumbers.invitation!}
             title="邀请施工单位报价"
             description="收集报价用于完善预算、施工内容和工期要求；此阶段不确定施工单位。"
             status={<StatusChip tone={initialInvitationCount > 0 ? "success" : "warning"}>已邀 {initialInvitationCount} 家</StatusChip>}
@@ -487,7 +501,7 @@ export function RepairProjectSourcingOperation({
         )}
 
         <SourcingStep
-          step={showReferenceCollection ? 2 : 1}
+          step={stepNumbers.response}
           title="报价响应"
           description="施工单位在线提交，或物业核对线下原件后代录，报价才会进入本次比较。"
           status={(
@@ -584,7 +598,7 @@ export function RepairProjectSourcingOperation({
         </SourcingStep>
 
         <SourcingStep
-          step={showReferenceCollection ? 3 : 2}
+          step={stepNumbers.comparison}
           title="报价对比"
           description="对比含税金额、工期、质保和报价边界，为完善实施方案和预算提供依据。"
           status={<StatusChip tone={confirmedSupplierCount > 0 ? "success" : "neutral"}>已核对 {confirmedSupplierCount} 家</StatusChip>}
@@ -619,7 +633,7 @@ export function RepairProjectSourcingOperation({
 
         {mode === "SELECTION" && (
           <SourcingStep
-          step={1}
+          step={stepNumbers.selection}
           title="确定施工单位"
           description="相关业主表决通过实施方案后，按表决通过的选择方式确定施工单位。施工合同在工程档案中另行登记。"
           status={<StatusChip tone={sourcing.selection ? "success" : selectionAuthorized ? "info" : "neutral"}>{sourcing.selection ? "已完成" : selectionAuthorized ? "可以办理" : selectionAuthorization?.status === "UNSUPPORTED_WORKFLOW" ? "不适用" : "后续办理"}</StatusChip>}
