@@ -914,6 +914,14 @@ export interface RepairVotingWorkbench {
   currentActorUserId: number;
 }
 
+/** 维修表决的汇总办理进度，不包含逐户身份、票面选择或纸票原件。 */
+export interface RepairVotingProgress {
+  eligiblePropertyCount: number;
+  onlineSubmittedPropertyCount: number;
+  completedPaperBallotCount: number;
+  activePaperAssistanceRequestCount: number;
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -993,6 +1001,10 @@ export function settleRepairProjectVoting(
 
 export function getRepairVotingWorkbench(projectId: number): Promise<RepairVotingWorkbench> {
   return apiGet(`/admin/repair-projects/${projectId}/voting/workbench`);
+}
+
+export function getRepairVotingProgress(projectId: number): Promise<RepairVotingProgress> {
+  return apiGet(`/admin/repair-projects/${projectId}/voting/progress`);
 }
 
 export function recordRepairVotingDelivery(

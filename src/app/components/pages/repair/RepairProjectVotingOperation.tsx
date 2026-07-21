@@ -11,6 +11,7 @@ import { NonResponseTallySummary } from "../../voting/NonResponseTallySummary";
 import {
   getRepairProjectVoting,
   getRepairVotingPreparationOptions,
+  getRepairVotingProgress,
   getRepairVotingWorkbench,
   openRepairProjectVoting,
   prepareRepairProjectVoting,
@@ -26,6 +27,7 @@ import {
   type RepairVotingCollectionMode,
   type RepairVotingDeliveryMethod,
   type RepairVotingPreparationOptions,
+  type RepairVotingProgress,
   type RepairVotingWorkbench,
   type VotingProxyAuthorization,
 } from "../../../lib/repair-project";
@@ -131,6 +133,8 @@ export function RepairProjectVotingOperation({
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const [workbench, setWorkbench] = useState<RepairVotingWorkbench | null>(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<RepairVotingProgress | null>(null);
+  const [progressError, setProgressError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [mode, setMode] = useState<RepairVotingCollectionMode | "">("");
@@ -206,20 +210,36 @@ export function RepairProjectVotingOperation({
       setMode(next.executionPackage.collectionMode);
       setPreparationOptions(null);
       setPreparationError(null);
-      if (next.voting.status === "VOTING" && canHandlePaper) {
+      if (next.voting.status === "VOTING") {
         try {
-          setWorkbench(await getRepairVotingWorkbench(project.projectId));
-          setWorkbenchError(null);
+          setProgress(await getRepairVotingProgress(project.projectId));
+          setProgressError(null);
         } catch {
+          setProgress(null);
+          setProgressError("表决进度暂时无法读取，请刷新后重试；已发起的表决不受影响。");
+        }
+        if (canHandlePaper) {
+          try {
+            setWorkbench(await getRepairVotingWorkbench(project.projectId));
+            setWorkbenchError(null);
+          } catch {
+            setWorkbench(null);
+            setWorkbenchError("纸质材料办理区暂时无法读取，请刷新后重试；已发起的表决不受影响。");
+          }
+        } else {
           setWorkbench(null);
-          setWorkbenchError("纸质材料办理区暂时无法读取，请刷新后重试；已发起的表决不受影响。");
+          setWorkbenchError(null);
         }
       } else {
+        setProgress(null);
+        setProgressError(null);
         setWorkbench(null);
         setWorkbenchError(null);
       }
     } catch {
       setVoting(null);
+      setProgress(null);
+      setProgressError(null);
       setWorkbench(null);
       setWorkbenchError(null);
       try {
@@ -357,23 +377,32 @@ export function RepairProjectVotingOperation({
             </div>
           )}
 
-          {voting.voting.status === "VOTING" && !workbench && (
+          {voting.voting.status === "VOTING" && progress && (
+            <>
+              <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+                <div><div className="text-xs text-muted-foreground">应表决专有部分</div><div className="mt-1 text-lg font-semibold">{progress.eligiblePropertyCount}</div></div>
+                <div><div className="text-xs text-muted-foreground">线上已提交</div><div className="mt-1 text-lg font-semibold">{progress.onlineSubmittedPropertyCount}</div></div>
+                <div><div className="text-xs text-muted-foreground">纸票已完成</div><div className="mt-1 text-lg font-semibold">{progress.completedPaperBallotCount}</div></div>
+                <div><div className="text-xs text-muted-foreground">纸质协助申请</div><div className="mt-1 text-lg font-semibold">{progress.activePaperAssistanceRequestCount}</div></div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">仅显示收票数量，不显示任何业主的表决选择。</p>
+            </>
+          )}
+
+          {voting.voting.status === "VOTING" && !progress && progressError && (
             <div className="mt-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
-              {canHandlePaper
-                ? workbenchError ?? "正在读取纸质材料办理情况"
-                : "当前身份可查看表决进度；纸质材料登记与核对由具备相应办理权限的工作人员操作。"}
+              {progressError}
+            </div>
+          )}
+
+          {voting.voting.status === "VOTING" && canHandlePaper && !workbench && workbenchError && (
+            <div className="mt-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+              {workbenchError}
             </div>
           )}
 
           {voting.voting.status === "VOTING" && workbench && (
             <>
-              <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
-                <div><div className="text-xs text-muted-foreground">应表决专有部分</div><div className="mt-1 text-lg font-semibold">{workbench.electorate.length}</div></div>
-                <div><div className="text-xs text-muted-foreground">线上已提交</div><div className="mt-1 text-lg font-semibold">{workbench.online.completedPropertyCount}</div></div>
-                <div><div className="text-xs text-muted-foreground">纸票已完成</div><div className="mt-1 text-lg font-semibold">{workbench.paper.ballots.filter((item) => item.ballot.status === "COMPLETED").length}</div></div>
-                <div><div className="text-xs text-muted-foreground">纸质协助申请</div><div className="mt-1 text-lg font-semibold">{workbench.paperAssistanceRequests.length}</div></div>
-              </div>
-
               {canHandlePaper && voting.proxyVotingPolicy === "WRITTEN_AUTHORIZATION_REQUIRED" && (
                 <RepairVotingProxyAuthorizationPanel
                   packageId={voting.executionPackage.packageId}
